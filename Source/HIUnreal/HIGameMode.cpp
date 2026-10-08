@@ -1,6 +1,7 @@
 #include "HIGameMode.h"
 
 #include "GameFramework/PlayerController.h"
+#include "HIPlayerCharacter.h"
 
 AHIGameMode::AHIGameMode()
 {
@@ -8,6 +9,13 @@ AHIGameMode::AHIGameMode()
 	// PrePhysics, and it matters: the round has to advance before anything reads it to
 	// place a body or draw a frame, or every view is one step behind the model.
 	PrimaryActorTick.TickGroup = TG_PrePhysics;
+
+	// The pawn is a view of the sim's player, so the framework spawning it is fine -- it
+	// owns nothing, and SyncFromSim puts it where the round says it is.
+	DefaultPawnClass = AHIPlayerCharacter::StaticClass();
+	// Likewise the controller: this port reads input through the game mode rather than
+	// through a PlayerController subclass, so the plain one is correct.
+	PlayerControllerClass = APlayerController::StaticClass();
 }
 
 void AHIGameMode::BeginPlay()
@@ -56,4 +64,18 @@ void AHIGameMode::Tick(float DeltaSeconds)
 
 	Round.Step(ReadInput(), DeltaSeconds);
 	LastEvents = Round.ConsumeEvents();
+
+	// Pull the view into place AFTER the step, from the same Tick. Nothing else writes an
+	// actor transform for this round, so there is no frame where a body is drawn from a
+	// half-updated model.
+	if (const UWorld* World = GetWorld())
+	{
+		if (APlayerController* PC = World->GetFirstPlayerController())
+		{
+			if (AHIPlayerCharacter* Pawn = Cast<AHIPlayerCharacter>(PC->GetPawn()))
+			{
+				Pawn->SyncFromSim(Round.Player);
+			}
+		}
+	}
 }
