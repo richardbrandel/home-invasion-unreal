@@ -1438,4 +1438,143 @@ bool FHISimLosInvariant::RunTest(const FString& Parameters)
 	return true;
 }
 
+// ------------------------------------------------------------------- the round
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHISimRound,
+	"HI.Sim.Round",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FHISimRound::RunTest(const FString& Parameters)
+{
+	// The round model ported out of game.gd, which could never be tested because it is a
+	// SceneTree node with rendering attached. These assertions are the ones the Godot
+	// project has no equivalent of: its own suite stops at the sim.
+	const float Dt = 1.0f / 60.0f;
+
+	// ---- a round starts ready
+	{
+		FHISim::FHIRound R = FHISim::FHIRound::Start(3);
+		TestTrue(FString::Printf(TEXT("a round starts in play with three intruders (%d built, %d loot)"),
+			R.Intruders.Num(), R.Remaining()),
+			R.State == FHISim::EHIRoundState::Play && R.Intruders.Num() == 3 && R.Remaining() == 3);
+		TestTrue(TEXT("and nobody has been put down yet"), R.ThievesDown == 0);
+	}
+
+	// ---- the homeowner carries momentum rather than snapping to pace
+	{
+		FHISim::FHIRound M = FHISim::FHIRound::Start(1);
+		M.Player.Yaw = 0.0f;                       // yaw 0 faces +Z
+		FHISim::FHIInput In;
+		In.Axis = FVector2D(0.0f, 1.0f);           // walk forward
+		const FVector2D StartPos = M.Player.Pos;
+		M.Step(In, Dt);
+		const float FirstFrame = FVector2D::Distance(M.Player.Pos, StartPos);
+		TestTrue(FString::Printf(TEXT("he does not cross the room on the first frame (%.4f m)"), FirstFrame),
+			FirstFrame > 0.0f && FirstFrame < FHISim::PlayerSpeed * Dt * 0.5f);
+
+		for (int32 Frame = 0; Frame < 60; ++Frame)
+		{
+			M.Step(In, Dt);
+		}
+		TestTrue(FString::Printf(TEXT("but he is at full pace a second later (%.2f m/s, want %.2f)"),
+			M.Player.Vel.Size(), FHISim::PlayerSpeed),
+			FMath::IsNearlyEqual(M.Player.Vel.Size(), FHISim::PlayerSpeed, 0.05f));
+	}
+
+	// ---- firing spends a round, and EVERY intruder hears it
+	{
+		FHISim::FHIRound F = FHISim::FHIRound::Start(3);
+		// Known distances, so the loudness scaling is observable rather than assumed.
+		F.Intruders[0].Pos = F.Player.Pos + FVector2D(0.0f, 2.0f);     // close
+		F.Intruders[1].Pos = F.Player.Pos + FVector2D(0.0f, 14.0f);    // across the house
+		F.Intruders[2].Pos = F.Player.Pos + FVector2D(0.0f, 30.0f);    // barely
+		F.Player.Cd = 0.0f;
+		const int32 MagBefore = F.Player.Mag;
+
+		FHISim::FHIInput In;
+		In.bFire = true;
+		F.Step(In, Dt);
+
+		TestEqual(TEXT("firing spends exactly one round"), F.Player.Mag, MagBefore - 1);
+		TestTrue(FString::Printf(TEXT("and the weapon cooldown starts (%.2f s)"), F.Player.Cd),
+			F.Player.Cd > 0.0f);
+		TestTrue(FString::Printf(TEXT("and every intruder hears it, not just the one you aimed at (fear %.3f / %.3f / %.3f)"),
+			F.Intruders[0].Fear, F.Intruders[1].Fear, F.Intruders[2].Fear),
+			F.Intruders[0].Fear > 0.0f && F.Intruders[1].Fear > 0.0f && F.Intruders[2].Fear > 0.0f);
+		TestTrue(FString::Printf(TEXT("and the close man hears it louder than the distant one (%.3f vs %.3f)"),
+			F.Intruders[0].Fear, F.Intruders[1].Fear),
+			F.Intruders[0].Fear > F.Intruders[1].Fear);
+		TestTrue(TEXT("and the first shot starts the police clock"), F.Intruders[0].Alarm >= 0.0f);
+	}
+
+	// ---- the round is NOT won until the LAST intruder is down
+	{
+		FHISim::FHIRound W = FHISim::FHIRound::Start(3);
+		W.DamageIntruder(W.Intruders[0].Id, 1000.0f);
+		TestTrue(FString::Printf(TEXT("the first man down does not win the round (%d down, %d still standing)"),
+			W.ThievesDown, W.AnyIntruderStanding() ? 1 : 0),
+			W.State == FHISim::EHIRoundState::Play && W.ThievesDown == 1);
+		W.DamageIntruder(W.Intruders[1].Id, 1000.0f);
+		TestTrue(TEXT("nor does the second"), W.State == FHISim::EHIRoundState::Play);
+		W.DamageIntruder(W.Intruders[2].Id, 1000.0f);
+		TestTrue(FString::Printf(TEXT("but the last one does (%d down)"), W.ThievesDown),
+			W.State == FHISim::EHIRoundState::Won && W.ThievesDown == 3);
+	}
+
+	// ---- a downed intruder drops what he was carrying, where he fell
+	{
+		FHISim::FHIRound D = FHISim::FHIRound::Start(1);
+		D.Intruders[0].Carry = TEXT("TV");
+		D.Intruders[0].Pos = FVector2D(3.0f, -12.0f);
+		D.Loot[0].bTaken = true;
+		D.DamageIntruder(D.Intruders[0].Id, 1000.0f);
+		TestTrue(FString::Printf(TEXT("his loot falls where he does (taken=%d at (%.1f, %.1f))"),
+			D.Loot[0].bTaken ? 1 : 0, D.Loot[0].Pos.X, D.Loot[0].Pos.Y),
+			!D.Loot[0].bTaken && D.Loot[0].Pos.Equals(D.Intruders[0].Pos, 0.001f));
+	}
+
+	// ---- and the player dying loses the round
+	{
+		FHISim::FHIRound L = FHISim::FHIRound::Start(1);
+		TArray<FHISim::FHIEvent> Drains;
+		FHISim::DamagePlayer(L.Player, 1000.0f, Drains);
+		L.Events.Append(Drains);
+		FHISim::FHIInput In;
+		L.Step(In, Dt);
+		TestTrue(TEXT("the homeowner going down loses the round"),
+			L.State == FHISim::EHIRoundState::Lost);
+	}
+
+	// ---- a finished round stops ticking
+	{
+		FHISim::FHIRound Z = FHISim::FHIRound::Start(1);
+		Z.DamageIntruder(Z.Intruders[0].Id, 1000.0f);
+		const FVector2D Frozen = Z.Player.Pos;
+		FHISim::FHIInput In;
+		In.Axis = FVector2D(0.0f, 1.0f);
+		for (int32 Frame = 0; Frame < 30; ++Frame)
+		{
+			Z.Step(In, Dt);
+		}
+		TestTrue(TEXT("a won round is inert, so the homeowner does not keep walking through it"),
+			Z.Player.Pos.Equals(Frozen, 0.0001f));
+	}
+
+	// ---- ConsumeEvents hands the frame's events over exactly once
+	{
+		FHISim::FHIRound C = FHISim::FHIRound::Start(3);
+		C.Player.Cd = 0.0f;
+		FHISim::FHIInput In;
+		In.bFire = true;
+		C.Step(In, Dt);
+		const TArray<FHISim::FHIEvent> First = C.ConsumeEvents();
+		const TArray<FHISim::FHIEvent> Second = C.ConsumeEvents();
+		TestTrue(FString::Printf(TEXT("ConsumeEvents hands the frame over once and then empties (%d then %d)"),
+			First.Num(), Second.Num()),
+			Second.Num() == 0);
+	}
+
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS

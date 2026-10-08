@@ -295,6 +295,86 @@ struct HISIM_API FHISim
 	static TArray<int32> StepIntruders(TArray<FHIThief>& Intruders, FHIPlayer& Player,
 		TArray<FHILootItem>& Loot, TArray<FHIEvent>& Events, float Dt);
 
+	// -------------------------------------------------------------------- the round
+	/** A man changing a magazine is not walking at full pace. game.gd RELOAD_PACE. */
+	static constexpr float ReloadPace = 0.62f;
+
+	/** Godot's Vector2.move_toward: step `Current` toward `Target` by at most MaxDelta. */
+	static FVector2D MoveToward(const FVector2D& Current, const FVector2D& Target, float MaxDelta);
+
+	/** One frame of player intent, in the sim's XZ convention. */
+	struct FHIInput
+	{
+		/** Strafe (X) and forward (Y), each -1..1. +Y is forward. */
+		FVector2D Axis = FVector2D::ZeroVector;
+		bool bCrouch = false;
+		bool bSprint = false;
+		/** Trigger held. The weapon's cooldown and the magazine still gate the shot. */
+		bool bFire = false;
+	};
+
+	enum class EHIRoundState : uint8
+	{
+		Play,
+		Won,
+		Lost,
+	};
+
+	/**
+	 * The round: the homeowner, the intruders, the loot, and the rules that end it.
+	 *
+	 * Ported from game.gd, which could never be tested because it is a SceneTree node with
+	 * rendering attached to it. Everything here is logic, so it can be -- and it is the
+	 * layer the Unreal actors will mirror rather than own.
+	 *
+	 * DELIBERATELY NOT HERE: hit resolution. Casting pellets at a body needs Unreal's
+	 * collision, so the actor layer does the trace and calls DamageThief with the result.
+	 * Everything the trace cannot decide -- ammunition, cooldown, recoil bookkeeping, and
+	 * who heard the shot -- is here, where it can be asserted.
+	 */
+	struct FHIRound
+	{
+		FHIPlayer Player;
+		TArray<FHIThief> Intruders;
+		TArray<FHILootItem> Loot;
+		/**
+		 * Events raised since the last ConsumeEvents(). Step does NOT clear it, so damage
+		 * applied from outside -- which is how the actor layer resolves a hit, because a
+		 * pellet trace needs Unreal's collision -- is seen by the round rules rather than
+		 * discarded. Call ConsumeEvents() every frame or it grows without bound.
+		 */
+		TArray<FHIEvent> Events;
+		EHIRoundState State = EHIRoundState::Play;
+		int32 ThievesDown = 0;
+
+		static FHIRound Start(int32 IntruderCount);
+
+		/** Move the homeowner, step every intruder, then apply the round rules. */
+		void Step(const FHIInput& Input, float Dt);
+
+		/**
+		 * The actor layer's hit resolution routes here. Applies the damage AND its lethal
+		 * consequences immediately -- the loot he was carrying drops where he fell, he is
+		 * counted, and the round is won if he was the last one standing -- so nothing
+		 * depends on a thiefDown event surviving to the next frame.
+		 *
+		 * @returns true when the damage was lethal.
+		 */
+		bool DamageIntruder(int32 Id, float Damage);
+
+		/** Hand back this frame's events and start a fresh list. Call once per frame. */
+		TArray<FHIEvent> ConsumeEvents();
+
+		bool AnyIntruderStanding() const;
+		FHIThief* FindIntruder(int32 Id);
+		int32 Remaining() const { return FHISim::Remaining(Loot); }
+
+	private:
+		/** Spend a round, start the cooldown, and tell every intruder he heard it. */
+		void FireWeapon();
+		void ApplyRoundRules();
+	};
+
 	/**
 	 * Load the current weapon's magazine out of the reserve. True if anything moved.
 	 *

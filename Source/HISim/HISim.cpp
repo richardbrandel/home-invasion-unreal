@@ -381,6 +381,231 @@ TArray<int32> FHISim::StepIntruders(TArray<FHIThief>& Intruders, FHIPlayer& Play
 	return Seen;
 }
 
+FVector2D FHISim::MoveToward(const FVector2D& Current, const FVector2D& Target, float MaxDelta)
+{
+	// Godot's Vector2.move_toward. A vector overload rather than a componentwise one,
+	// because the "close enough, snap to target" case differs: moving each axis
+	// independently would slide along one while stalling on the other, and a body arriving
+	// at a wall at 45 degrees would creep into it instead of stopping.
+	const FVector2D Delta = Target - Current;
+	const float Len = Delta.Size();
+	if (Len <= MaxDelta || Len == 0.0f)
+	{
+		return Target;
+	}
+	return Current + Delta / Len * MaxDelta;
+}
+
+FHISim::FHIRound FHISim::FHIRound::Start(int32 IntruderCount)
+{
+	FHIRound R;
+	R.Player = CreatePlayer();
+	R.Intruders = CreateIntruders(IntruderCount);
+	R.Loot = CreateLoot();
+	R.State = EHIRoundState::Play;
+	R.ThievesDown = 0;
+	return R;
+}
+
+bool FHISim::FHIRound::AnyIntruderStanding() const
+{
+	for (const FHIThief& T : Intruders)
+	{
+		if (T.bAlive)
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+FHISim::FHIThief* FHISim::FHIRound::FindIntruder(int32 Id)
+{
+	for (FHIThief& T : Intruders)
+	{
+		if (T.Id == Id)
+		{
+			return &T;
+		}
+	}
+	return nullptr;
+}
+
+void FHISim::FHIRound::FireWeapon()
+{
+	const FHIWeapon Spec = Weapon(Player.Weapon);
+	Player.Mag -= 1;
+	Player.Cd = Spec.Cd;
+
+	// THEY hear it -- all of them, each scaled by his own distance. Alerting only the
+	// primary left the other two calmly working the house while a shotgun went off two
+	// rooms away. A shotgun at room range is not the same event as a pistol across the
+	// house, and this is what gives the firearm a deterrent value beyond its damage.
+	const bool bShotgun = Player.Weapon == TEXT("shotgun");
+	for (FHIThief& T : Intruders)
+	{
+		if (!T.bAlive)
+		{
+			continue;
+		}
+		float Heard = FMath::Clamp(
+			1.6f - FVector2D::Distance(Player.Pos, T.Pos) / 18.0f, 0.15f, 1.6f);
+		if (bShotgun)
+		{
+			Heard *= 1.5f;
+		}
+		AlertThief(T, Player.Pos, Heard);
+	}
+}
+
+void FHISim::FHIRound::ApplyRoundRules()
+{
+	// Only the ways to LOSE are scanned here, and all three are idempotent, so re-reading
+	// an event the caller has not drained yet cannot double-count anything. The fourth
+	// outcome, thiefDown, is handled where the damage is applied (DamageIntruder), because
+	// a hit is resolved by the actor layer rather than inside Step.
+	for (const FHIEvent& Ev : Events)
+	{
+		if (Ev.Type == TEXT("allStolen") || Ev.Type == TEXT("escaped")
+			|| Ev.Type == TEXT("playerDown"))
+		{
+			// Three different ways to lose, and the text has to say which one happened,
+			// but the round state is the same for all of them.
+			State = EHIRoundState::Lost;
+		}
+	}
+}
+
+bool FHISim::FHIRound::DamageIntruder(int32 Id, float Damage)
+{
+	FHIThief* Who = FindIntruder(Id);
+	if (Who == nullptr)
+	{
+		return false;
+	}
+	const bool bKilled = DamageThief(*Who, Damage, Events);
+	if (!bKilled)
+	{
+		return false;
+	}
+
+	// Whatever he was carrying falls where he does rather than vanishing with him, so the
+	// valuables are still findable after the round is won.
+	if (!Who->Carry.IsEmpty())
+	{
+		for (FHILootItem& L : Loot)
+		{
+			if (L.Label == Who->Carry)
+			{
+				L.bTaken = false;
+				L.bDelivered = false;
+				L.Pos = Who->Pos;
+			}
+		}
+		Who->Carry.Empty();
+	}
+	++ThievesDown;
+	// NOT over while any of them is still up. His death ending the round was right for one
+	// intruder and is wrong for three: shooting the first man through the door would hand
+	// you a win with two still inside the house.
+	if (!AnyIntruderStanding())
+	{
+		State = EHIRoundState::Won;
+	}
+	return true;
+}
+
+TArray<FHISim::FHIEvent> FHISim::FHIRound::ConsumeEvents()
+{
+	TArray<FHIEvent> Out = MoveTemp(Events);
+	Events.Reset();
+	return Out;
+}
+
+void FHISim::FHIRound::Step(const FHIInput& Input, float Dt)
+{
+	if (State != EHIRoundState::Play)
+	{
+		// A finished round is inert. Ticking it would let bodies keep robbing a house whose
+		// outcome has already been decided.
+		return;
+	}
+
+	// ---- the homeowner
+	float Speed = PlayerSpeed;
+	if (Input.bCrouch)
+	{
+		Speed = PlayerCrouchSpeed;
+	}
+	else if (Input.bSprint)
+	{
+		Speed = PlayerSprintSpeed;
+	}
+	if (Player.Reloading > 0.0f)
+	{
+		Speed *= ReloadPace;
+	}
+
+	FVector2D Wish = FVector2D::ZeroVector;
+	if (Input.Axis.Size() > 0.0f)
+	{
+		// Camera-relative: forward is the yaw direction in XZ, and camera-RIGHT is computed
+		// rather than guessed. At yaw 0 he looks toward +Z, so his right is -X; the mirrored
+		// (cos, -sin) is exactly what made A strafe right and D left.
+		const FVector2D Fwd(FMath::Sin(Player.Yaw), FMath::Cos(Player.Yaw));
+		const FVector2D Right(-FMath::Cos(Player.Yaw), FMath::Sin(Player.Yaw));
+		Wish = (Fwd * -Input.Axis.Y + Right * Input.Axis.X).GetSafeNormal() * Speed;
+	}
+
+	// He carries momentum between frames instead of being assigned a velocity. This is the
+	// whole reason he stopped reading as a sliding prop: previously he was at full speed on
+	// the first frame of a keypress and stationary on the frame after release.
+	FVector2D V = MoveToward(Player.Vel, Wish,
+		(Wish != FVector2D::ZeroVector ? PlayerAccel : PlayerDecel) * Dt);
+	if (V.Size() > 0.02f)
+	{
+		FVector2D P = Player.Pos + V * Dt;
+		P = ResolveCircle(P, PlayerRadius);
+		P = ClampToWorld(P, PlayerRadius);
+		// A wall has to STOP him, not let momentum pile up against it.
+		const FVector2D Moved = P - Player.Pos;
+		if (Moved.Size() < V.Size() * Dt * 0.5f)
+		{
+			V = Moved / FMath::Max(Dt, 1e-4f);
+		}
+		Player.Pos = P;
+	}
+	else
+	{
+		V = FVector2D::ZeroVector;
+	}
+	Player.Vel = V;
+
+	if (Player.Reloading > 0.0f)
+	{
+		Player.Reloading -= Dt;
+		if (Player.Reloading <= 0.0f)
+		{
+			// Out of the reserve, not out of thin air.
+			LoadMagazine(Player);
+		}
+	}
+	Player.Cd -= Dt;
+	Player.ShoveCd = FMath::Max(0.0f, Player.ShoveCd - Dt);
+	Player.Stagger = FMath::Max(0.0f, Player.Stagger - Dt);
+
+	// A man with his hands on you is a man you cannot aim through.
+	if (Input.bFire && Player.Cd <= 0.0f && Player.Reloading <= 0.0f
+		&& Player.Mag > 0 && Player.Stagger <= 0.0f)
+	{
+		FireWeapon();
+	}
+
+	// ---- every intruder, then the round rules
+	StepIntruders(Intruders, Player, Loot, Events, Dt);
+	ApplyRoundRules();
+}
+
 TArray<FHISim::FHILootItem> FHISim::CreateLoot()
 {
 	TArray<FHILootItem> Out;
