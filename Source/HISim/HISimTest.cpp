@@ -1048,4 +1048,306 @@ bool FHISimPoliceClock::RunTest(const FString& Parameters)
 	return true;
 }
 
+// ------------------------------------------- heist against a MOVING homeowner
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHISimMovingHeist,
+	"HI.Sim.MovingHeist",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FHISimMovingHeist::RunTest(const FString& Parameters)
+{
+	// spec: test_sim.gd banner "heist against a MOVING homeowner".
+	//
+	// The homeowner only counts as a threat if the intruder still finishes while being
+	// actively interfered with: chased, standing in the doorway, and standing on each of
+	// the two waypoints the route depends on.
+	const float Dt = 1.0f / 60.0f;
+	const TCHAR* CaseNames[4] = {
+		TEXT("chases the intruder"),
+		TEXT("blocks the front doorway"),
+		TEXT("stands on the front-hub waypoint"),
+		TEXT("stands on the living-room waypoint"),
+	};
+
+	for (int32 Mode = 1; Mode <= 4; ++Mode)
+	{
+		FHISim::FHIPlayer Player = FHISim::CreatePlayer();
+		FHISim::FHIThief Thief = FHISim::CreateThief();
+		TArray<FHISim::FHILootItem> Loot = FHISim::CreateLoot();
+		TArray<FHISim::FHIEvent> Events;
+
+		float T = 0.0f;
+		int32 Reroutes = 0;
+		while (T < 180.0f && FHISim::Remaining(Loot) > 0)
+		{
+			switch (Mode)
+			{
+			case 1:
+			{
+				const FVector2D Chase = Thief.Pos - Player.Pos;
+				if (Chase.Size() > 0.01f)
+				{
+					const FVector2D Wish = Player.Pos + Chase.GetSafeNormal() * FHISim::PlayerSpeed * Dt;
+					Player.Pos = FHISim::ClampToWorld(
+						FHISim::ResolveCircle(Wish, FHISim::PlayerRadius), FHISim::PlayerRadius);
+				}
+				break;
+			}
+			case 2: Player.Pos = FVector2D(0.0f, -8.6f); break;
+			case 3: Player.Pos = FVector2D(0.0f, -11.2f); break;
+			case 4: Player.Pos = FVector2D(-3.6f, -11.2f); break;
+			default: break;
+			}
+
+			FHISim::StepThief(Thief, Player, Loot, Events, Dt);
+			for (const FHISim::FHIEvent& Ev : Events)
+			{
+				if (Ev.Type == TEXT("reroute"))
+				{
+					++Reroutes;
+				}
+			}
+			Events.Reset();
+			T += Dt;
+		}
+
+		const int32 Left = FHISim::Remaining(Loot);
+		TestTrue(FString::Printf(TEXT("the heist completes even when the homeowner %s (delivered %d/3 in %.0fs with %d re-routes)"),
+			CaseNames[Mode - 1], 3 - Left, T, Reroutes), Left == 0);
+	}
+	return true;
+}
+
+// ------------------------------------------------------- multiple intruders
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHISimMultipleIntruders,
+	"HI.Sim.MultipleIntruders",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FHISimMultipleIntruders::RunTest(const FString& Parameters)
+{
+	// spec: test_sim.gd banner "multiple intruders". Everything here targets the pairwise
+	// separation, which is the code path only a crowd of bodies reaches -- and the one
+	// place a crowd can do something the single-intruder version never had to survive.
+	const float Dt = 1.0f / 60.0f;
+	const float MinGap = FHISim::PlayerRadius + FHISim::ThiefRadius;
+	TArray<FHISim::FHIEvent> Events;
+
+	// ---- built, distinct, and not on top of one another
+	TArray<FHISim::FHIThief> Crew = FHISim::CreateIntruders(3);
+	TestTrue(FString::Printf(TEXT("three bodies are built with distinct ids (%d/%d/%d)"),
+		Crew[0].Id, Crew[1].Id, Crew[2].Id),
+		Crew.Num() == 3 && Crew[0].Id == 0 && Crew[1].Id == 1 && Crew[2].Id == 2);
+
+	bool bSpawnOk = true;
+	for (int32 I = 0; I < Crew.Num(); ++I)
+	{
+		for (int32 J = I + 1; J < Crew.Num(); ++J)
+		{
+			if (FVector2D::Distance(Crew[I].Pos, Crew[J].Pos) < FHISim::ThiefRadius * 2.0f - 1e-3f)
+			{
+				bSpawnOk = false;
+			}
+		}
+	}
+	TestTrue(TEXT("they spawn clear of one another"), bSpawnOk);
+
+	// ---- separation is a contract, not a best effort
+	FHISim::FHIPlayer Player = FHISim::CreatePlayer();
+	TArray<FHISim::FHILootItem> Loot = FHISim::CreateLoot();
+	Crew = FHISim::CreateIntruders(3);
+	float WorstGap = TNumericLimits<float>::Max();
+	int32 OutOfBounds = 0;
+	const int32 ContactFrames = 900;
+	for (int32 Step = 0; Step < ContactFrames; ++Step)
+	{
+		// Deliberately walk the player into the cluster, so contact is forced.
+		const float Ang = static_cast<float>(Step) * 0.11f;
+		Player.Pos = FVector2D(FMath::Cos(Ang) * 1.2f, -11.0f + FMath::Sin(Ang) * 1.2f);
+		Events.Reset();
+		FHISim::StepIntruders(Crew, Player, Loot, Events, Dt);
+		for (int32 I = 0; I < Crew.Num(); ++I)
+		{
+			for (int32 J = I + 1; J < Crew.Num(); ++J)
+			{
+				WorstGap = FMath::Min(WorstGap, FVector2D::Distance(Crew[I].Pos, Crew[J].Pos));
+			}
+			WorstGap = FMath::Min(WorstGap, FVector2D::Distance(Crew[I].Pos, Player.Pos));
+			const FVector2D C = Crew[I].Pos;
+			if (C.X < FHISim::Bounds.Min.X - 0.01f || C.X > FHISim::Bounds.Max.X + 0.01f
+				|| C.Y < FHISim::Bounds.Min.Y - 0.01f || C.Y > FHISim::Bounds.Max.Y + 0.01f)
+			{
+				++OutOfBounds;
+			}
+		}
+	}
+	TestTrue(FString::Printf(TEXT("no two bodies ever overlap, over %d frames of forced contact (closest approach %.4f m, want >= %.2f m)"),
+		ContactFrames, WorstGap, MinGap), WorstGap >= MinGap - 0.02f);
+	TestTrue(FString::Printf(TEXT("nobody is pushed outside the world bounds (%d bodies out of bounds)"), OutOfBounds),
+		OutOfBounds == 0);
+
+	// ---- the homeowner is still the body that yields. If the intruder yielded instead, a
+	// defender standing still would wall the crew in -- a bug that already came back from
+	// play once.
+	TArray<FHISim::FHIThief> Solo = FHISim::CreateIntruders(1);
+	FHISim::FHIPlayer SoloPlayer = FHISim::CreatePlayer();
+	TArray<FHISim::FHILootItem> SoloLoot = FHISim::CreateLoot();
+	// INSIDE the collision distance, or there is nothing to resolve and the test passes
+	// for the wrong reason: 0.84 m is the sum of the two radii.
+	SoloPlayer.Pos = FVector2D(0.0f, FHISim::Drop.Y + 0.5f);
+	Solo[0].Pos = FVector2D(0.0f, FHISim::Drop.Y + 0.8f);
+	const FVector2D PlayerBefore = SoloPlayer.Pos;
+	Events.Reset();
+	FHISim::StepIntruders(Solo, SoloPlayer, SoloLoot, Events, Dt);
+	TestTrue(FString::Printf(TEXT("a body against the homeowner still yields on the HOMEOWNER (player now (%.2f, %.2f))"),
+		SoloPlayer.Pos.X, SoloPlayer.Pos.Y),
+		!SoloPlayer.Pos.Equals(PlayerBefore, 1e-4f));
+
+	// ---- attribution: every per-body event says which body emitted it
+	Crew = FHISim::CreateIntruders(3);
+	FHISim::FHIPlayer AttrPlayer = FHISim::CreatePlayer();
+	TArray<FHISim::FHILootItem> AttrLoot = FHISim::CreateLoot();
+	for (FHISim::FHIThief& T : Crew)
+	{
+		T.Hp = 1.0f;
+	}
+	AttrPlayer.Pos = FVector2D(0.0f, 4.0f);
+	for (int32 Idx = 0; Idx < Crew.Num(); ++Idx)
+	{
+		Crew[Idx].Pos = FVector2D(-1.5f + static_cast<float>(Idx) * 1.5f, 5.5f);
+	}
+	bool bIdOk = true;
+	FString Stray;
+	TSet<int32> Ids;
+	int32 CrewShots = 0;
+	for (int32 Step = 0; Step < 600; ++Step)
+	{
+		Events.Reset();
+		FHISim::StepIntruders(Crew, AttrPlayer, AttrLoot, Events, Dt);
+		for (const FHISim::FHIEvent& Ev : Events)
+		{
+			if (Ev.Type == TEXT("thiefShot"))
+			{
+				++CrewShots;
+			}
+			if (Ev.Id != INDEX_NONE)
+			{
+				Ids.Add(Ev.Id);
+			}
+			else if (Ev.Type != TEXT("sirens") && Ev.Type != TEXT("allStolen"))
+			{
+				bIdOk = false;
+				Stray = Ev.Type;
+			}
+		}
+	}
+	TestTrue(FString::Printf(TEXT("every per-body event carries the id of the body that emitted it (unattributed: %s)"),
+		Stray.IsEmpty() ? TEXT("none") : *Stray), bIdOk);
+	TestTrue(FString::Printf(TEXT("and the tagged events came from more than one body (%d ids seen)"), Ids.Num()),
+		Ids.Num() >= 2);
+	TestTrue(FString::Printf(TEXT("shots are among the attributable events (%d shots over 600 frames)"), CrewShots),
+		CrewShots > 0);
+
+	// ---- the separation push must not be banked as travel. Overlapping bodies are pushed
+	// apart, and afterwards `prev` must have moved WITH the frame start, so the stuck
+	// detector's `pos - prev` reads zero for a pair that wanted to stay still.
+	TArray<FHISim::FHIThief> Quiet = FHISim::CreateIntruders(2);
+	Quiet[0].Pos = FVector2D(0.0f, 5.0f);
+	Quiet[1].Pos = FVector2D(0.05f, 5.0f);
+	const FVector2D Q0Before = Quiet[0].Pos;
+	const FVector2D Q1Before = Quiet[1].Pos;
+	FHISim::FHIPlayer QuietPlayer = FHISim::CreatePlayer();
+	TArray<FHISim::FHILootItem> QuietLoot = FHISim::CreateLoot();
+	Events.Reset();
+	// dt 0, exactly as the spec does: the push must resolve without any simulated time.
+	FHISim::StepIntruders(Quiet, QuietPlayer, QuietLoot, Events, 0.0f);
+	const float Drift0 = FVector2D::Distance(Quiet[0].Prev, Q0Before);
+	const float Drift1 = FVector2D::Distance(Quiet[1].Prev, Q1Before);
+	const bool bApart = FVector2D::Distance(Quiet[0].Pos, Quiet[1].Pos) >= MinGap - 0.02f;
+	TestTrue(FString::Printf(TEXT("the push is not banked as travel (apart=%d prev_drift=%.4f/%.4f)"),
+		bApart ? 1 : 0, Drift0, Drift1),
+		bApart && Drift0 <= 1e-6f && Drift1 <= 1e-6f);
+
+	return true;
+}
+
+// -------------------------------------------------------------- solid bodies
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHISimSolidBodies,
+	"HI.Sim.SolidBodies",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FHISimSolidBodies::RunTest(const FString& Parameters)
+{
+	// spec: the tail of test_sim.gd's "solid bodies" banner. Its unit-level assertions live
+	// in HI.Sim.Separation; these three are integration checks that need StepThief, and
+	// they are the ones that catch a body walking through another.
+	//
+	// The banner's own comment explains why both directions are tested: every earlier check
+	// held the homeowner still, and a stationary player is the ONE case that always worked.
+	const float Dt = 1.0f / 60.0f;
+	const float BodyGap = FHISim::PlayerRadius + FHISim::ThiefRadius;
+	TArray<FHISim::FHIEvent> Events;
+
+	// ---- he never walks through a stationary homeowner across a whole heist
+	{
+		FHISim::FHIPlayer Player = FHISim::CreatePlayer();
+		FHISim::FHIThief Thief = FHISim::CreateThief();
+		TArray<FHISim::FHILootItem> Loot = FHISim::CreateLoot();
+		float Closest = TNumericLimits<float>::Max();
+		for (int32 Frame = 0; Frame < 60 * 180; ++Frame)
+		{
+			FHISim::StepThief(Thief, Player, Loot, Events, Dt);
+			Events.Reset();
+			Closest = FMath::Min(Closest, FVector2D::Distance(Thief.Pos, Player.Pos));
+			if (FHISim::Remaining(Loot) == 0 || !Thief.bAlive)
+			{
+				break;
+			}
+		}
+		TestTrue(FString::Printf(TEXT("the thief never walks through the homeowner across a whole heist (closest approach %.3f m, want >= %.3f m)"),
+			Closest, BodyGap), Closest >= BodyGap - 1e-3f);
+	}
+
+	// ---- and the OTHER direction, which is the one a player actually notices: the
+	// HOMEOWNER driving into the intruder. game.gd moves the player from input and only
+	// then calls step_thief, so separation has to survive an active player.
+	{
+		FHISim::FHIPlayer Player = FHISim::CreatePlayer();
+		FHISim::FHIThief Thief = FHISim::CreateThief();
+		TArray<FHISim::FHILootItem> Loot = FHISim::CreateLoot();
+		// Nothing left to steal, so he holds position instead of setting off after loot.
+		for (FHISim::FHILootItem& L : Loot)
+		{
+			L.bTaken = true;
+		}
+		Thief.Pos = FVector2D(0.0f, 0.0f);
+		Thief.Prev = FVector2D(0.0f, 0.0f);
+		Thief.Route.Empty();
+		Thief.Target.Empty();
+		Player.Pos = FVector2D(0.0f, -4.0f);
+
+		float Worst = TNumericLimits<float>::Max();
+		float PushedZ = 0.0f;
+		for (int32 Frame = 0; Frame < 60 * 6; ++Frame)
+		{
+			// Exactly what game.gd does: move from input, THEN hand over to step_thief.
+			FVector2D P = Player.Pos + FVector2D(0.0f, 1.0f) * FHISim::PlayerSpeed * Dt;
+			P = FHISim::ResolveCircle(P, FHISim::PlayerRadius);
+			P = FHISim::ClampToWorld(P, FHISim::PlayerRadius);
+			Player.Pos = P;
+			FHISim::StepThief(Thief, Player, Loot, Events, Dt);
+			Events.Reset();
+			Worst = FMath::Min(Worst, FVector2D::Distance(Thief.Pos, Player.Pos));
+			PushedZ = FMath::Max(PushedZ, Thief.Pos.Y);
+		}
+		TestTrue(FString::Printf(TEXT("the homeowner cannot walk into the intruder (closest %.3f m, want >= %.3f m)"),
+			Worst, BodyGap), Worst >= BodyGap - 1e-3f);
+		TestTrue(FString::Printf(TEXT("the intruder holds his ground rather than being driven off it (he drifted to z=%.2f)"),
+			PushedZ), PushedZ < 0.05f);
+	}
+
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS

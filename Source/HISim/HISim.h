@@ -267,6 +267,34 @@ struct HISIM_API FHISim
 	/** Delivered is what empties the round, so this counts what is NOT delivered. */
 	static int32 Remaining(const TArray<FHILootItem>& Loot);
 
+	// ------------------------------------------------------------- multiple bodies
+	/**
+	 * `Count` intruders (at least one), each with its own id, fanned out along the
+	 * driveway so they do not all start inside one another.
+	 *
+	 * create_thief() puts a single body exactly on the DROP point, which was fine when
+	 * there could only ever be one; two bodies at the same coordinate are the one case
+	 * separate_all() has no direction to resolve.
+	 */
+	static TArray<FHIThief> CreateIntruders(int32 Count);
+
+	/**
+	 * Step every intruder for one frame, then resolve ALL the bodies against each other.
+	 *
+	 * The per-body separation inside StepThief is deliberately skipped here (bSeparate
+	 * false): it knows about the homeowner and one intruder only, so running it three
+	 * times would let each thief shove the player in turn. The pairwise pass at the end is
+	 * the general version.
+	 *
+	 * Stamps the emitting body's id onto every per-body event, because with three of them
+	 * an unattributable tracer or gunshot is not a playable game -- and the producer is the
+	 * only place the identity is known.
+	 *
+	 * @returns the indices of the intruders that currently have line of sight to the player.
+	 */
+	static TArray<int32> StepIntruders(TArray<FHIThief>& Intruders, FHIPlayer& Player,
+		TArray<FHILootItem>& Loot, TArray<FHIEvent>& Events, float Dt);
+
 	/**
 	 * Load the current weapon's magazine out of the reserve. True if anything moved.
 	 *

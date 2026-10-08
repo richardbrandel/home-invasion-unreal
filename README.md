@@ -104,17 +104,19 @@ modes are misleading rather than obvious. Accumulated, measured, in
 
 ## Status
 
-`HI.Sim` passes **15/15** on ubuntu-dev:
+`HI.Sim` passes **18/18** on ubuntu-dev, covering every banner in the Godot spec:
 
 | Test | Covers |
 |---|---|
 | `HI.Sim.WorldData` | the wall/nav/loot constants against `sim.gd` |
 | `HI.Sim.Geometry` | `seg_rect`, `rayCast`, `canSee`, thief FOV, `visibilityPolygon` |
 | `HI.Sim.Separation` | N-body separation, the no-overlap contract, steer-around |
+| `HI.Sim.SolidBodies` | neither body can walk through the other, both directions |
 | `HI.Sim.Navigation` | routes, nearest-node snapping, degenerate routes |
 | `HI.Sim.Entities` | the player/thief model and the ammunition rules |
 | `HI.Sim.Momentum` | acceleration builds speed; coasting decays it |
 | `HI.Sim.ThiefAI` | a full heist against an idle homeowner, and re-route thrash |
+| `HI.Sim.MovingHeist` | the heist still completes against a chasing/blocking homeowner |
 | `HI.Sim.Shove` | the homeowner's shove: range, arc, cooldown, knocking loot loose |
 | `HI.Sim.Hands` | the intruder's grab, and that he cannot grab while laden |
 | `HI.Sim.Hit` | a wound staggers him and costs his sight picture; lethal damage |
@@ -123,12 +125,18 @@ modes are misleading rather than obvious. Accumulated, measured, in
 | `HI.Sim.Aiming` | the aim settle before the first shot |
 | `HI.Sim.Searching` | he must look for loot; an empty room finds nothing |
 | `HI.Sim.PoliceClock` | one gunshot starts the clock; the sirens arrive and drive him off |
+| `HI.Sim.MultipleIntruders` | 3-body separation contract, id attribution, unbanked push |
 
 `HI.Sim.ThiefAI` reports its own timing, and it is worth watching: the port clears three
 items in **137.0 s** — identical to the Godot original — with 0 re-routes. That agreement
 is not decoration. It read 144.8 s until a pathfinding divergence was fixed, and the
 timing is what exposed it.
 
-The spatial half of `sim.gd` (lines 1-628) is complete, and most of the game model is
-ported. Still Godot-only: the heist against a *moving* homeowner, the extra "solid bodies"
-assertions, and multiple intruders (`create_intruders` / `step_intruders`).
+## What is NOT yet true
+
+Passing the sim spec is not the same as having the game. Everything here is the **model**:
+there is no rendering, no input, no HUD and no house geometry. `Source/HIUnreal/` is still
+an empty shell that depends on `HISim`. The port also carries the sim only — the Godot
+project's other suite (`test_actor.gd`, 41 tests over animation and character loading) and
+its 7 probes have no Unreal equivalent, and the fix-list work from `AGENTS.md` (the 3-D
+house, animation blending, MetaHuman, lighting) has not started.

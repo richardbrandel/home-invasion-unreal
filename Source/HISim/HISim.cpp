@@ -304,6 +304,83 @@ FHISim::FHIThief FHISim::CreateThief()
 	return FHIThief();
 }
 
+TArray<FHISim::FHIThief> FHISim::CreateIntruders(int32 Count)
+{
+	TArray<FHIThief> Out;
+	const int32 N = FMath::Max(Count, 1);
+	Out.Reserve(N);
+	for (int32 Idx = 0; Idx < N; ++Idx)
+	{
+		FHIThief T = CreateThief();
+		// The id is what lets the game tell the bodies apart; it rides on every event.
+		T.Id = Idx;
+		// Fan out along the driveway: -1, 0, +1, then wrap for a fourth.
+		const float Lane = static_cast<float>(Idx) - static_cast<float>(N - 1) * 0.5f;
+		const FVector2D Off(FMath::RoundToFloat(Lane) * (ThiefRadius * 2.2f),
+			-FMath::Abs(Lane) * 0.9f);
+		T.Pos = ClampToWorld(Drop + Off + FVector2D(0.0f, 0.5f), ThiefRadius);
+		T.Prev = T.Pos;
+		Out.Add(T);
+	}
+	return Out;
+}
+
+TArray<int32> FHISim::StepIntruders(TArray<FHIThief>& Intruders, FHIPlayer& Player,
+	TArray<FHILootItem>& Loot, TArray<FHIEvent>& Events, float Dt)
+{
+	TArray<int32> Seen;
+	TArray<FVector2D> Before;
+	Before.Reserve(Intruders.Num() + 1);
+	Before.Add(Player.Pos);
+	for (const FHIThief& T : Intruders)
+	{
+		Before.Add(T.Pos);
+	}
+
+	for (int32 Idx = 0; Idx < Intruders.Num(); ++Idx)
+	{
+		FHIThief& T = Intruders[Idx];
+		const int32 Mark = Events.Num();
+		if (StepThief(T, Player, Loot, Events, Dt, false))
+		{
+			Seen.Add(Idx);
+		}
+		// Tag at the producer, which is the only place the identity is known. Inferring it
+		// afterwards does not work: a `grabbed` carries a loot label, not a body.
+		for (int32 EvIdx = Mark; EvIdx < Events.Num(); ++EvIdx)
+		{
+			FHIEvent& Ev = Events[EvIdx];
+			// `sirens` and `allStolen` are deliberately global -- the police are not a
+			// thief, and "everything is gone" is not attributable to one of them either.
+			if (Ev.Id == INDEX_NONE && Ev.Type != TEXT("sirens") && Ev.Type != TEXT("allStolen"))
+			{
+				Ev.Id = T.Id;
+			}
+		}
+	}
+
+	TArray<float> Radii;
+	Radii.Reserve(Intruders.Num() + 1);
+	Radii.Add(PlayerRadius);
+	for (int32 Idx = 0; Idx < Intruders.Num(); ++Idx)
+	{
+		Radii.Add(ThiefRadius);
+	}
+
+	const TArray<FVector2D> After = SeparateAll(Before, Radii);
+	Player.Pos = After[0];
+	for (int32 Idx = 0; Idx < Intruders.Num(); ++Idx)
+	{
+		FHIThief& T = Intruders[Idx];
+		T.Pos = After[Idx + 1];
+		// `prev` is re-anchored on the FRAME-START position, not the resolved one. The push
+		// is therefore exactly After - Before, and measuring travel across it would read a
+		// shove as progress, letting the offset accumulate and blinding the stuck detector.
+		T.Prev = Before[Idx + 1];
+	}
+	return Seen;
+}
+
 TArray<FHISim::FHILootItem> FHISim::CreateLoot()
 {
 	TArray<FHILootItem> Out;
