@@ -920,6 +920,26 @@ bool FHISim::LosBlocked(const FVector2D& A, const FVector2D& B)
 	return false;
 }
 
+FVector FHISim::AimDir(float Yaw, float Pitch)
+{
+	const float Ap = FMath::Clamp(Pitch, PitchMin, PitchMax);
+	const float CosAp = FMath::Cos(Ap);
+	// Godot: Vector3(sin(ay)*cos(ap), -sin(ap), cos(ay)*cos(ap)), which is (x, up, z).
+	// Its `up` becomes this Z and its `z` becomes this Y. The minus on the Z term is the
+	// same one Godot has: NEGATIVE pitch looks UP, which is why PitchMin is the "looking
+	// up" limit and PitchMax the "looking down" one.
+	return FVector(FMath::Sin(Yaw) * CosAp, FMath::Cos(Yaw) * CosAp, -FMath::Sin(Ap));
+}
+
+FVector FHISim::CameraOffset(float Yaw, float Pitch, float Back, float Up, float Side)
+{
+	const FVector View = AimDir(Yaw, Pitch);
+	// Camera-RIGHT in the plane, the same (-cos, sin) the movement code uses. At yaw 0 the
+	// player faces +Y, so his right is -X.
+	const FVector Right(-FMath::Cos(Yaw), FMath::Sin(Yaw), 0.0f);
+	return -View * Back + FVector(0.0f, 0.0f, Up) + Right * Side;
+}
+
 bool FHISim::LosBlocked3D(const FVector& A, const FVector& B,
 	const TArray<FBox2D>& InSolids, const TArray<FHISolidSpan>& Spans)
 {

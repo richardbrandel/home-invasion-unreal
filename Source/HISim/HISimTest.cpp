@@ -1662,4 +1662,77 @@ bool FHISimElevation::RunTest(const FString& Parameters)
 	return true;
 }
 
+// ---------------------------------------------------------------------- the view
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHISimView,
+	"HI.Sim.View",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FHISimView::RunTest(const FString& Parameters)
+{
+	// The aim and chase-camera maths out of game.gd, where it was untestable for the same
+	// reason the round rules were. The axis mapping is the thing worth asserting: Godot is
+	// (x, y_up, z) and this port is (x, y, height), so a transposed mapping would put the
+	// view a quarter turn out and no compiler would say a word.
+
+	// ---- facing, at the two yaws that pin the convention down
+	{
+		const FVector Ahead = FHISim::AimDir(0.0f, 0.0f);
+		TestTrue(FString::Printf(TEXT("yaw 0 looks along +Y, not up or sideways (%.3f, %.3f, %.3f)"),
+			Ahead.X, Ahead.Y, Ahead.Z),
+			FMath::IsNearlyEqual(Ahead.X, 0.0f, 1e-5f)
+			&& FMath::IsNearlyEqual(Ahead.Y, 1.0f, 1e-5f)
+			&& FMath::IsNearlyEqual(Ahead.Z, 0.0f, 1e-5f));
+
+		const FVector Side = FHISim::AimDir(UE_PI * 0.5f, 0.0f);
+		TestTrue(FString::Printf(TEXT("a quarter turn looks along +X (%.3f, %.3f, %.3f)"), Side.X, Side.Y, Side.Z),
+			FMath::IsNearlyEqual(Side.X, 1.0f, 1e-5f)
+			&& FMath::IsNearlyEqual(Side.Y, 0.0f, 1e-5f));
+	}
+
+	// ---- pitch: NEGATIVE is looking up, which is the sign that is easiest to get backwards
+	{
+		const FVector Up = FHISim::AimDir(0.0f, -0.30f);
+		const FVector Down = FHISim::AimDir(0.0f, 0.30f);
+		TestTrue(FString::Printf(TEXT("negative pitch looks UP (z=%.3f) and positive looks down (z=%.3f)"),
+			Up.Z, Down.Z), Up.Z > 0.0f && Down.Z < 0.0f);
+
+		// and it is clamped to the cone the aim scheme allows
+		const FVector Past = FHISim::AimDir(0.0f, 99.0f);
+		const FVector Limit = FHISim::AimDir(0.0f, FHISim::PitchMax);
+		TestTrue(TEXT("pitch is clamped to the aim cone rather than wrapping over the top"),
+			Past.Equals(Limit, 1e-5f));
+	}
+
+	// ---- always a unit vector, whatever the angles
+	{
+		bool bUnit = true;
+		for (int32 I = 0; I < 24; ++I)
+		{
+			const float Yaw = static_cast<float>(I) * 0.7f - 8.0f;
+			const float Pitch = static_cast<float>(I) * 0.13f - 1.5f;
+			if (!FMath::IsNearlyEqual(FHISim::AimDir(Yaw, Pitch).Size(), 1.0f, 1e-4f))
+			{
+				bUnit = false;
+			}
+		}
+		TestTrue(TEXT("AimDir is unit length across the whole cone"), bUnit);
+	}
+
+	// ---- the camera sits BEHIND the view, over the shoulder, and above
+	{
+		const FVector View = FHISim::AimDir(0.0f, 0.0f);
+		const FVector Offset = FHISim::CameraOffset(0.0f, 0.0f);
+		TestTrue(FString::Printf(TEXT("at yaw 0 the camera is behind (-Y), to the right (-X) and above (%.2f, %.2f, %.2f)"),
+			Offset.X, Offset.Y, Offset.Z),
+			FMath::IsNearlyEqual(Offset.X, -FHISim::CamSide, 1e-5f)
+			&& FMath::IsNearlyEqual(Offset.Y, -FHISim::CamBack, 1e-5f)
+			&& FMath::IsNearlyEqual(Offset.Z, FHISim::CamUp, 1e-5f));
+		TestTrue(FString::Printf(TEXT("and it stays behind him as he turns (dot=%.2f)"), FVector::DotProduct(Offset, View)),
+			FVector::DotProduct(Offset, View) < 0.0f);
+	}
+
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS

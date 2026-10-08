@@ -71,6 +71,34 @@ struct HISIM_API FHISim
 	static constexpr float EyeHeight = 1.62f;
 	static constexpr float CrouchEyeHeight = 1.05f;
 
+	// ------------------------------------------------------------------- the view
+	/** game.gd's aim scheme: body yaw plus a limited cone of free aim. */
+	static constexpr float PitchMin = -0.30f;   // looking up
+	static constexpr float PitchMax = 0.85f;    // looking down
+	static constexpr float CamBack = 0.90f;
+	static constexpr float CamUp = 0.22f;
+	static constexpr float CamSide = 0.42f;
+
+	/**
+	 * Where the player is looking, as a unit vector in the port's world space: X and Y are
+	 * the sim's own plane (FVector2D.X and FVector2D.Y) and Z is height.
+	 *
+	 * Godot's vector is (x, y_up, z) -- its `y` is up. This maps that y_up to Z and its `z`
+	 * to Y, so the sim's 2-D plane stays exactly the XY plane it always was. Unit length
+	 * already: cos^2(ap)*(sin^2+cos^2)(ay) + sin^2(ap) = 1.
+	 */
+	static FVector AimDir(float Yaw, float Pitch);
+
+	/**
+	 * The chase camera's position relative to a pivot at the player's eyes.
+	 *
+	 * Godot computes `pivot - view * back + UP * up + right * side`, with right being
+	 * (-cos yaw, sin yaw) in the plane. The camera sits at -view, so at yaw 0 -- facing +Y
+	 * -- it is at -Y, which is behind him rather than in front.
+	 */
+	static FVector CameraOffset(float Yaw, float Pitch,
+		float Back = CamBack, float Up = CamUp, float Side = CamSide);
+
 	static constexpr float ThiefSpeed = 1.30f;
 	static constexpr float ThiefRadius = 0.42f;
 	static constexpr int32 ThiefHealth = 100;
