@@ -81,4 +81,14 @@ public:
 	 * the view fixes the shove arc and keeps the movement honest in one place.
 	 */
 	void ApplyLook();
+
+	/**
+	 * Resolve one announced shot: cast its pellets, and hand whatever they hit back to the
+	 * sim. The trace decides WHERE a pellet went; the sim decides what that MEANS.
+	 */
+	void ResolvePlayerShot(const FHISim::FHIEvent& Shot);
+
+	/** How far a pellet carries, in METRES -- the sim's unit. Converted inside the trace. */
+	UPROPERTY(EditDefaultsOnly, Category = "Home Invasion")
+	float ShotRangeMeters = 60.0f;
 };

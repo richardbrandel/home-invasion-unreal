@@ -1505,6 +1505,27 @@ bool FHISimRound::RunTest(const FString& Parameters)
 			F.Intruders[0].Fear, F.Intruders[1].Fear),
 			F.Intruders[0].Fear > F.Intruders[1].Fear);
 		TestTrue(TEXT("and the first shot starts the police clock"), F.Intruders[0].Alarm >= 0.0f);
+
+		// ---- and the shot is announced for the actor layer to trace, carrying the
+		// weapon's own numbers rather than ones the tracer looked up for itself. A tracer
+		// that disagrees with the round about which weapon was fired is how you get a
+		// shotgun's spread with a pistol's damage.
+		const TArray<FHISim::FHIEvent> Fired = F.ConsumeEvents();
+		int32 ShotEvents = 0;
+		for (const FHISim::FHIEvent& Ev : Fired)
+		{
+			if (Ev.Type != TEXT("playerShot"))
+			{
+				continue;
+			}
+			++ShotEvents;
+			TestTrue(FString::Printf(TEXT("the shot event carries the weapon's damage (%.1f)"), Ev.Damage),
+				FMath::IsNearlyEqual(Ev.Damage, FHISim::Weapon(TEXT("pistol")).Damage, 1e-4f));
+			TestTrue(FString::Printf(TEXT("and its pellet count and spread (pellets=%d, spread=%.3f)"),
+				Ev.Pellets, Ev.Spread),
+				Ev.Pellets == 1 && FMath::IsNearlyEqual(Ev.Spread, 0.02f, 1e-6f));
+		}
+		TestEqual(TEXT("and exactly one shot event is raised per trigger pull"), ShotEvents, 1);
 	}
 
 	// ---- the round is NOT won until the LAST intruder is down

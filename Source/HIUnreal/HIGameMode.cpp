@@ -3,6 +3,7 @@
 #include "GameFramework/PlayerController.h"
 #include "HIIntruder.h"
 #include "HIPlayerCharacter.h"
+#include "HIUnits.h"
 
 AHIGameMode::AHIGameMode()
 {
@@ -94,6 +95,54 @@ void AHIGameMode::ApplyLook()
 		FHISim::PitchMin, FHISim::PitchMax);
 }
 
+void AHIGameMode::ResolvePlayerShot(const FHISim::FHIEvent& Shot)
+{
+	UWorld* World = GetWorld();
+	if (World == nullptr)
+	{
+		return;
+	}
+	const APlayerController* PC = World->GetFirstPlayerController();
+	AHIPlayerCharacter* Pawn = PC ? Cast<AHIPlayerCharacter>(PC->GetPawn()) : nullptr;
+	if (Pawn == nullptr)
+	{
+		return;
+	}
+
+	// The ray starts at the CAMERA, not the eye, and the original says why: with the camera
+	// pulled back behind him those are different points, and casting from the eye while the
+	// crosshair sits on the camera's forward is what put shots 0.6 m left and 0.3 m low.
+	// From the camera the crosshair is honest by construction, whatever the offset is.
+	FVector Origin;
+	FVector Dir;
+	AHIPlayerCharacter::ViewTransform(Round.Player, Origin, Dir);
+
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(HIShot), /*bTraceComplex=*/false);
+	Params.AddIgnoredActor(Pawn);
+
+	for (int32 Pellet = 0; Pellet < Shot.Pellets; ++Pellet)
+	{
+		// The scatter keeps the original's SHAPE -- an independent uniform offset per axis
+		// rather than a cone -- so the pattern this port produces is the pattern the Godot
+		// one produced. Both are unseeded, which the project's deferred list already notes as
+		// the thing that would desync two machines if this ever went multiplayer.
+		const FVector Scatter(
+			FMath::FRandRange(-Shot.Spread, Shot.Spread),
+			FMath::FRandRange(-Shot.Spread, Shot.Spread),
+			FMath::FRandRange(-Shot.Spread, Shot.Spread));
+
+		FHitResult Hit;
+		const FVector End = Origin + (Dir + Scatter).GetSafeNormal() * ShotRangeMeters * HI_METERS_TO_UU;
+		if (World->LineTraceSingleByChannel(Hit, Origin, End, ECC_Visibility, Params))
+		{
+			if (AHIIntruder* HitIntruder = Cast<AHIIntruder>(Hit.GetActor()))
+			{
+				Round.DamageIntruder(HitIntruder->ThiefId, Shot.Damage);
+			}
+		}
+	}
+}
+
 void AHIGameMode::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
@@ -111,6 +160,17 @@ void AHIGameMode::Tick(float DeltaSeconds)
 	ApplyLook();
 	Round.Step(ReadInput(), DeltaSeconds);
 	LastEvents = Round.ConsumeEvents();
+
+	// Resolve the shots the round announced. This is the actor layer's half of firing: the
+	// round has already spent the round, started the cooldown and told everyone who heard
+	// it, so all that is left is the one thing a sim with no world cannot do.
+	for (const FHISim::FHIEvent& Ev : LastEvents)
+	{
+		if (Ev.Type == TEXT("playerShot"))
+		{
+			ResolvePlayerShot(Ev);
+		}
+	}
 
 	// Pull every view into place AFTER the step, from the same Tick. Nothing else writes an
 	// actor transform for this round, so there is no frame where a body is drawn from a

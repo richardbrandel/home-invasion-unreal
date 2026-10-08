@@ -456,6 +456,20 @@ void FHISim::FHIRound::FireWeapon()
 		}
 		AlertThief(T, Player.Pos, Heard);
 	}
+
+	// The shot itself, for the actor layer to trace. Everything a trace cannot decide -- the
+	// round spent, the cooldown, and who heard it -- has already happened above, so this
+	// carries the weapon's own numbers and nothing else. Hit resolution needs Unreal's
+	// collision, which is the one thing that cannot live in here.
+	//
+	// This is the port's answer to game.gd's _fire() doing both jobs at once: the round
+	// reports that a shot left the barrel, and whoever owns a world decides where it went.
+	FHIEvent Shot;
+	Shot.Type = TEXT("playerShot");
+	Shot.Spread = Spec.Spread;
+	Shot.Damage = Spec.Damage;
+	Shot.Pellets = Spec.Pellets;
+	Events.Add(Shot);
 }
 
 void FHISim::FHIRound::ApplyRoundRules()

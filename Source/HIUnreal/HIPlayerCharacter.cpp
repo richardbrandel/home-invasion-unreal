@@ -1,6 +1,7 @@
 #include "HIPlayerCharacter.h"
 
 #include "Camera/CameraComponent.h"
+#include "HIUnits.h"
 
 AHIPlayerCharacter::AHIPlayerCharacter()
 {
@@ -17,14 +18,15 @@ AHIPlayerCharacter::AHIPlayerCharacter()
 FVector AHIPlayerCharacter::EyePivot(const FHISim::FHIPlayer& P)
 {
 	// The sim's plane is (X, Y) with Z up, so a 2-D position plus Z is already a world
-	// position. Eye height is added here rather than stored, so a crouch is a change of
-	// constant and not a change of state.
-	return FVector(P.Pos.X, P.Pos.Y, P.Z + FHISim::EyeHeight);
+	// position -- only the units need converting. Eye height is added here rather than
+	// stored, so a crouch is a change of constant and not a change of state.
+	return FVector(P.Pos.X, P.Pos.Y, P.Z + FHISim::EyeHeight) * HI_METERS_TO_UU;
 }
 
 void AHIPlayerCharacter::ViewTransform(const FHISim::FHIPlayer& P, FVector& OutLocation, FVector& OutDirection)
 {
-	OutLocation = EyePivot(P) + FHISim::CameraOffset(P.Yaw, P.Pitch);
+	// The offset is scaled with the pivot; the direction is a unit vector and must NOT be.
+	OutLocation = EyePivot(P) + FHISim::CameraOffset(P.Yaw, P.Pitch) * HI_METERS_TO_UU;
 	OutDirection = FHISim::AimDir(P.Yaw, P.Pitch);
 }
 

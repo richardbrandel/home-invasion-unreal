@@ -320,6 +320,12 @@ struct HISIM_API FHISim
 		/** Shove/alert payloads: spread, dmg, dropped. */
 		float Spread = 0.0f;
 		float Damage = 0.0f;
+		/**
+		 * How many traces a `playerShot` wants. Carried on the event so the actor layer
+		 * resolves the shot without having to look the weapon up again and risk disagreeing
+		 * with the round about which one was fired.
+		 */
+		int32 Pellets = 1;
 	};
 
 	static FHIPlayer CreatePlayer();
