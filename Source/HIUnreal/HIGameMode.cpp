@@ -2,6 +2,7 @@
 
 #include "GameFramework/PlayerController.h"
 #include "HIHouse.h"
+#include "HIHUD.h"
 #include "HIIntruder.h"
 #include "HIPlayerCharacter.h"
 #include "HIUnits.h"
@@ -19,6 +20,10 @@ AHIGameMode::AHIGameMode()
 	// Likewise the controller: this port reads input through the game mode rather than
 	// through a PlayerController subclass, so the plain one is correct.
 	PlayerControllerClass = APlayerController::StaticClass();
+
+	// A canvas HUD rather than a UMG widget: a widget is a .uasset and cannot be authored
+	// from text, and this project builds headlessly. See HIHUD.h.
+	HUDClass = AHIHUD::StaticClass();
 }
 
 void AHIGameMode::BeginPlay()

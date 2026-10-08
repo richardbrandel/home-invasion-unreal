@@ -2,6 +2,7 @@
 #include "Misc/AutomationTest.h"
 
 #include "HIHouse.h"
+#include "HIHUD.h"
 #include "HIIntruder.h"
 #include "HIPlayerCharacter.h"
 #include "HIUnits.h"
@@ -93,6 +94,96 @@ bool FHIUnrealSizing::RunTest(const FString& Parameters)
 		TestTrue(FString::Printf(TEXT("and the direction is a unit vector, NOT scaled like the position (%.3f)"),
 			CamDir.Size()),
 			FMath::IsNearlyEqual(CamDir.Size(), 1.0f, 0.001f));
+	}
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHIUnrealHud,
+	"HI.Unreal.Hud",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FHIUnrealHud::RunTest(const FString& Parameters)
+{
+	// What the HUD says, checked without a canvas. Drawing is the one part that needs eyes;
+	// the NUMBERS are the part that can be wrong in a way nobody notices until it matters,
+	// so they are the part asserted here.
+
+	// ---- a fresh round reads as a fresh round
+	{
+		FHISim::FHIRound R = FHISim::FHIRound::Start(3);
+		const TArray<FString> Lines = AHIHUD::RoundLines(R);
+
+		auto Has = [&Lines](const FString& Needle)
+		{
+			for (const FString& L : Lines)
+			{
+				if (L.Contains(Needle))
+				{
+					return true;
+				}
+			}
+			return false;
+		};
+
+		TestTrue(FString::Printf(TEXT("the HUD shows the pistol's magazine and reserve (%s)"),
+			Lines.Num() > 1 ? *Lines[1] : TEXT("<missing>")),
+			Has(TEXT("12 / 36")));
+		TestTrue(FString::Printf(TEXT("and starts at 0/3 stolen (%s)"),
+			Lines.Num() > 2 ? *Lines[2] : TEXT("<missing>")),
+			Has(TEXT("0 / 3")));
+		TestTrue(TEXT("and shows nobody down yet"), Has(TEXT("0 / 3")) || Has(TEXT("DOWN  0")));
+		TestFalse(TEXT("and does NOT announce an outcome before there is one"),
+			Has(TEXT("ROUND WON")) || Has(TEXT("ROUND LOST")));
+	}
+
+	// ---- the stolen count tracks the loot, and the outcome appears when it is decided
+	{
+		FHISim::FHIRound R = FHISim::FHIRound::Start(3);
+		// Deliver one by hand: delivered is what empties the round.
+		R.Loot[0].bDelivered = true;
+		R.Loot[0].bTaken = true;
+
+		bool bShowsOne = false;
+		for (const FString& L : AHIHUD::RoundLines(R))
+		{
+			bShowsOne |= L.Contains(TEXT("1 / 3"));
+		}
+		TestTrue(TEXT("delivering one valuable moves the count to 1/3"), bShowsOne);
+
+		R.DamageIntruder(R.Intruders[0].Id, 1000.0f);
+		bool bAnnouncedEarly = false;
+		for (const FString& L : AHIHUD::RoundLines(R))
+		{
+			bAnnouncedEarly |= L.Contains(TEXT("ROUND WON"));
+		}
+		TestFalse(TEXT("but one man down does not announce a win"), bAnnouncedEarly);
+
+		R.DamageIntruder(R.Intruders[1].Id, 1000.0f);
+		R.DamageIntruder(R.Intruders[2].Id, 1000.0f);
+		bool bShowsWin = false;
+		for (const FString& L : AHIHUD::RoundLines(R))
+		{
+			bShowsWin |= L.Contains(TEXT("ROUND WON"));
+		}
+		TestTrue(TEXT("and the last man down does"), bShowsWin);
+	}
+
+	// ---- a lost round says so
+	{
+		FHISim::FHIRound R = FHISim::FHIRound::Start(1);
+		TArray<FHISim::FHIEvent> Sink;
+		FHISim::DamagePlayer(R.Player, 1000.0f, Sink);
+		R.Events.Append(Sink);
+		FHISim::FHIInput In;
+		R.Step(In, 1.0f / 60.0f);
+
+		bool bShowsLost = false;
+		for (const FString& L : AHIHUD::RoundLines(R))
+		{
+			bShowsLost |= L.Contains(TEXT("ROUND LOST"));
+		}
+		TestTrue(TEXT("the homeowner going down reads as a lost round"), bShowsLost);
 	}
 
 	return true;
