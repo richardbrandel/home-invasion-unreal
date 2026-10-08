@@ -104,7 +104,10 @@ modes are misleading rather than obvious. Accumulated, measured, in
 
 ## Status
 
-`HI.Sim` passes **18/18** on ubuntu-dev, covering every banner in the Godot spec:
+`HI.Sim` passes **19/19** on ubuntu-dev, and **all 97 assertions** in the Godot spec are
+represented. The suite carries more assertions than the spec (120+) because several Godot
+checks are compound (`mag == 12 and reserve == 36`) and were split, and a few deliberate
+extras were added where a spec assertion could not fail as written.
 
 | Test | Covers |
 |---|---|
@@ -113,6 +116,7 @@ modes are misleading rather than obvious. Accumulated, measured, in
 | `HI.Sim.Separation` | N-body separation, the no-overlap contract, steer-around |
 | `HI.Sim.SolidBodies` | neither body can walk through the other, both directions |
 | `HI.Sim.Navigation` | routes, nearest-node snapping, degenerate routes |
+| `HI.Sim.LosInvariant` | he never fires through a wall, and never leaves the world |
 | `HI.Sim.Entities` | the player/thief model and the ammunition rules |
 | `HI.Sim.Momentum` | acceleration builds speed; coasting decays it |
 | `HI.Sim.ThiefAI` | a full heist against an idle homeowner, and re-route thrash |

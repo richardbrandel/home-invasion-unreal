@@ -1350,4 +1350,92 @@ bool FHISimSolidBodies::RunTest(const FString& Parameters)
 	return true;
 }
 
+// -------------------------------------------------------------- LOS invariant
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHISimLosInvariant,
+	"HI.Sim.LosInvariant",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FHISimLosInvariant::RunTest(const FString& Parameters)
+{
+	// spec: the tail of test_sim.gd's "visibility + minimap fog of war" banner.
+	const float Dt = 1.0f / 60.0f;
+	TArray<FHISim::FHIEvent> Events;
+
+	// ---- he never drifts outside the world
+	{
+		FHISim::FHIPlayer Player = FHISim::CreatePlayer();
+		FHISim::FHIThief Thief = FHISim::CreateThief();
+		TArray<FHISim::FHILootItem> Loot = FHISim::CreateLoot();
+		FString OutOfBounds;
+		for (int32 Frame = 0; Frame < 60 * 120; ++Frame)
+		{
+			FHISim::StepThief(Thief, Player, Loot, Events, Dt);
+			Events.Reset();
+			const FVector2D P = Thief.Pos;
+			if (P.X < FHISim::Bounds.Min.X - 0.01f || P.X > FHISim::Bounds.Max.X + 0.01f
+				|| P.Y < FHISim::Bounds.Min.Y - 0.01f || P.Y > FHISim::Bounds.Max.Y + 0.01f)
+			{
+				OutOfBounds = FString::Printf(TEXT("left bounds at (%.2f, %.2f)"), P.X, P.Y);
+				break;
+			}
+			if (!Thief.bAlive)
+			{
+				break;
+			}
+		}
+		TestTrue(FString::Printf(TEXT("thief never drifts outside the world bounds (%s)"),
+			OutOfBounds.IsEmpty() ? TEXT("stayed inside for 120 s") : *OutOfBounds),
+			OutOfBounds.IsEmpty());
+	}
+
+	// ---- THE invariant: never fire without line of sight.
+	// Walk the homeowner on a Lissajous path so the pair pass in and out of cover.
+	{
+		FHISim::FHIPlayer Player = FHISim::CreatePlayer();
+		FHISim::FHIThief Thief = FHISim::CreateThief();
+		TArray<FHISim::FHILootItem> Loot = FHISim::CreateLoot();
+		int32 Shots = 0;
+		int32 BlockedFrames = 0;
+		FString Violation;
+		for (int32 Frame = 0; Frame < 60 * 90; ++Frame)
+		{
+			Player.Pos = FVector2D(
+				FMath::Sin(static_cast<float>(Frame) / 97.0f) * 9.0f,
+				-13.0f + FMath::Cos(static_cast<float>(Frame) / 131.0f) * 6.0f);
+			if (FHISim::LosBlocked(Thief.Pos, Player.Pos))
+			{
+				++BlockedFrames;
+			}
+			Events.Reset();
+			FHISim::StepThief(Thief, Player, Loot, Events, Dt);
+			for (const FHISim::FHIEvent& Ev : Events)
+			{
+				if (Ev.Type == TEXT("thiefShot"))
+				{
+					++Shots;
+					if (FHISim::LosBlocked(Thief.Pos, Player.Pos))
+					{
+						Violation = FString::Printf(TEXT("fired through a wall at frame %d"), Frame);
+						break;
+					}
+				}
+			}
+			if (!Violation.IsEmpty())
+			{
+				break;
+			}
+		}
+		TestTrue(FString::Printf(TEXT("thief NEVER fires while line of sight is blocked (%s)"),
+			Violation.IsEmpty() ? TEXT("no violation") : *Violation),
+			Violation.IsEmpty());
+		// A check that cannot fail is not a check: if he never fires, the invariant above is
+		// vacuously true, so the spec also asserts that the path was actually exercised.
+		TestTrue(FString::Printf(TEXT("the invariant test actually exercised the path (%d shots, %d blocked frames available)"),
+			Shots, BlockedFrames), Shots > 0);
+	}
+
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS
