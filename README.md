@@ -104,7 +104,7 @@ modes are misleading rather than obvious. Accumulated, measured, in
 
 ## Status
 
-`HI.Sim` passes **9/9** on ubuntu-dev:
+`HI.Sim` passes **11/11** on ubuntu-dev:
 
 | Test | Covers |
 |---|---|
@@ -117,12 +117,15 @@ modes are misleading rather than obvious. Accumulated, measured, in
 | `HI.Sim.ThiefAI` | a full heist against an idle homeowner, and re-route thrash |
 | `HI.Sim.Shove` | the homeowner's shove: range, arc, cooldown, knocking loot loose |
 | `HI.Sim.Hands` | the intruder's grab, and that he cannot grab while laden |
+| `HI.Sim.Hit` | a wound staggers him and costs his sight picture; lethal damage |
+| `HI.Sim.Fear` | gunfire builds fear until he breaks off, then he runs for the van |
 
 `HI.Sim.ThiefAI` reports its own timing, and it is worth watching: the port clears three
-items in ~145 s against the Godot original's 137 s. A large drift there is the early
-warning that a movement constant has gone wrong.
+items in **137.0 s** — identical to the Godot original — with 0 re-routes. That agreement
+is not decoration. It read 144.8 s until a pathfinding divergence was fixed (see below),
+and the timing is what exposed it.
 
-The spatial half of `sim.gd` (lines 1-628) is complete, and the game model is under way:
-the entity model, the movement/turning rules, and the shove/grab primitives are ported.
-Still Godot-only: damage, aiming and firing, fear, searching, the police clock, carrying
-to the van as a scored rule, and multiple intruders.
+The spatial half of `sim.gd` (lines 1-628) is complete, and the game model is well under
+way: the entity model, movement and turning, the shove and grab, and damage and fear are
+ported. Still Godot-only: aiming and firing as a scored rule, searching, the police clock's
+event payload, carrying for score, and multiple intruders.

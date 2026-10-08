@@ -301,6 +301,18 @@ struct HISIM_API FHISim
 	 */
 	static bool ThiefShove(FHIThief& Thief, FHIPlayer& Player, TArray<FHIEvent>& Events);
 
+	// ------------------------------------------------------------- damage and fear
+	/**
+	 * Tell him he is being shot at. Called when the homeowner fires; `Loudness` scales with
+	 * how close and how loud, so a shotgun at 3 m is not a pistol across the house. The
+	 * first shot of the round also starts the police clock.
+	 */
+	static void AlertThief(FHIThief& Thief, const FVector2D& From, float Loudness = 1.0f);
+	/** Apply damage to the intruder. True when it was lethal; emits thiefDown or thiefHit. */
+	static bool DamageThief(FHIThief& Thief, float Damage, TArray<FHIEvent>& Events);
+	/** Apply damage to the homeowner. True when it was lethal; emits playerDown or playerHit. */
+	static bool DamagePlayer(FHIPlayer& Player, float Damage, TArray<FHIEvent>& Events);
+
 	// ------------------------------------------------------------------ thief AI
 	/**
 	 * One frame of the intruder. Returns true when he currently has line of sight to the

@@ -287,10 +287,14 @@ bool FHISimNavigation::RunTest(const FString& Parameters)
 		{
 			continue;
 		}
-		const int32 VanIdx = FHISim::NodeNames().IndexOfByKey(TEXT("van"));
 		const int32 RoomIdx = FHISim::NodeNames().IndexOfByKey(Room);
-		TestTrue(FString::Printf(TEXT("route to %s starts at the van"), *Room),
-			Route[0].Equals(FHISim::NodePositions()[VanIdx], 0.001f));
+		// spec: test_sim.gd asserts only `route.size() >= 3`. The earlier assertion here --
+		// that Route[0] is the van's own position -- encoded a port bug: Godot EXCLUDES the
+		// origin from the path (`while k != from_key`), so the first waypoint is the van's
+		// NEIGHBOUR. That difference is not cosmetic; it is what lets a fleeing intruder's
+		// route to the van actually empty so he can escape.
+		TestTrue(FString::Printf(TEXT("pathfinding returns a connected route to %s (%d hops)"), *Room, Route.Num()),
+			Route.Num() >= 3);
 		TestTrue(FString::Printf(TEXT("route to %s ends at the room"), *Room),
 			Route.Last().Equals(FHISim::NodePositions()[RoomIdx], 0.001f));
 
@@ -652,6 +656,155 @@ bool FHISimHands::RunTest(const FString& Parameters)
 	Events.Reset();
 	TestFalse(FString::Printf(TEXT("a laden intruder has no hands free to grab you (carrying the %s)"), *Thief.Carry),
 		FHISim::ThiefShove(Thief, Player, Events));
+
+	return true;
+}
+
+// --------------------------------------------------- a hit stops the intruder
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHISimHit,
+	"HI.Sim.Hit",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FHISimHit::RunTest(const FString& Parameters)
+{
+	// spec: test_sim.gd banner "a hit stops the intruder".
+	//
+	// The point of the banner is that a wound is a behavioural event, not just a number
+	// going down: before this existed, a man at 1 hp walked, aimed and fired exactly like
+	// a man at 100.
+	const float Dt = 1.0f / 60.0f;
+	FHISim::FHIPlayer Player = FHISim::CreatePlayer();
+	FHISim::FHIThief Thief = FHISim::CreateThief();
+	TArray<FHISim::FHILootItem> Loot = FHISim::CreateLoot();
+	TArray<FHISim::FHIEvent> Events;
+
+	Thief.Pos = FVector2D(-5.0f, -12.0f);
+	Thief.Prev = Thief.Pos;
+	Thief.Route = { FVector2D(0.0f, -12.0f) };
+	// Settled on target, so losing the sight picture is observable.
+	Thief.Aim = FHISim::ThiefAimTime;
+
+	FHISim::DamageThief(Thief, 20.0f, Events);
+	TestTrue(FString::Printf(TEXT("a hit staggers him (stagger=%.2f)"), Thief.Stagger),
+		Thief.Stagger > 0.0f);
+	TestTrue(FString::Printf(TEXT("and it takes his sight picture away (aim=%.2f)"), Thief.Aim),
+		Thief.Aim == 0.0f);
+
+	const FVector2D Before = Thief.Pos;
+	Events.Reset();
+	FHISim::StepThief(Thief, Player, Loot, Events, Dt);
+	const float Moved = FVector2D::Distance(Thief.Pos, Before);
+	TestTrue(FString::Printf(TEXT("and he does not move while staggered (moved %.4f m)"), Moved),
+		Moved < 0.001f);
+
+	// ---- damage: lethal hits down a body, and hp never goes negative
+	Thief = FHISim::CreateThief();
+	Events.Reset();
+	const bool bKilled = FHISim::DamageThief(Thief, 150.0f, Events);
+	TestTrue(TEXT("lethal damage kills the thief"), bKilled && !Thief.bAlive);
+	bool bSawDown = false;
+	for (const FHISim::FHIEvent& Ev : Events)
+	{
+		if (Ev.Type == TEXT("thiefDown"))
+		{
+			bSawDown = true;
+		}
+	}
+	// The spec's label promises this event; its body only checks `alive`, so assert it.
+	TestTrue(TEXT("and emits thiefDown"), bSawDown);
+
+	Player = FHISim::CreatePlayer();
+	Events.Reset();
+	const bool bPlayerDown = FHISim::DamagePlayer(Player, 999.0f, Events);
+	TestTrue(FString::Printf(TEXT("player death clamps hp at zero (hp=%.1f)"), Player.Hp),
+		bPlayerDown && Player.Hp == 0.0f && !Player.bAlive);
+
+	return true;
+}
+
+// ------------------------------------------------------ gunfire drives him off
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHISimFear,
+	"HI.Sim.Fear",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FHISimFear::RunTest(const FString& Parameters)
+{
+	// spec: test_sim.gd banner "gunfire drives him off".
+	const float Dt = 1.0f / 60.0f;
+	FHISim::FHIPlayer Player = FHISim::CreatePlayer();
+	FHISim::FHIThief Thief = FHISim::CreateThief();
+	TArray<FHISim::FHILootItem> Loot = FHISim::CreateLoot();
+	TArray<FHISim::FHIEvent> Events;
+
+	TestTrue(FString::Printf(TEXT("he starts unafraid (fear=%.2f)"), Thief.Fear), Thief.Fear == 0.0f);
+
+	for (int32 Idx = 0; Idx < 2; ++Idx)
+	{
+		FHISim::AlertThief(Thief, FVector2D(0.0f, -11.0f), 1.0f);
+	}
+	// The spec asserts only `mode != "flee"` here, which cannot fail as written: Mode is
+	// set to "flee" by StepThief alone, and no frame has been stepped. The fear comparison
+	// beneath it is the same intent and CAN fail, so both are asserted.
+	TestTrue(FString::Printf(TEXT("two shots do not drive him off (fear=%.2f mode=%s)"), Thief.Fear, *Thief.Mode),
+		Thief.Mode != TEXT("flee"));
+	TestTrue(FString::Printf(TEXT("and leave him short of the flee threshold (fear=%.2f threshold=%.1f)"),
+		Thief.Fear, FHISim::FearFlee), Thief.Fear < FHISim::FearFlee);
+
+	for (int32 Idx = 0; Idx < 4; ++Idx)
+	{
+		FHISim::AlertThief(Thief, FVector2D(0.0f, -11.0f), 1.0f);
+	}
+	TestTrue(FString::Printf(TEXT("a sustained burst drives him off (fear=%.2f threshold=%.1f)"),
+		Thief.Fear, FHISim::FearFlee), Thief.Fear >= FHISim::FearFlee);
+
+	// fear settles when nothing is happening
+	Thief.Fear = 1.0f;
+	Thief.Mode = TEXT("hunt");
+	Thief.Route = { FVector2D(0.0f, -12.0f) };
+	Thief.Think = 0.0f;
+	for (int32 Idx = 0; Idx < 60; ++Idx)
+	{
+		FHISim::StepThief(Thief, Player, Loot, Events, Dt);
+	}
+	TestTrue(FString::Printf(TEXT("and fear decays when the shooting stops (fear=%.2f)"), Thief.Fear),
+		Thief.Fear < 1.0f);
+
+	// ---- and once he breaks off he runs for the van
+	Thief = FHISim::CreateThief();
+	Thief.Pos = FVector2D(0.0f, -12.0f);
+	Thief.Fear = FHISim::FearFlee;
+	Thief.Mode = TEXT("flee");
+	Thief.Stagger = 0.0f;
+	Events.Reset();
+
+	bool bGotAway = false;
+	int32 Steps = 0;
+	for (int32 Idx = 0; Idx < 3000; ++Idx)
+	{
+		Steps = Idx;
+		if (Thief.bEscaped)
+		{
+			bGotAway = true;
+			break;
+		}
+		FHISim::StepThief(Thief, Player, Loot, Events, Dt);
+	}
+	TestTrue(FString::Printf(TEXT("a frightened intruder runs for the van and gets away (ended at (%.2f, %.2f) after %d steps)"),
+		Thief.Pos.X, Thief.Pos.Y, Steps), bGotAway);
+
+	// Events are deliberately NOT drained in this loop -- the spec relies on the escaped
+	// event surviving until the end, which is what the round reads to end itself.
+	bool bSawEscape = false;
+	for (const FHISim::FHIEvent& Ev : Events)
+	{
+		if (Ev.Type == TEXT("escaped"))
+		{
+			bSawEscape = true;
+		}
+	}
+	TestTrue(TEXT("and announces it so the round can end (escaped event raised)"), bSawEscape);
 
 	return true;
 }

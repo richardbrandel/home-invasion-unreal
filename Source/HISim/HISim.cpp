@@ -228,6 +228,74 @@ bool FHISim::ThiefShove(FHIThief& Thief, FHIPlayer& Player, TArray<FHIEvent>& Ev
 	return true;
 }
 
+void FHISim::AlertThief(FHIThief& Thief, const FVector2D& From, float Loudness)
+{
+	if (!Thief.bAlive || Thief.bEscaped)
+	{
+		return;
+	}
+	Thief.LastSeen = From;
+	Thief.Fear = FMath::Min(Thief.Fear + FearPerShot * Loudness, 8.0f);
+	// The first shot of the round starts the police clock. -1 means nobody has called.
+	if (Thief.Alarm < 0.0f)
+	{
+		Thief.Alarm = 0.0f;
+	}
+}
+
+bool FHISim::DamageThief(FHIThief& Thief, float Damage, TArray<FHIEvent>& Events)
+{
+	if (!Thief.bAlive)
+	{
+		return false;
+	}
+	Thief.Hp -= Damage;
+	// A gunshot wound is a behavioural event, not just a number going down. Nothing used to
+	// consult hp except the lethal check, so a man at 1 hp walked, aimed and fired exactly
+	// like a man at 100 -- no flinch, no stagger, no reaction of any kind.
+	Thief.Stagger = FMath::Max(Thief.Stagger, FMath::Clamp(Damage * 0.035f, 0.35f, 1.4f));
+	// His sight picture is gone: he has to re-settle before he can shoot again.
+	Thief.Aim = 0.0f;
+	Thief.Hits += 1;
+	// Being hit frightens him far more than being missed.
+	Thief.Fear = FMath::Min(Thief.Fear + FearPerHit, 8.0f);
+
+	FHIEvent Ev;
+	if (Thief.Hp <= 0.0f)
+	{
+		Thief.Hp = 0.0f;
+		Thief.bAlive = false;
+		Ev.Type = TEXT("thiefDown");
+		Events.Add(Ev);
+		return true;
+	}
+	Ev.Type = TEXT("thiefHit");
+	Events.Add(Ev);
+	return false;
+}
+
+bool FHISim::DamagePlayer(FHIPlayer& Player, float Damage, TArray<FHIEvent>& Events)
+{
+	if (!Player.bAlive)
+	{
+		return false;
+	}
+	Player.Hp -= Damage;
+
+	FHIEvent Ev;
+	if (Player.Hp <= 0.0f)
+	{
+		Player.Hp = 0.0f;
+		Player.bAlive = false;
+		Ev.Type = TEXT("playerDown");
+		Events.Add(Ev);
+		return true;
+	}
+	Ev.Type = TEXT("playerHit");
+	Events.Add(Ev);
+	return false;
+}
+
 FHISim::FHIThief FHISim::CreateThief()
 {
 	// sim.gd create_thief(). Every default lives on FHIThief's member initialisers, which
@@ -845,9 +913,13 @@ FString FHISim::NearestNode(const FVector2D& P)
 TArray<FString> FHISim::PathNodes(const FString& FromKey, const FString& ToKey)
 {
 	TArray<FString> Out;
+	// Godot returns an EMPTY path when the endpoints are equal, and its caller depends on
+	// that. The fleeing intruder re-plans to the van on every frame his route is empty, so
+	// once he is AT the van an empty result is what lets the escape fire. Returning the
+	// endpoint instead refills the route forever and he stands in the drive -- precisely
+	// the failure sim.gd's comment says the route-emptying test exists to avoid.
 	if (FromKey == ToKey)
 	{
-		Out.Add(ToKey);
 		return Out;
 	}
 	const TArray<FString>& Names = NodeNames();
@@ -884,8 +956,11 @@ TArray<FString> FHISim::PathNodes(const FString& FromKey, const FString& ToKey)
 	{
 		return Out;
 	}
+	// Walk back from the destination. The loop stops AT FromKey, so the origin is not part
+	// of the path -- Godot's `while k != from_key` excludes it, and a waypoint at the
+	// walker's own feet is not a waypoint.
 	FString Step = ToKey;
-	while (!Step.IsEmpty())
+	while (!Step.IsEmpty() && Step != FromKey)
 	{
 		Out.Insert(Step, 0);
 		Step = CameFrom[Step];
