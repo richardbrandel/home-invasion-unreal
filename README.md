@@ -107,10 +107,10 @@ modes are misleading rather than obvious. Accumulated, measured, in
 
 ## Status
 
-`HI.Sim` passes **23/23** on ubuntu-dev — 22 in `HISim` and 1 in the game module.
+`HI.Sim` passes **24/24** on ubuntu-dev — 22 in `HISim`, 2 in the game module.
 **All 97 assertions** in the Godot *sim* spec are represented; `HI.Sim.Round`,
-`HI.Sim.Elevation` and `HI.Unreal.Sizing` add coverage the Godot project has never had on
-either side.
+`HI.Sim.Elevation`, `HI.Unreal.Sizing` and `HI.Unreal.Hud` add coverage the Godot project
+has never had on either side.
 
 | Test | Covers |
 |---|---|
@@ -174,13 +174,22 @@ invisible — and the fix list from `AGENTS.md`.
 
 **What is done:** `AHIGameMode` owns and ticks the round; `AHIPlayerCharacter` and
 `AHIIntruder` are pure views of `FHIPlayer`/`FHIThief`; hit resolution traces pellets and
-routes them through `Round.DamageIntruder`; and `AHIHouse` generates every wall and solid
-from the sim's own rectangle list, so the geometry the player walks into and the geometry
-the AI reasons about come from one source.
+routes them through `Round.DamageIntruder`; `AHIHouse` generates every wall and solid from
+the sim's own rectangle list, so the geometry the player walks into and the geometry the AI
+reasons about come from one source; and `AHIHUD` draws the round on the canvas, with its
+formatting tested rather than eyeballed.
+
+**The HUD is canvas, not UMG, and that is the no-Blueprints rule forcing a choice:** a UMG
+widget is a `.uasset` and cannot be authored from text, so canvas is the only kind this
+project can build headlessly.
 
 **What has NEVER happened: anyone running it.** Every claim above is compile and test, and
-all 23 tests pass — but nothing here has been launched, and no one has seen it. The first
+all 24 tests pass — but nothing here has been launched, and no one has seen it. The first
 launch is a milestone no green tick in this file has reached.
+
+**What is still open, and not code:** fix-list item 18's *data*. `FHISolidSpan` is uniform
+at a full storey by design, and giving a sofa its real height is a decision for a person.
+Mouse-look sensitivity is likewise flagged TUNING in `HIGameMode.h` and needs eyes.
 
 `HI.Sim.ThiefAI` reports its own timing, and it is worth watching: the port clears three
 items in **137.0 s** — identical to the Godot original — with 0 re-routes. That agreement
