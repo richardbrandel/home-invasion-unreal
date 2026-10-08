@@ -276,6 +276,31 @@ struct HISIM_API FHISim
 	static bool LoadMagazine(FHIPlayer& Player);
 	static bool CanLoadMagazine(const FHIPlayer& Player);
 
+	// ------------------------------------------------------------------ the shove
+	/**
+	 * Drive him back and make him drop what he is carrying. True if it landed.
+	 *
+	 * Range, an arc in front of the homeowner, and a cooldown -- which is why it lives in
+	 * the sim rather than the game layer: the harness has to be able to reach it.
+	 */
+	static bool Shove(FHIPlayer& Player, FHIThief& Thief, TArray<FHILootItem>& Loot,
+		TArray<FHIEvent>& Events);
+	/**
+	 * Put whatever he is carrying back into the world at his feet and make him stoop for
+	 * it. Raises a `dropped` event carrying the label, or nothing at all when his hands
+	 * were empty.
+	 */
+	static void DropCarried(FHIThief& Thief, TArray<FHILootItem>& Loot, TArray<FHIEvent>& Events);
+	/**
+	 * The intruder shoves the homeowner. True if it landed.
+	 *
+	 * He had no answer at contact range -- he would simply stand and fire, so a man close
+	 * enough to grab you was LESS dangerous than one across the room. It knocks the
+	 * homeowner back, spoils his aim and stops him firing for a moment. He will not do it
+	 * while carrying anything: his hands are full, which is also when he is harmless.
+	 */
+	static bool ThiefShove(FHIThief& Thief, FHIPlayer& Player, TArray<FHIEvent>& Events);
+
 	// ------------------------------------------------------------------ thief AI
 	/**
 	 * One frame of the intruder. Returns true when he currently has line of sight to the

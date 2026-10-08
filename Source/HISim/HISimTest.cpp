@@ -521,4 +521,139 @@ bool FHISimThiefAI::RunTest(const FString& Parameters)
 	return true;
 }
 
+// ---------------------------------------------------------------------- the shove
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHISimShove,
+	"HI.Sim.Shove",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FHISimShove::RunTest(const FString& Parameters)
+{
+	// spec: test_sim.gd banner "the shove".
+	const float Dt = 1.0f / 60.0f;
+	FHISim::FHIPlayer Player = FHISim::CreatePlayer();
+	FHISim::FHIThief Thief = FHISim::CreateThief();
+	TArray<FHISim::FHILootItem> Loot = FHISim::CreateLoot();
+	TArray<FHISim::FHIEvent> Events;
+
+	Player.Pos = FVector2D(0.0f, -11.0f);
+	Player.Yaw = 0.0f;                        // yaw 0 faces +Z
+	Thief.Pos = FVector2D(0.0f, -9.0f);       // 2.0 m in front, out of reach
+	TestFalse(FString::Printf(TEXT("out of reach a shove does nothing (2.0 m away, reach is %.1f m)"),
+		FHISim::ShoveRange), FHISim::Shove(Player, Thief, Loot, Events));
+
+	// in range but behind you
+	Player.Yaw = UE_PI;
+	Thief.Pos = FVector2D(0.0f, -9.6f);
+	Events.Reset();
+	TestFalse(TEXT("and you cannot shove a man behind your own back (facing away, 1.4 m)"),
+		FHISim::Shove(Player, Thief, Loot, Events));
+
+	// properly in front, and in reach
+	Player.Yaw = 0.0f;
+	const float HpBefore = Thief.Hp;
+	Events.Reset();
+	const bool bLanded = FHISim::Shove(Player, Thief, Loot, Events);
+	const float PushedTo = Thief.Pos.Y;
+	TestTrue(TEXT("in reach and in front it lands"), bLanded);
+	TestTrue(FString::Printf(TEXT("it staggers him hard (stagger=%.2f s)"), Thief.Stagger),
+		Thief.Stagger >= FHISim::ShoveStagger);
+	TestTrue(FString::Printf(TEXT("it wounds him not at all (hp %.1f -> %.1f)"), HpBefore, Thief.Hp),
+		Thief.Hp == HpBefore);
+	TestTrue(FString::Printf(TEXT("and it drives him back (from -9.60 m to %.2f m)"), PushedTo),
+		PushedTo > -9.6f);
+	Events.Reset();
+	TestFalse(FString::Printf(TEXT("but you cannot do it twice in a row (cooldown is %.1f s)"),
+		FHISim::ShoveCd), FHISim::Shove(Player, Thief, Loot, Events));
+
+	// And it is the only way to take something back off him without killing him.
+	Thief = FHISim::CreateThief();
+	Loot = FHISim::CreateLoot();
+	Thief.Pos = FVector2D(0.0f, -9.6f);
+	Thief.Carry = TEXT("Laptop");
+	Loot[1].bTaken = true;                    // index 1 is the Laptop, per LootLabels()
+	Player.ShoveCd = 0.0f;
+	Events.Reset();
+	const bool bGot = FHISim::Shove(Player, Thief, Loot, Events);
+	TestTrue(FString::Printf(TEXT("shoving a laden intruder makes him drop it (carry now '%s')"), *Thief.Carry),
+		bGot && Thief.Carry.IsEmpty());
+	TestTrue(FString::Printf(TEXT("and the valuable is back in the world where he stood (taken=%d delivered=%d)"),
+		Loot[1].bTaken ? 1 : 0, Loot[1].bDelivered ? 1 : 0),
+		!Loot[1].bTaken && !Loot[1].bDelivered);
+
+	// And he must not simply snatch it straight back off the floor.
+	Thief.Think = 0.0f;
+	Thief.Stagger = 0.0f;
+	Events.Reset();
+	for (int32 N = 0; N < 30; ++N)
+	{
+		FHISim::StepThief(Thief, Player, Loot, Events, Dt);
+	}
+	TestTrue(FString::Printf(TEXT("and he cannot pick it straight back up (carry='%s' half a second later)"), *Thief.Carry),
+		Thief.Carry.IsEmpty());
+
+	// but he does come back for it once he has recovered
+	bool bBack = false;
+	for (int32 N = 0; N < static_cast<int32>(20.0f / Dt); ++N)
+	{
+		// The spec pins stagger to zero every frame here, so the regrab delay is the only
+		// thing holding him off rather than the stagger itself.
+		Thief.Stagger = 0.0f;
+		FHISim::StepThief(Thief, Player, Loot, Events, Dt);
+		if (Thief.Carry == TEXT("Laptop"))
+		{
+			bBack = true;
+			break;
+		}
+	}
+	TestTrue(FString::Printf(TEXT("though he does come back for it (carrying '%s' again)"), *Thief.Carry), bBack);
+
+	return true;
+}
+
+// -------------------------------------------------------- the intruder's hands
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHISimHands,
+	"HI.Sim.Hands",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FHISimHands::RunTest(const FString& Parameters)
+{
+	// spec: test_sim.gd banner "the intruder's hands" -- he can put his hands on YOU.
+	FHISim::FHIPlayer Player = FHISim::CreatePlayer();
+	FHISim::FHIThief Thief = FHISim::CreateThief();
+	TArray<FHISim::FHIEvent> Events;
+
+	Player.Pos = FVector2D(0.0f, -11.0f);
+	Thief.Pos = FVector2D(0.0f, -8.0f);       // 3 m away
+	TestFalse(FString::Printf(TEXT("at three metres he does not lay a hand on you (reach is %.1f m)"),
+		FHISim::ThiefShoveRange), FHISim::ThiefShove(Thief, Player, Events));
+
+	Thief.Pos = FVector2D(0.0f, -9.9f);       // 1.1 m
+	const float PPosBefore = Player.Pos.Y;
+	Events.Reset();
+	const bool bGrabbed = FHISim::ThiefShove(Thief, Player, Events);
+	const float KnockedTo = Player.Pos.Y;
+	TestTrue(TEXT("inside reach he does"), bGrabbed);
+	TestTrue(FString::Printf(TEXT("it spoils your aim (stagger=%.2f s)"), Player.Stagger),
+		Player.Stagger >= FHISim::ThiefShoveStagger);
+	TestTrue(FString::Printf(TEXT("and it drives you back (from %.2f m to %.2f m)"), PPosBefore, KnockedTo),
+		KnockedTo < PPosBefore);
+	Events.Reset();
+	TestFalse(FString::Printf(TEXT("but not twice in a row (cooldown is %.1f s)"), FHISim::ThiefShoveCd),
+		FHISim::ThiefShove(Thief, Player, Events));
+
+	// His hands are full when he is carrying, which is also when he is harmless.
+	Thief = FHISim::CreateThief();
+	Player = FHISim::CreatePlayer();
+	Player.Pos = FVector2D(0.0f, -11.0f);
+	Thief.Pos = FVector2D(0.0f, -9.9f);
+	Thief.Carry = TEXT("TV");
+	Events.Reset();
+	TestFalse(FString::Printf(TEXT("a laden intruder has no hands free to grab you (carrying the %s)"), *Thief.Carry),
+		FHISim::ThiefShove(Thief, Player, Events));
+
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS

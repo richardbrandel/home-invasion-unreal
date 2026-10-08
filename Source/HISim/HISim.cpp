@@ -124,6 +124,110 @@ bool FHISim::CanLoadMagazine(const FHIPlayer& Player)
 	return (Found ? *Found : 0) > 0 && Player.Mag < WeaponMag(W);
 }
 
+bool FHISim::Shove(FHIPlayer& Player, FHIThief& Thief, TArray<FHILootItem>& Loot, TArray<FHIEvent>& Events)
+{
+	if (!Thief.bAlive || Thief.bEscaped)
+	{
+		return false;
+	}
+	if (Player.ShoveCd > 0.0f)
+	{
+		return false;
+	}
+	const FVector2D To = Thief.Pos - Player.Pos;
+	const float Dist = To.Size();
+	if (Dist > ShoveRange || Dist < 0.001f)
+	{
+		return false;
+	}
+	// He has to be roughly in FRONT of you; you cannot shove a man behind your own back.
+	// (Sin, Cos) and NOT (Cos, Sin): the same forward convention the movement code uses,
+	// where yaw 0 faces +Z. The other way round puts the arc ninety degrees out and the
+	// shove lands on people standing beside you.
+	const FVector2D Dir = To / Dist;
+	const FVector2D Facing(FMath::Sin(Player.Yaw), FMath::Cos(Player.Yaw));
+	if (FVector2D::DotProduct(Facing, Dir) < FMath::Cos(ShoveArc))
+	{
+		return false;
+	}
+
+	Player.ShoveCd = ShoveCd;
+	Thief.Stagger = FMath::Max(Thief.Stagger, ShoveStagger);
+	Thief.Aim = 0.0f;
+	Thief.Fear = FMath::Min(Thief.Fear + ShoveFear, 8.0f);
+	Thief.Pos = ResolveCircle(Thief.Pos + Dir * ShovePush, ThiefRadius);
+	Thief.Route.Empty();
+	// He has to stoop for whatever he just dropped, or he simply picks it straight back up.
+	Thief.Regrab = RegrabTime;
+
+	// Read the label BEFORE the drop clears it, because the event reports what was lost.
+	const FString Dropped = Thief.Carry;
+	DropCarried(Thief, Loot, Events);
+	FHIEvent Ev;
+	Ev.Type = TEXT("shoved");
+	// FHIEvent carries one string payload; Godot's "shoved" calls it `dropped` and its
+	// "dropped" event calls the same value `label`. One field serves both.
+	Ev.Label = Dropped;
+	Events.Add(Ev);
+	return true;
+}
+
+void FHISim::DropCarried(FHIThief& Thief, TArray<FHILootItem>& Loot, TArray<FHIEvent>& Events)
+{
+	const FString Dropped = Thief.Carry;
+	if (Dropped.IsEmpty())
+	{
+		return;
+	}
+	for (FHILootItem& L : Loot)
+	{
+		if (L.Label == Dropped)
+		{
+			// Back into the world exactly where he stood, and now KNOWN -- he has seen it.
+			L.bTaken = false;
+			L.bDelivered = false;
+			L.Pos = Thief.Pos;
+			L.bKnown = true;
+		}
+	}
+	Thief.Carry.Empty();
+	Thief.Regrab = RegrabTime;
+	FHIEvent Ev;
+	Ev.Type = TEXT("dropped");
+	Ev.Label = Dropped;
+	Events.Add(Ev);
+}
+
+bool FHISim::ThiefShove(FHIThief& Thief, FHIPlayer& Player, TArray<FHIEvent>& Events)
+{
+	if (!Thief.bAlive || Thief.bEscaped)
+	{
+		return false;
+	}
+	// His hands are full, so he cannot grab you -- which is also when he is harmless.
+	if (!Thief.Carry.IsEmpty())
+	{
+		return false;
+	}
+	if (Thief.ShoveCd > 0.0f)
+	{
+		return false;
+	}
+	const FVector2D To = Player.Pos - Thief.Pos;
+	const float Dist = To.Size();
+	if (Dist > ThiefShoveRange || Dist < 0.001f)
+	{
+		return false;
+	}
+	Thief.ShoveCd = ThiefShoveCd;
+	Player.Stagger = FMath::Max(Player.Stagger, ThiefShoveStagger);
+	Player.Pos = ResolveCircle(Player.Pos + To / Dist * ThiefShovePush, PlayerRadius);
+	FHIEvent Ev;
+	Ev.Type = TEXT("thiefShove");
+	Events.Add(Ev);
+	return true;
+}
+
 FHISim::FHIThief FHISim::CreateThief()
 {
 	// sim.gd create_thief(). Every default lives on FHIThief's member initialisers, which
