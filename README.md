@@ -76,10 +76,35 @@ modes are misleading rather than obvious. Accumulated, measured, in
   rebuild reproduces the old error byte-for-byte. Use `rsync` or `tar xzmf`.
 - **Coordinate convention.** `FVector2D.X` is world X and `.Y` is world **Z** — the sim is
   a top-down XZ plane, matching Godot's `Vector2`. Height is a renderer concept.
+- **`FMath` has no `MoveToward`** — neither spelling (`MoveToward` nor `MoveTowards`) exists,
+  so Godot's `move_toward` is written out by hand. Expect other small Godot math helpers to
+  be missing rather than assume an engine equivalent.
+- **Proving a test assertion is actually live, not silently absent.** `TestTrue` only logs on
+  *failure*, so a passing assertion leaves no trace in the run log. And UE stores `TEXT()`
+  literals as **UTF-16** on Linux, so `grep -a "assertion text" libUnrealEditor-HISim.so`
+  returns 0 and looks exactly like the test was never compiled in. Measured — that false
+  negative cost a detour. Use:
+
+  ```sh
+  strings -e l /data/projects/HIUnreal/Binaries/Linux/libUnrealEditor-HISim.so | grep -F "assertion text"
+  ```
+
+  Prefer an assertion that can only hold for real output (e.g. `Poly.Num() > 20`) over one
+  that is true by construction.
 
 ## Status
 
-The sim core builds and `HI.Sim` passes 4/4 (`WorldData`, `Geometry`, `Separation`,
-`Navigation`). That is a small fraction of the ~100-assertion specification: combat,
-theft, the AI state machine, the clock, the shove and search behaviour are all still
-Godot-only.
+`HI.Sim` passes **6/6** on ubuntu-dev:
+
+| Test | Covers |
+|---|---|
+| `HI.Sim.WorldData` | the wall/nav/loot constants against `sim.gd` |
+| `HI.Sim.Geometry` | `seg_rect`, `rayCast`, `canSee`, thief FOV, `visibilityPolygon` |
+| `HI.Sim.Separation` | N-body separation, the no-overlap contract, steer-around |
+| `HI.Sim.Navigation` | routes, nearest-node snapping, degenerate routes |
+| `HI.Sim.Entities` | the player/thief model and the ammunition rules |
+| `HI.Sim.Momentum` | acceleration builds speed; coasting decays it |
+
+The spatial half of `sim.gd` (lines 1-628) is complete. The **entity/game model**
+(lines 629-1142) is the remaining body of work: combat, aiming, wounds, fear, searching,
+the police clock, the shove, carrying, and multiple intruders are all still Godot-only.

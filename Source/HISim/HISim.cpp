@@ -520,6 +520,52 @@ bool FHISim::ThiefSees(const FVector2D& ThiefPos, float ThiefYaw, const FVector2
 		<= FMath::DegreesToRadians(ThiefFovDeg * 0.5f);
 }
 
+TArray<FVector2D> FHISim::VisibilityPolygon(const FVector2D& From, float MaxRange)
+{
+	// The +/-1e-4 neighbours of each corner angle are the whole trick: the centre ray grazes
+	// the corner exactly, and its two neighbours land just inside and just outside, so the
+	// ring has vertices on both sides of every occluder edge instead of one sample slipping
+	// through the seam between two solids.
+	TArray<float> Angles;
+	Angles.Reserve(Solids().Num() * 12 + 64);
+
+	for (const FBox2D& S : Solids())
+	{
+		const FVector2D Corners[4] = {
+			FVector2D(S.Min.X, S.Min.Y),
+			FVector2D(S.Max.X, S.Min.Y),
+			FVector2D(S.Max.X, S.Max.Y),
+			FVector2D(S.Min.X, S.Max.Y),
+		};
+		for (const FVector2D& C : Corners)
+		{
+			// Godot's Vector2.angle() is atan2(y, x); FMath::Atan2 takes (Y, X) too.
+			const float A = FMath::Atan2(C.Y - From.Y, C.X - From.X);
+			Angles.Add(A - 1e-4f);
+			Angles.Add(A);
+			Angles.Add(A + 1e-4f);
+		}
+	}
+
+	// 64 even samples so open ground is a smooth arc rather than a fan of corner rays.
+	// Godot's TAU is 2*PI. UE_PI is used rather than PI, which is a deprecated macro alias.
+	for (int32 Idx = 0; Idx < 64; ++Idx)
+	{
+		Angles.Add(static_cast<float>(Idx) / 64.0f * (2.0f * UE_PI));
+	}
+
+	Angles.Sort();
+
+	TArray<FVector2D> Points;
+	Points.Reserve(Angles.Num());
+	for (const float A : Angles)
+	{
+		const FVector2D Dir(FMath::Cos(A), FMath::Sin(A));
+		Points.Add(From + Dir * RayCastPx(From, Dir, MaxRange));
+	}
+	return Points;
+}
+
 FVector2D FHISim::ResolveCircle(const FVector2D& Pos, float Radius)
 {
 	return ResolveCircle(Pos, Radius, Solids());

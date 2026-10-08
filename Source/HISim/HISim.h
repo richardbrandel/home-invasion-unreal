@@ -128,6 +128,12 @@ struct HISIM_API FHISim
 	static bool CanSee(const FVector2D& A, const FVector2D& B, float MaxRange = 28.0f);
 	/** The intruder's perception: sight PLUS a 200-degree field of view. */
 	static bool ThiefSees(const FVector2D& ThiefPos, float ThiefYaw, const FVector2D& PlayerPos);
+	/**
+	 * Angular samples cast outward from From, one point per direction, returned in ascending
+	 * angle order. Not a true angular sweep: Godot casts at every solid corner (+/-1e-4 either
+	 * side of it) plus 64 even steps, and that ring is what the minimap already consumes.
+	 */
+	static TArray<FVector2D> VisibilityPolygon(const FVector2D& From, float MaxRange = 28.0f);
 
 	static FVector2D ResolveCircle(const FVector2D& Pos, float Radius);
 	static FVector2D ResolveCircle(const FVector2D& Pos, float Radius, const TArray<FBox2D>& Solids);

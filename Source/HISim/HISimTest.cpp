@@ -140,6 +140,51 @@ bool FHISimGeometry::RunTest(const FString& Parameters)
 	TestTrue(TEXT("thief sees within the 200-degree cone"),
 		FHISim::ThiefSees(Eye, YawForward, Side));
 
+	// ---- visibility polygon: every vertex in range, none inside a solid.
+	// spec: test_sim.gd banner "visibility + minimap fog of war",
+	// "visibility polygon stays in range and out of solids".
+	{
+		const FVector2D PolyEye(0.0f, -18.0f);
+		const float PolyRange = 28.0f;
+		const TArray<FVector2D> Poly = FHISim::VisibilityPolygon(PolyEye, PolyRange);
+
+		float MaxD = 0.0f;
+		FString BadPoint;
+		for (const FVector2D& P : Poly)
+		{
+			MaxD = FMath::Max(MaxD, FVector2D::Distance(P, PolyEye));
+			for (const FBox2D& S : FHISim::Solids())
+			{
+				// Strictly inside, matching the spec's 1e-6 insets: a vertex resting on an
+				// edge is correct and must not be reported as a failure.
+				if (P.X > S.Min.X + 1e-6f && P.X < S.Max.X - 1e-6f
+					&& P.Y > S.Min.Y + 1e-6f && P.Y < S.Max.Y - 1e-6f)
+				{
+					BadPoint = FString::Printf(TEXT("vertex inside a solid: (%.3f, %.3f)"), P.X, P.Y);
+				}
+			}
+		}
+		TestTrue(FString::Printf(TEXT("visibility polygon stays in range and out of solids (%d points, max reach %.1f m)"),
+			Poly.Num(), MaxD),
+			Poly.Num() > 20 && BadPoint.IsEmpty() && MaxD <= PolyRange + 0.01f);
+	}
+
+	// ---- polygon cost. The spec budgets 4 ms per polygon; the port is expected to be far
+	// cheaper, so a failure here means the ray loop regressed, not that the box is slow.
+	{
+		const double Start = FPlatformTime::Seconds();
+		constexpr int32 Samples = 200;
+		for (int32 Idx = 0; Idx < Samples; ++Idx)
+		{
+			// static_cast: FMath::Sin is overloaded for float and double, so an int32
+			// argument is ambiguous rather than implicitly converted.
+			FHISim::VisibilityPolygon(FVector2D(FMath::Sin(static_cast<float>(Idx)) * 3.0f, -11.5f), 30.0f);
+		}
+		const double MsPerPolygon = (FPlatformTime::Seconds() - Start) * 1000.0 / Samples;
+		TestTrue(FString::Printf(TEXT("visibility polygon is cheap enough for every frame (%.3f ms per polygon)"),
+			MsPerPolygon), MsPerPolygon < 4.0);
+	}
+
 	return true;
 }
 
