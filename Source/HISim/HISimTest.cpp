@@ -280,4 +280,145 @@ bool FHISimNavigation::RunTest(const FString& Parameters)
 	return true;
 }
 
+// ---------------------------------------------------------------------- entities
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHISimEntities,
+	"HI.Sim.Entities",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FHISimEntities::RunTest(const FString& Parameters)
+{
+	// Ported from the state the "ammunition" banner sets up with (test_sim.gd 392-431):
+	// the player's starting magazine and reserve, and the two weapons' magazines being
+	// separate records rather than one shared number.
+	//
+	// The Godot assertions this pass deliberately does NOT carry are the ones that need
+	// the not-yet-ported banners: `Sim.shove` / `Sim.thief_shove` (the shove and the
+	// intruder's hands), `Sim.damage_thief` / `Sim.damage_player` (damage),
+	// `alert_thief` (gunfire drives him off), and `create_intruders` / `step_intruders`
+	// (multiple intruders).
+
+	// ---- ammunition
+	FHISim::FHIPlayer Player = FHISim::CreatePlayer();
+	// "he starts with a part-full magazine and a reserve": mag 12, reserve 36. `12` is
+	// asserted literally in test_sim.gd; the reserve is checked against the table.
+	TestEqual(TEXT("the player starts with a part-full magazine"), Player.Mag, 12);
+	TestEqual(TEXT("and a reserve"), Player.Reserve[TEXT("pistol")], 36);
+	TestEqual(TEXT("the reserve constant is the table's, not the test's"),
+		Player.Reserve[TEXT("pistol")], FHISim::ReserveFor(TEXT("pistol")));
+	// Godot: `player["mags"] = {"pistol": 12, "shotgun": 6}`.
+	TestEqual(TEXT("each weapon starts with its own magazine"), Player.Mags[TEXT("pistol")], 12);
+	TestEqual(TEXT("the shotgun's magazine is its own"), Player.Mags[TEXT("shotgun")], 6);
+
+	// "a reload comes out of the reserve and nowhere else"
+	Player.Mag = 0;
+	const bool bMoved = FHISim::LoadMagazine(Player);
+	TestTrue(TEXT("a reload comes out of the reserve and nowhere else"), bMoved);
+	TestEqual(TEXT("and the magazine is full again"), Player.Mag, 12);
+	TestEqual(TEXT("and the reserve is smaller by exactly what was loaded"),
+		Player.Reserve[TEXT("pistol")], 24);
+
+	// "a partial reload takes only the shortfall"
+	Player.Mag = 9;
+	FHISim::LoadMagazine(Player);
+	TestEqual(TEXT("a partial reload fills the magazine"), Player.Mag, 12);
+	TestEqual(TEXT("and takes only the shortfall"), Player.Reserve[TEXT("pistol")], 21);
+
+	// "the last rounds in the reserve still load"
+	Player.Reserve.Add(TEXT("pistol"), 2);
+	Player.Mag = 0;
+	FHISim::LoadMagazine(Player);
+	TestEqual(TEXT("the last rounds in the reserve still load"), Player.Mag, 2);
+
+	// "but an empty reserve loads nothing at all"
+	Player.Mag = 0;
+	const bool bEmptyReload = FHISim::LoadMagazine(Player);
+	TestFalse(TEXT("but an empty reserve loads nothing at all"), bEmptyReload);
+	TestEqual(TEXT("and the magazine stays empty"), Player.Mag, 0);
+	TestFalse(TEXT("and he is correctly told he cannot reload"),
+		FHISim::CanLoadMagazine(Player));
+
+	// "the two weapons do not share a magazine". test_sim.gd performs the weapon switch
+	// by hand (mag = 3 -> weapon = shotgun -> mag = mags["shotgun"]), so the switch itself
+	// is NOT ported here: it asserts the magazine records survive it. The shotgun's
+	// capacity is taken from the WEAPONS table rather than hard-coded, which is the
+	// property test_sim.gd's literal `6` is checking.
+	Player = FHISim::CreatePlayer();
+	Player.Mag = 3;
+	Player.Mags.Add(TEXT("pistol"), 3);
+	Player.Weapon = TEXT("shotgun");
+	Player.Mag = Player.Mags[TEXT("shotgun")];
+	TestEqual(TEXT("the two weapons do not share a magazine"),
+		Player.Mag, FHISim::WeaponMag(TEXT("shotgun")));
+	TestEqual(TEXT("and the pistol's magazine is remembered as it was"),
+		Player.Mags[TEXT("pistol")], 3);
+	TestTrue(TEXT("the two capacities genuinely differ, so that check can fail"),
+		FHISim::WeaponMag(TEXT("pistol")) != FHISim::WeaponMag(TEXT("shotgun")));
+
+	return true;
+}
+
+// ---------------------------------------------------------------------- momentum
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHISimMomentum,
+	"HI.Sim.Momentum",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FHISimMomentum::RunTest(const FString& Parameters)
+{
+	// Ported from the "momentum" banner (test_sim.gd 358-388): acceleration builds speed
+	// and coasting decays it rather than stopping dead. This is the first test that drives
+	// step_thief, so it is also what proves the tick function is wired up at all.
+	//
+	// Two of the banner's assertions are NOT ported: neither is about momentum, and both
+	// need banners this pass excludes.
+	//   * `speed_scale` is CARRY_SPEED[carry], which is only observable while carrying,
+	//     and the carry/deliver leg it depends on lives in the theft behaviour.
+	//   * the thief's arm's-length grab (`thief_shove`), the police clock and damage are
+	//     all excluded by the task's scope.
+
+	const float Dt = 1.0f / 60.0f;
+	FHISim::FHIPlayer Player = FHISim::CreatePlayer();
+	FHISim::FHIThief Thief = FHISim::CreateThief();
+	TArray<FHISim::FHILootItem> Loot = FHISim::CreateLoot();
+	TArray<FHISim::FHIEvent> Events;
+
+	Thief.Pos = FVector2D(0.0f, 2.0f);
+	Thief.Prev = Thief.Pos;
+	// Past the threshold hesitation, or he simply stands there for the first two seconds.
+	Thief.Think = 0.0f;
+
+	TArray<float> Speeds;
+	for (int32 Frame = 0; Frame < 30; ++Frame)
+	{
+		FHISim::StepThief(Thief, Player, Loot, Events, Dt);
+		Speeds.Add(Thief.Speed);
+	}
+
+	TestTrue(FString::Printf(TEXT("he starts from a standstill rather than at full pace (first frame %.3f m/s)"),
+		Speeds[0]), Speeds[0] < 0.2f);
+	TestTrue(FString::Printf(TEXT("and builds speed instead of snapping to it (%.3f -> %.3f m/s over 10 frames, full pace %.2f)"),
+		Speeds[0], Speeds[9], FHISim::ThiefSpeed),
+		Speeds[9] > Speeds[0] && Speeds[9] < FHISim::ThiefSpeed);
+
+	// Now take his route away and watch him coast to a halt. `halted > 0` is the whole
+	// assertion: a body that stopped dead would read 0 on the first frame.
+	const float Peak = Thief.Speed;
+	Thief.Route.Empty();
+	int32 Halted = -1;
+	for (int32 Frame = 0; Frame < 60; ++Frame)
+	{
+		FHISim::StepThief(Thief, Player, Loot, Events, Dt);
+		if (Thief.Speed <= 0.0f)
+		{
+			Halted = Frame;
+			break;
+		}
+	}
+	TestTrue(FString::Printf(TEXT("and coasts to a halt rather than stopping dead (halted after %d frames from %.2f m/s)"),
+		Halted, Peak), Halted > 0);
+
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS

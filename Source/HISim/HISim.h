@@ -99,6 +99,25 @@ struct HISIM_API FHISim
 	/** Total rounds owned for the round, magazine included. */
 	static int32 ReserveFor(const FString& Weapon);
 
+	/**
+	 * One entry of sim.gd's WEAPONS dictionary. `Mag` is the magazine CAPACITY, not the
+	 * rounds currently in it -- the current count lives on the entity (see FHIPlayer).
+	 */
+	struct FHIWeapon
+	{
+		FString Name;
+		float Damage = 0.0f;
+		float Cd = 0.0f;
+		int32 Mag = 0;
+		float Reload = 0.0f;
+		int32 Pellets = 1;
+		float Spread = 0.0f;
+	};
+	/** sim.gd WEAPONS: {"pistol": {...}, "shotgun": {...}}. An unknown key is a no-weapon. */
+	static FHIWeapon Weapon(const FString& Key);
+	/** Magazine CAPACITY for a weapon key -- WEAPONS[key]["mag"], against which reloads fill. */
+	static int32 WeaponMag(const FString& Key);
+
 	// ------------------------------------------------------------------ geometry
 	/** Liang-Barsky segment vs axis-aligned rect, in XZ. */
 	static bool SegRect(const FVector2D& A, const FVector2D& B, const FBox2D& R, float RRadius = 0.0f);
@@ -120,7 +139,158 @@ struct HISIM_API FHISim
 	static TArray<FVector2D> SeparateAll(const TArray<FVector2D>& Positions, const TArray<float>& Radii);
 	static float SteerAround(float A, const FVector2D& From, const FVector2D& PlayerPos);
 
-	// ------------------------------------------------------------------ navigation
+	// ------------------------------------------------------------------ entities
+	//
+	// In Godot both of these are untyped `Dictionary`s, with a different key set for each
+	// and no check that a key exists. `create_thief()` omits keys the code later reads
+	// (`speed_scale`, `escaped` via .get) and `shove()` writes two keys (`aim`, `fear`)
+	// that `create_thief()` does set but `create_player()` does not. C++ cannot model
+	// "absent key with a default", so every key either constructor touches is a declared
+	// member with its Godot default, and the `.get(key, default)` call sites become plain
+	// member reads. Members are named after the Godot keys in PascalCase so a diff against
+	// sim.gd stays readable.
+
+	/**
+	 * sim.gd's `loot` entries: {"pos", "label", "node", "taken", "delivered", "known"}.
+	 * Held by value in an array, exactly as Godot passes it around, so a function that
+	 * mutates it must take the array by reference.
+	 */
+	struct FHILootItem
+	{
+		FVector2D Pos = FVector2D::ZeroVector;
+		FString Label;
+		FString Node;
+		bool bTaken = false;
+		bool bDelivered = false;
+		/** False until he has stood in the room it is in: he does not know the layout. */
+		bool bKnown = false;
+	};
+
+	/** sim.gd create_player(), key for key. */
+	struct FHIPlayer
+	{
+		FVector2D Pos = FVector2D(0.0f, -10.6f);
+		float Yaw = 0.0f;
+		float Pitch = 0.24f;
+		float Hp = ThiefMaxHp;
+		bool bAlive = true;
+		FString Weapon = TEXT("pistol");
+		bool bCrouching = false;
+		bool bSprinting = false;
+		FVector2D Vel = FVector2D::ZeroVector;
+		/** Rounds in the magazine RIGHT NOW. Kept in step with Mags[Weapon]. */
+		int32 Mag = 12;
+		/** Rounds in the magazine of each weapon he is not currently holding. Godot's `mags`. */
+		TMap<FString, int32> Mags;
+		float ShoveCd = 0.0f;
+		float Stagger = 0.0f;
+		/** Rounds left in the bag, per weapon. Godot's `reserve`. A COPY of RESERVE. */
+		TMap<FString, int32> Reserve;
+		/** The firearm's own cooldown between shots, in seconds. */
+		float Cd = 0.0f;
+		/** Seconds left on a reload; 0 means not reloading. */
+		float Reloading = 0.0f;
+	};
+
+	/** sim.gd create_thief(), key for key. */
+	struct FHIThief
+	{
+		FVector2D Pos = Drop + FVector2D(0.0f, 0.5f);
+		FVector2D Prev = Drop + FVector2D(0.0f, 0.5f);
+		/** yaw PI faces -Z, i.e. back towards the house from the van. */
+		float Yaw = 3.14159265358979f;
+		float Hp = float(ThiefHealth);
+		bool bAlive = true;
+		int32 Mag = ThiefMag;
+		float Cd = 1.2f;
+		float Reloading = 0.0f;
+		float Think = 2.0f;
+		FString Carry;
+		FString Target;
+		TArray<FVector2D> Route;
+		FString Mode = TEXT("hunt");
+		float StuckT = 0.0f;
+		float Aim = 0.0f;
+		float Stagger = 0.0f;
+		int32 Hits = 0;
+		float Fear = 0.0f;
+		bool bEscaped = false;
+		FVector2D LastSeen = FVector2D::ZeroVector;
+		float Speed = 0.0f;
+		TArray<FString> Searched;
+		/** -1 means nobody has called the police yet. */
+		float Alarm = -1.0f;
+		bool bSirens = false;
+		float Regrab = 0.0f;
+		float ShoveCd = 0.0f;
+		/** Body identity for event attribution. Godot's `id`. */
+		int32 Id = 0;
+		/** Distance he is TRYING to cover this frame; the stuck detector compares against it. */
+		float Step = 0.0f;
+		/**
+		 * Not in `create_thief()`: the movement code writes `speed_scale` every frame from
+		 * CARRY_SPEED, and Godot reads it back with `.get("speed_scale", 1.0)`. Declared
+		 * with the default that read falls back to.
+		 */
+		float SpeedScale = 1.0f;
+	};
+
+	/** A drained-per-frame event. Godot raises `{"type": ...}` dictionaries. */
+	struct FHIEvent
+	{
+		FString Type;
+		/** Attribution; INDEX_NONE until step_intruders stamps it. */
+		int32 Id = INDEX_NONE;
+		/** `label` for grabbed/dropped/delivered, `carried` for escaped. */
+		FString Label;
+		/** Shove/alert payloads: spread, dmg, dropped. */
+		float Spread = 0.0f;
+		float Damage = 0.0f;
+	};
+
+	static FHIPlayer CreatePlayer();
+	/**
+	 * sim.gd create_thief(), key for key. FHIThief's member initialisers already carry
+	 * every default from that literal, so this exists so callers name what they are
+	 * building and so the defaults have one place to change. Note it does NOT stagger
+	 * the spawn point -- that is create_intruders()'s job, for when there is more than one.
+	 */
+	static FHIThief CreateThief();
+	/** The three loot spots, all unknown, none taken, none delivered. */
+	static TArray<FHILootItem> CreateLoot();
+	/** Delivered is what empties the round, so this counts what is NOT delivered. */
+	static int32 Remaining(const TArray<FHILootItem>& Loot);
+
+	/**
+	 * Load the current weapon's magazine out of the reserve. True if anything moved.
+	 *
+	 * In the sim rather than the game layer so it can be tested headlessly: the reserve is
+	 * a gameplay rule, and the game layer is not reachable from the test harness.
+	 */
+	static bool LoadMagazine(FHIPlayer& Player);
+	static bool CanLoadMagazine(const FHIPlayer& Player);
+
+	// ------------------------------------------------------------------ thief AI
+	/**
+	 * One frame of the intruder. Returns true when he currently has line of sight to the
+	 * homeowner.
+	 *
+	 * `separate` is false only when called from step_intruders, which does the pairwise
+	 * separation itself -- running the per-body version three times would let each thief
+	 * shove the player in turn. Default true keeps the single-intruder path unchanged.
+	 *
+	 * NOT YET PORTED, and each is a deliberate hole rather than an oversight:
+	 * `thief_shove` (the arm's-length grab), the police-clock event payload for the
+	 * game layer, and the shove/regrab interaction that depends on it. Every branch that
+	 * runs without them is ported exactly.
+	 */
+	static bool StepThief(FHIThief& Thief, FHIPlayer& Player, TArray<FHILootItem>& Loot,
+		TArray<FHIEvent>& Events, float Dt, bool bSeparate = true);
+
+	/** Move `Current` toward `Target` by at most `MaxDelta`. Godot's move_toward(). */
+	static float MoveToward(float Current, float Target, float MaxDelta);
+
+	// ------------------------------------------------------------------ pathing
 	static FString NearestNode(const FVector2D& P);
 	static TArray<FString> PathNodes(const FString& FromKey, const FString& ToKey);
 	static TArray<FVector2D> RouteTo(const FString& FromKey, const FString& ToKey);

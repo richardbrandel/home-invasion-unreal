@@ -26,6 +26,160 @@ int32 FHISim::ReserveFor(const FString& Weapon)
 	return 0;
 }
 
+FHISim::FHIWeapon FHISim::Weapon(const FString& Key)
+{
+	// sim.gd WEAPONS. `mag` here is the magazine CAPACITY; the rounds currently in the
+	// magazine are entity state (FHIPlayer::Mag), which is why `load_magazine` fills
+	// against this number and why the two must not be confused.
+	if (Key == TEXT("pistol"))
+	{
+		FHIWeapon W;
+		W.Name = TEXT("Pistol");
+		W.Damage = 26.0f;
+		W.Cd = 0.24f;
+		W.Mag = 12;
+		W.Reload = 1.15f;
+		W.Pellets = 1;
+		W.Spread = 0.02f;   // radians
+		return W;
+	}
+	if (Key == TEXT("shotgun"))
+	{
+		FHIWeapon W;
+		W.Name = TEXT("Shotgun");
+		W.Damage = 13.0f;
+		W.Cd = 0.85f;
+		W.Mag = 6;
+		W.Reload = 1.60f;
+		W.Pellets = 9;
+		W.Spread = 0.15f;   // radians
+		return W;
+	}
+	// Unknown key: Godot would raise on WEAPONS[w] and crash. Returning a zeroed weapon
+	// keeps an unported weapon from taking the whole test run down with it.
+	return FHIWeapon();
+}
+
+int32 FHISim::WeaponMag(const FString& Key)
+{
+	return Weapon(Key).Mag;
+}
+
+// ---------------------------------------------------------------------- entities
+
+FHISim::FHIPlayer FHISim::CreatePlayer()
+{
+	FHIPlayer P;
+	P.Pos = FVector2D(0.0f, -10.6f);
+	P.Yaw = 0.0f;
+	P.Pitch = 0.24f;
+	P.Hp = ThiefMaxHp;
+	P.bAlive = true;
+	P.Weapon = TEXT("pistol");
+	P.bCrouching = false;
+	P.bSprinting = false;
+	P.Vel = FVector2D::ZeroVector;
+	// Godot starts with a part-full pistol magazine and the OTHER weapon's magazine at
+	// full, which is what `mags` records. Both capacities come from WEAPONS.
+	P.Mag = 12;
+	P.Mags.Add(TEXT("pistol"), 12);
+	P.Mags.Add(TEXT("shotgun"), 6);
+	P.ShoveCd = 0.0f;
+	P.Stagger = 0.0f;
+	// RESERVE is a constant dictionary in Godot and `.duplicate()` is what stops one
+	// player spending another's ammunition. The C++ equivalent is a fresh copy per player.
+	P.Reserve.Add(TEXT("pistol"), ReserveFor(TEXT("pistol")));
+	P.Reserve.Add(TEXT("shotgun"), ReserveFor(TEXT("shotgun")));
+	P.Cd = 0.0f;
+	P.Reloading = 0.0f;
+	return P;
+}
+
+bool FHISim::LoadMagazine(FHIPlayer& Player)
+{
+	// The reserve is sorted by WEAPON, not by magazine: `mag` is the magazine currently
+	// held and `reserve[weapon]` is the bag it is filled from. Nothing here touches the
+	// other weapon's magazine, which is the point of `mags`.
+	const FString W = Player.Weapon;
+	const int32 Want = WeaponMag(W);
+	const int32* Found = Player.Reserve.Find(W);
+	const int32 Have = Found ? *Found : 0;
+	if (Have <= 0 || Player.Mag >= Want)
+	{
+		return false;
+	}
+	const int32 Take = FMath::Min(Want - Player.Mag, Have);
+	Player.Mag += Take;
+	Player.Reserve.Add(W, Have - Take);
+	// The weapon's own magazine record follows the held magazine, so switching away and
+	// back does not conjure rounds.
+	Player.Mags.Add(W, Player.Mag);
+	return true;
+}
+
+bool FHISim::CanLoadMagazine(const FHIPlayer& Player)
+{
+	const FString W = Player.Weapon;
+	const int32* Found = Player.Reserve.Find(W);
+	return (Found ? *Found : 0) > 0 && Player.Mag < WeaponMag(W);
+}
+
+FHISim::FHIThief FHISim::CreateThief()
+{
+	// sim.gd create_thief(). Every default lives on FHIThief's member initialisers, which
+	// mirror that literal key for key, so nothing here needs to override them. It does NOT
+	// stagger the spawn point -- that is create_intruders()'s job, for more than one body.
+	return FHIThief();
+}
+
+TArray<FHISim::FHILootItem> FHISim::CreateLoot()
+{
+	TArray<FHILootItem> Out;
+	const TArray<FVector2D>& Poses = LootPositions();
+	const TArray<FString>& Labels = LootLabels();
+	const TArray<FString>& Nodes = LootNodes();
+	for (int32 Idx = 0; Idx < Poses.Num(); ++Idx)
+	{
+		FHILootItem L;
+		L.Pos = Poses[Idx];
+		L.Label = Labels[Idx];
+		L.Node = Nodes[Idx];
+		L.bTaken = false;
+		L.bDelivered = false;
+		// He does not start knowing where anything is; searching is what reveals it.
+		L.bKnown = false;
+		Out.Add(L);
+	}
+	return Out;
+}
+
+int32 FHISim::Remaining(const TArray<FHILootItem>& Loot)
+{
+	int32 N = 0;
+	for (const FHILootItem& L : Loot)
+	{
+		if (!L.bDelivered)
+		{
+			++N;
+		}
+	}
+	return N;
+}
+
+float FHISim::MoveToward(float Current, float Target, float MaxDelta)
+{
+	// Godot's move_toward() has no Unreal equivalent -- FMath exposes neither MoveToward nor
+	// MoveTowards -- so it is written out. Snapping to Target when the remaining distance is
+	// within MaxDelta is what lets a coasting body come to rest exactly on zero rather than
+	// oscillating about it by a fraction of a step.
+	const float Diff = Target - Current;
+	if (FMath::Abs(Diff) <= MaxDelta)
+	{
+		return Target;
+	}
+	return Current + FMath::Sign(Diff) * MaxDelta;
+}
+
 // ---------------------------------------------------------------------- world data
 
 const TArray<FBox2D>& FHISim::Walls()
@@ -604,6 +758,396 @@ TArray<FVector2D> FHISim::RouteTo(const FString& FromKey, const FString& ToKey)
 		}
 	}
 	return Out;
+}
+
+// ---------------------------------------------------------------------- thief AI
+
+namespace
+{
+	/**
+	 * sim.gd `route_to(from_key, to_key)` with the final loot position appended:
+	 *
+	 *     thief["route"] = route_to(nearest_node(tpos), best["node"])
+	 *     (thief["route"] as Array).append(best["pos"])
+	 *
+	 * The nav graph only reaches a ROOM, and the item sits beside the furniture, so the
+	 * last leg is a straight append rather than a node.
+	 */
+	TArray<FVector2D> RouteToWithAppend(const FString& FromKey, const FString& ToKey,
+		const FVector2D& AppendPos)
+	{
+		TArray<FVector2D> Out = FHISim::RouteTo(FromKey, ToKey);
+		Out.Add(AppendPos);
+		return Out;
+	}
+}
+
+bool FHISim::StepThief(FHIThief& Thief, FHIPlayer& Player, TArray<FHILootItem>& Loot,
+	TArray<FHIEvent>& Events, float Dt, bool bSeparate)
+{
+	if (!Thief.bAlive)
+	{
+		return false;
+	}
+
+	// `prev` is where he stood at the START of this frame and must be captured before
+	// anything moves him. The stuck detector measures travel against it. It is NOT
+	// written again at the end: it belongs to whoever owns body resolution -- this
+	// function when `separate` is true, and step_intruders otherwise.
+	Thief.Prev = Thief.Pos;
+
+	Thief.Cd -= Dt;
+	if (Thief.Reloading > 0.0f)
+	{
+		Thief.Reloading -= Dt;
+	}
+	Thief.Regrab = FMath::Max(0.0f, Thief.Regrab - Dt);
+	Thief.ShoveCd = FMath::Max(0.0f, Thief.ShoveCd - Dt);
+	if (Thief.bEscaped)
+	{
+		return false;
+	}
+
+	FVector2D TPos = Thief.Pos;
+	FVector2D PPos = Player.Pos;
+
+	// Fear settles when nothing is happening. It does not un-decide a decision already
+	// taken, which is why `mode == "flee"` below is sticky.
+	Thief.Fear = FMath::Max(0.0f, Thief.Fear - FearDecay * Dt);
+
+	// The clock runs only once somebody has been called, and a gunshot is what calls.
+	if (Thief.Alarm >= 0.0f)
+	{
+		Thief.Alarm += Dt;
+		if (Thief.Alarm >= PoliceTime)
+		{
+			if (!Thief.bSirens)
+			{
+				Thief.bSirens = true;
+				FHIEvent Ev;
+				Ev.Type = TEXT("sirens");
+				Events.Add(Ev);
+			}
+			// He drops everything and runs, exactly as if he had been shot at.
+			Thief.Fear = FMath::Max(Thief.Fear, FearFlee);
+		}
+	}
+
+	// At arm's length he grabs rather than shoots, and that check comes before the fear
+	// branch: a man already close enough to touch you does not first decide whether to
+	// run. NOT YET PORTED (banner "the intruder's hands"), so no grab happens here yet.
+
+	// ---- decide
+	if (Thief.Mode == TEXT("flee") || Thief.Fear >= FearFlee)
+	{
+		Thief.Mode = TEXT("flee");
+		if (Thief.Route.Num() == 0)
+		{
+			Thief.Route = RouteTo(NearestNode(TPos), TEXT("van"));
+		}
+		// Gone once the route to the van is finished AND he is clear of the house. The
+		// test is the route emptying, not a distance: the "van" node sits at z 5.0 and
+		// the van model at 7.0, so a distance test never fires and he stands in the
+		// drive forever.
+		if (Thief.Route.Num() == 0 && TPos.Y > House.Max.Y + 1.0f)
+		{
+			Thief.bEscaped = true;
+			FHIEvent Ev;
+			Ev.Type = TEXT("escaped");
+			Ev.Label = Thief.Carry;
+			Events.Add(Ev);
+		}
+	}
+	else if (!Thief.Carry.IsEmpty())
+	{
+		Thief.Mode = TEXT("carry");
+		if (Thief.Route.Num() == 0)
+		{
+			Thief.Route = RouteTo(NearestNode(TPos), TEXT("van"));
+		}
+		if (FVector2D::Distance(TPos, Drop) < DropRange)
+		{
+			for (FHILootItem& L : Loot)
+			{
+				if (L.Label == Thief.Carry)
+				{
+					L.bDelivered = true;
+				}
+			}
+			FHIEvent Ev;
+			Ev.Type = TEXT("delivered");
+			Ev.Label = Thief.Carry;
+			Events.Add(Ev);
+			Thief.Carry.Empty();
+			Thief.Route.Empty();
+			if (Remaining(Loot) == 0)
+			{
+				FHIEvent AllEv;
+				AllEv.Type = TEXT("allStolen");
+				Events.Add(AllEv);
+			}
+		}
+	}
+	else
+	{
+		// What does he actually KNOW about? Only what he has stood in the room of --
+		// knowing all three from spawn is a shopping list, not a burglary.
+		TArray<int32> Known;
+		for (int32 Idx = 0; Idx < Loot.Num(); ++Idx)
+		{
+			if (!Loot[Idx].bDelivered && !Loot[Idx].bTaken && Loot[Idx].bKnown)
+			{
+				Known.Add(Idx);
+			}
+		}
+		if (Known.Num() > 0)
+		{
+			Thief.Mode = TEXT("hunt");
+			int32 TgtIdx = INDEX_NONE;
+			for (int32 Idx = 0; Idx < Loot.Num(); ++Idx)
+			{
+				if (Loot[Idx].Label == Thief.Target)
+				{
+					TgtIdx = Idx;
+				}
+			}
+			if (TgtIdx == INDEX_NONE || !Loot[TgtIdx].bKnown
+				|| Loot[TgtIdx].bDelivered || Loot[TgtIdx].bTaken)
+			{
+				int32 Best = Known[0];
+				for (const int32 Cand : Known)
+				{
+					if (FVector2D::Distance(TPos, Loot[Cand].Pos)
+						< FVector2D::Distance(TPos, Loot[Best].Pos))
+					{
+						Best = Cand;
+					}
+				}
+				Thief.Target = Loot[Best].Label;
+				TgtIdx = Best;
+				Thief.Route = RouteToWithAppend(NearestNode(TPos), Loot[Best].Node, Loot[Best].Pos);
+			}
+			if (FVector2D::Distance(TPos, Loot[TgtIdx].Pos) < GrabRange && Thief.Regrab <= 0.0f)
+			{
+				Loot[TgtIdx].bTaken = true;
+				Thief.Carry = Loot[TgtIdx].Label;
+				FHIEvent Ev;
+				Ev.Type = TEXT("grabbed");
+				Ev.Label = Loot[TgtIdx].Label;
+				Events.Add(Ev);
+				Thief.Route.Empty();
+				Thief.Target.Empty();
+			}
+		}
+		else
+		{
+			// Nothing known: go and look in a room, nearest unsearched first. He does not
+			// cross the house to a far room while an unexplored one is behind him.
+			TArray<FString> Rooms;
+			for (const FString& N : SearchNodes())
+			{
+				if (!Thief.Searched.Contains(N))
+				{
+					Rooms.Add(N);
+				}
+			}
+			if (Rooms.Num() == 0)
+			{
+				Thief.Mode = TEXT("idle");
+			}
+			else
+			{
+				Thief.Mode = TEXT("search");
+				FString Room = Rooms[0];
+				for (const FString& N : Rooms)
+				{
+					const int32 NIdx = NodeNames().IndexOfByKey(N);
+					const int32 RIdx = NodeNames().IndexOfByKey(Room);
+					if (NIdx == INDEX_NONE || RIdx == INDEX_NONE)
+					{
+						continue;
+					}
+					if (FVector2D::Distance(TPos, NodePositions()[NIdx])
+						< FVector2D::Distance(TPos, NodePositions()[RIdx]))
+					{
+						Room = N;
+					}
+				}
+				if (Thief.Target != Room)
+				{
+					Thief.Target = Room;
+					Thief.Route = RouteTo(NearestNode(TPos), Room);
+				}
+				const int32 RoomIdx = NodeNames().IndexOfByKey(Room);
+				if (RoomIdx != INDEX_NONE
+					&& FVector2D::Distance(TPos, NodePositions()[RoomIdx]) < SearchRange)
+				{
+					// Dwell here while he looks, then anything in this room is known.
+					Thief.Think = SearchTime;
+					Thief.Searched.Add(Room);
+					Thief.Route.Empty();
+					Thief.Target.Empty();
+					for (FHILootItem& L : Loot)
+					{
+						if (L.Node == Room && !L.bDelivered)
+						{
+							L.bKnown = true;
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// ---- move
+	//
+	// The dwell at the threshold. An intruder stops and listens before committing;
+	// without it he walks on the first frame of the round.
+	if (Thief.Think > 0.0f)
+	{
+		Thief.Think = FMath::Max(0.0f, Thief.Think - Dt);
+	}
+
+	// Carrying costs pace. The hook always existed and nothing ever wrote it, so a safe
+	// and a laptop were hauled at exactly the same speed.
+	Thief.SpeedScale = CarrySpeed(Thief.Carry);
+
+	float SpeedScale = Thief.SpeedScale;
+	Thief.Step = 0.0f;
+	bool bWalked = false;
+	// A hit stops him where he stands: a person who has just been shot breaks stride, and
+	// that interruption is why a firefight reads as one rather than two men trading numbers.
+	if (Thief.Stagger > 0.0f)
+	{
+		Thief.Stagger = FMath::Max(0.0f, Thief.Stagger - Dt);
+	}
+	while (Thief.Route.Num() > 0 && Thief.Think <= 0.0f && Thief.Stagger <= 0.0f)
+	{
+		const FVector2D WP = Thief.Route[0];
+		// A waypoint the homeowner is standing on can never be reached: the bodies cannot
+		// get nearer than the sum of their radii. An occupied waypoint counts as reached
+		// once he is as close as collision allows. Nothing is skipped by that: both
+		// interaction ranges (GRAB_RANGE 1.4, DROP_RANGE 1.6) exceed the 0.84 m gap.
+		const bool bOccupied = FVector2D::Distance(PPos, WP) < PlayerRadius + ThiefRadius;
+		if (FVector2D::Distance(TPos, WP) < 0.6f
+			|| (bOccupied && FVector2D::Distance(TPos, WP) < 1.2f))
+		{
+			Thief.Route.RemoveAt(0);
+			continue;
+		}
+		float A = FMath::Atan2(WP.Y - TPos.Y, WP.X - TPos.X);   // (wp - tpos).angle()
+		A = SteerAround(A, TPos, PPos);
+		// Come about at a finite rate instead of snapping, and lose pace while still
+		// turning into the new heading -- a person does not walk full speed sideways.
+		const float Diff = FMath::FindDeltaAngleRadians(A, Thief.Yaw);   // wrapf(a - yaw)
+		Thief.Yaw = FMath::FindDeltaAngleRadians(
+			Thief.Yaw + FMath::Clamp(Diff, -ThiefTurnRate * Dt, ThiefTurnRate * Dt), 0.0f);
+		const float Align = FMath::Clamp(1.0f - FMath::Abs(Diff) / 3.14159265358979f, 0.55f, 1.0f);
+		const float Wish = ThiefSpeed * SpeedScale * Align;
+		const float Cur = Thief.Speed;
+		Thief.Speed = MoveToward(Cur, Wish, (Wish > Cur ? ThiefAccel : ThiefDecel) * Dt);
+		// `step` is the distance he ACTUALLY covered, which is what the stuck detector
+		// needs; the intent is `wish`. They were the same before he could accelerate.
+		Thief.Step = Thief.Speed * Dt;
+		TPos += FVector2D(FMath::Cos(A), FMath::Sin(A)) * Thief.Step;
+		TPos = ResolveCircle(TPos, ThiefRadius);
+		TPos = ClampToWorld(TPos, ThiefRadius);
+		bWalked = true;
+		break;
+	}
+
+	// Bleed off momentum only on frames he is NOT walking, so a stop is a stop.
+	if (!bWalked)
+	{
+		Thief.Speed = MoveToward(Thief.Speed, 0.0f, ThiefDecel * Dt);
+	}
+
+	// ---- solid bodies. Applied once both have moved; the homeowner's own step is taken
+	// by the caller before this. Skipped when step_intruders resolves the group at once.
+	if (bSeparate)
+	{
+		const TArray<FVector2D> Pair = SeparateBodies(PPos, TPos);
+		PPos = Pair[0];
+		TPos = Pair[1];
+		Player.Pos = PPos;
+		Thief.Pos = TPos;
+	}
+
+	// ---- stuck detection: re-route rather than stand still forever
+	//
+	// Measured against what he was actually trying to do this frame, not against
+	// THIEF_SPEED: he legitimately covers less ground with a safe in his arms and mid-turn,
+	// and while dwelling at the threshold he does not move at all.
+	const float Moved = FVector2D::Distance(TPos, Thief.Prev);
+	const float Want = Thief.Step;
+	if (Want > 0.0f && Moved < FMath::Max(Want * 0.25f, 0.0008f))
+	{
+		Thief.StuckT += Dt;
+	}
+	else
+	{
+		Thief.StuckT = 0.0f;
+	}
+
+	if (Thief.StuckT > 1.2f)
+	{
+		Thief.StuckT = 0.0f;
+		FString Back = TEXT("frontHub");
+		if (!Thief.Carry.IsEmpty())
+		{
+			Back = TEXT("van");
+		}
+		else if (!Thief.Target.IsEmpty())
+		{
+			for (const FHILootItem& L : Loot)
+			{
+				if (L.Label == Thief.Target)
+				{
+					Back = L.Node;
+				}
+			}
+		}
+		Thief.Route = RouteTo(NearestNode(TPos), Back);
+		FHIEvent Ev;
+		Ev.Type = TEXT("reroute");
+		Events.Add(Ev);
+	}
+
+	// ---- aim, then shoot. Sight is recomputed AFTER moving: he can step behind cover
+	// during this same step, and firing through a wall would be a bug.
+	const bool bCan = Player.bAlive && ThiefSees(TPos, Thief.Yaw, PPos);
+	if (bCan)
+	{
+		Thief.Aim = FMath::Min(Thief.Aim + Dt, ThiefAimTime);
+	}
+	else
+	{
+		Thief.Aim = 0.0f;
+	}
+
+	// He cannot fire with his hands full -- one hand is on the loot, which is the whole
+	// point of the trip. A deliberate exception, and it is what makes the loot his
+	// vulnerability. `can` still means line of sight, not permission to shoot.
+	const bool bMayFire = bCan && Thief.Carry.IsEmpty() && Thief.Aim >= ThiefAimTime;
+	if (bMayFire && Thief.Reloading <= 0.0f && Thief.Cd <= 0.0f)
+	{
+		if (Thief.Mag <= 0)
+		{
+			Thief.Reloading = ThiefReload;
+			Thief.Mag = ThiefMag;
+		}
+		else
+		{
+			Thief.Mag -= 1;
+			Thief.Cd = ThiefFireHunting;
+			FHIEvent Ev;
+			Ev.Type = TEXT("thiefShot");
+			Ev.Spread = 0.10f;
+			Ev.Damage = ThiefDamage;
+			Events.Add(Ev);
+		}
+	}
+	return bCan;
 }
 
 // ---------------------------------------------------------------------- self check
