@@ -43,7 +43,10 @@ ssh ubuntu-dev '/home/richard/UnrealEngine/Engine/Build/BatchFiles/Linux/Build.s
 
 # Test. Exits 0 only when tests ran AND all passed — zero tests is a failure by design,
 # because `-TestExit` hardcodes exit status 1 and the editor's exit code is not a verdict.
-ssh ubuntu-dev '~/tools/ue-run-tests.sh /data/projects/HIUnreal/HIUnreal.uproject HI.Sim'
+# Filter is `HI.` and not `HI.Sim`: the game module carries its own tests now, and a filter
+# that quietly matches less than you think is the "pass-shaped nothing" this project keeps
+# having to guard against.
+ssh ubuntu-dev '~/tools/ue-run-tests.sh /data/projects/HIUnreal/HIUnreal.uproject HI.'
 ```
 
 ## Layout
@@ -104,9 +107,10 @@ modes are misleading rather than obvious. Accumulated, measured, in
 
 ## Status
 
-`HI.Sim` passes **21/21** on ubuntu-dev. **All 97 assertions** in the Godot *sim* spec are
-represented; `HI.Sim.Round` and `HI.Sim.Elevation` add coverage the Godot project has never
-had on either side.
+`HI.Sim` passes **23/23** on ubuntu-dev — 22 in `HISim` and 1 in the game module.
+**All 97 assertions** in the Godot *sim* spec are represented; `HI.Sim.Round`,
+`HI.Sim.Elevation` and `HI.Unreal.Sizing` add coverage the Godot project has never had on
+either side.
 
 | Test | Covers |
 |---|---|
@@ -165,10 +169,18 @@ and momentum, ammunition and cooldown, the distance-scaled alert, and the win/lo
 It deliberately does **not** resolve hits: casting pellets at a body needs Unreal's
 collision, so the actor layer does the trace and calls `DamageIntruder` with the result.
 
-**Next, and not started:** `Source/HIUnreal/` is still an empty shell. It needs the player
-pawn and controller (input, camera, movement driven by `FHIRound`), one actor per intruder
-mirroring `FHIThief`, a game mode owning the `FHIRound` and ticking it, and the hit
-resolution that calls `DamageIntruder`. None of that exists yet.
+**Next, and not started:** the HUD — nothing is drawn, so a round's outcome is currently
+invisible — and the fix list from `AGENTS.md`.
+
+**What is done:** `AHIGameMode` owns and ticks the round; `AHIPlayerCharacter` and
+`AHIIntruder` are pure views of `FHIPlayer`/`FHIThief`; hit resolution traces pellets and
+routes them through `Round.DamageIntruder`; and `AHIHouse` generates every wall and solid
+from the sim's own rectangle list, so the geometry the player walks into and the geometry
+the AI reasons about come from one source.
+
+**What has NEVER happened: anyone running it.** Every claim above is compile and test, and
+all 23 tests pass — but nothing here has been launched, and no one has seen it. The first
+launch is a milestone no green tick in this file has reached.
 
 `HI.Sim.ThiefAI` reports its own timing, and it is worth watching: the port clears three
 items in **137.0 s** — identical to the Godot original — with 0 re-routes. That agreement
