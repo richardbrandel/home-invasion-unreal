@@ -79,6 +79,16 @@ modes are misleading rather than obvious. Accumulated, measured, in
 - **`FMath` has no `MoveToward`** — neither spelling (`MoveToward` nor `MoveTowards`) exists,
   so Godot's `move_toward` is written out by hand. Expect other small Godot math helpers to
   be missing rather than assume an engine equivalent.
+- **`FMath::FindDeltaAngleRadians(A1, A2)` returns `A2 - A1`**, wrapped into `[-PI, PI]` — the
+  delta *from* A1 *to* A2, not the subtraction the argument order suggests. Getting it
+  backwards is silent: it compiles, runs, and looks plausible. Measured — `StepThief` had both
+  calls reversed, so the thief turned *away* from his heading; that pinned the turn-alignment
+  factor at its 0.55 floor and halved his walking pace, turning a 137 s heist into a timeout.
+  To wrap an angle into range, pass `0.0f` **first**: `FindDeltaAngleRadians(0.0f, X)`. With the
+  angle first it returns the *negation*, flipping a facing every frame.
+  (Guard: where the result is wrapped in `Abs`, as in `ThiefSees`, the sign cancels and the
+  argument order does not matter — which is exactly why one correct call next to one broken
+  call is easy to miss.)
 - **Proving a test assertion is actually live, not silently absent.** `TestTrue` only logs on
   *failure*, so a passing assertion leaves no trace in the run log. And UE stores `TEXT()`
   literals as **UTF-16** on Linux, so `grep -a "assertion text" libUnrealEditor-HISim.so`

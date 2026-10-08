@@ -1085,9 +1085,16 @@ bool FHISim::StepThief(FHIThief& Thief, FHIPlayer& Player, TArray<FHILootItem>& 
 		A = SteerAround(A, TPos, PPos);
 		// Come about at a finite rate instead of snapping, and lose pace while still
 		// turning into the new heading -- a person does not walk full speed sideways.
-		const float Diff = FMath::FindDeltaAngleRadians(A, Thief.Yaw);   // wrapf(a - yaw)
+		// FMath::FindDeltaAngleRadians(A1, A2) returns A2 - A1 wrapped into [-PI, PI] -- the
+		// delta FROM A1 TO A2, not the subtraction the argument order suggests. Reading it
+		// the other way made him turn AWAY from his heading, which pinned `align` at its
+		// 0.55 floor and roughly halved his walking pace: the spec's heist then took over
+		// 180 s against the original's 137 s.
+		const float Diff = FMath::FindDeltaAngleRadians(Thief.Yaw, A);   // wrapf(a - yaw)
+		// Wrapping an angle into [-PI, PI] is the same helper with 0 as the first argument.
+		// Passing the angle first returns its NEGATION, which would flip his facing every frame.
 		Thief.Yaw = FMath::FindDeltaAngleRadians(
-			Thief.Yaw + FMath::Clamp(Diff, -ThiefTurnRate * Dt, ThiefTurnRate * Dt), 0.0f);
+			0.0f, Thief.Yaw + FMath::Clamp(Diff, -ThiefTurnRate * Dt, ThiefTurnRate * Dt));
 		const float Align = FMath::Clamp(1.0f - FMath::Abs(Diff) / 3.14159265358979f, 0.55f, 1.0f);
 		const float Wish = ThiefSpeed * SpeedScale * Align;
 		const float Cur = Thief.Speed;

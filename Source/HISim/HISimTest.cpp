@@ -466,4 +466,59 @@ bool FHISimMomentum::RunTest(const FString& Parameters)
 	return true;
 }
 
+// -------------------------------------------------------------------- thief AI
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHISimThiefAI,
+	"HI.Sim.ThiefAI",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FHISimThiefAI::RunTest(const FString& Parameters)
+{
+	// spec: test_sim.gd banner "thief AI" -- a full heist against an idle homeowner.
+	//
+	// The first test that runs the AI to completion rather than for a handful of frames:
+	// it only passes if StepThief can find all three valuables, carry each one back to the
+	// van, and finish, within the spec's 180 simulated seconds.
+	FHISim::FHIPlayer Player = FHISim::CreatePlayer();
+	FHISim::FHIThief Thief = FHISim::CreateThief();
+	TArray<FHISim::FHILootItem> Loot = FHISim::CreateLoot();
+	TArray<FHISim::FHIEvent> Events;
+
+	const float Dt = 1.0f / 60.0f;
+	float T = 0.0f;
+	int32 Reroutes = 0;
+
+	while (T < 180.0f && FHISim::Remaining(Loot) > 0)
+	{
+		FHISim::StepThief(Thief, Player, Loot, Events, Dt);
+		for (const FHISim::FHIEvent& Ev : Events)
+		{
+			if (Ev.Type == TEXT("reroute"))
+			{
+				++Reroutes;
+			}
+		}
+		// The spec drains the array every frame, so a reroute is counted once per frame
+		// rather than accumulating for the whole run.
+		Events.Reset();
+		T += Dt;
+	}
+
+	const int32 Left = FHISim::Remaining(Loot);
+	// The spec prints this too, and it is the only record of HOW the heist went: TestEqual
+	// says nothing when it passes, so a slow-but-still-correct run would otherwise leave no
+	// trace. Godot's original clears three items in 137 s with 0 re-routes; a large drift
+	// here is the early warning that a movement constant has gone wrong.
+	AddInfo(FString::Printf(TEXT("cleared %d/3 items in %.1fs, %d re-routes"),
+		3 - Left, T, Reroutes));
+	TestEqual(FString::Printf(TEXT("thief completes a full heist against an idle player (delivered %d/3 in %.1fs)"),
+		3 - Left, T), Left, 0);
+	// He reroutes when he genuinely has to; a body that re-plans every frame is thrashing
+	// rather than walking, which the spec bounds at 2 re-routes for a whole heist.
+	TestTrue(FString::Printf(TEXT("thief does not thrash while heisting (%d re-routes)"), Reroutes),
+		Reroutes <= 2);
+
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS
