@@ -1,0 +1,10 @@
+{
+	"FileVersion": 3,
+	"EngineAssociation": "",
+	"Category": "",
+	"Description": "Home Invasion, ported to Unreal",
+	"Modules": [
+		{ "Name": "HISim",    "Type": "Runtime", "LoadingPhase": "Default" },
+		{ "Name": "HIUnreal", "Type": "Runtime", "LoadingPhase": "Default" }
+	]
+}
