@@ -104,9 +104,9 @@ modes are misleading rather than obvious. Accumulated, measured, in
 
 ## Status
 
-`HI.Sim` passes **20/20** on ubuntu-dev. **All 97 assertions** in the Godot *sim* spec are
-represented, and `HI.Sim.Round` adds coverage the Godot project has never had on either
-side, because its round rules live in a SceneTree node with rendering attached.
+`HI.Sim` passes **21/21** on ubuntu-dev. **All 97 assertions** in the Godot *sim* spec are
+represented; `HI.Sim.Round` and `HI.Sim.Elevation` add coverage the Godot project has never
+had on either side.
 
 | Test | Covers |
 |---|---|
@@ -130,6 +130,29 @@ side, because its round rules live in a SceneTree node with rendering attached.
 | `HI.Sim.PoliceClock` | one gunshot starts the clock; the sirens arrive and drive him off |
 | `HI.Sim.MultipleIntruders` | 3-body separation contract, id attribution, unbanked push |
 | `HI.Sim.Round` | the round model ported out of `game.gd`: momentum, the shot every intruder hears, and what actually ends a round |
+| `HI.Sim.Elevation` | the height axis: a floor slab separates storeys, a low obstacle is seen over, and 2-D and height-aware sight still agree everywhere |
+
+## Elevation, and the one decision left in it
+
+Fix-list item 18 said the sim was 2-D and that this blocked a multi-level house. The
+mechanism is now in: `FHISolidSpan` gives every solid a vertical extent, `LosBlocked3D`
+respects it, and the entities carry a `Z`.
+
+**The spans are deliberately uniform at a full storey**, and that is the honest part. The
+Godot source carries no furniture heights — only a `flat` flag — so inventing them would
+silently change which obstacles the AI can see over, with no test able to say whether the
+invented numbers are right. Giving a sofa its real height is a **design decision, not a
+porting one**, and it is left open on purpose.
+
+What that buys without inventing anything: a **floor slab** is new structure rather than a
+re-description of old, so it carries its own span and blocks sight between storeys. That is
+the bit that actually blocked a multi-level house, and it is tested — including that a slab
+does *not* block two people on the same storey, because a ceiling that hid the room it
+roofs would be worse than no ceiling.
+
+`HI.Sim.Elevation` also carries the **regression harness for this work**: across every pair
+of nav nodes, the 2-D test and the height-aware one at eye height must agree. When someone
+gives furniture real heights, that is the assertion that will notice.
 
 ## The game layer, and where it stands
 
