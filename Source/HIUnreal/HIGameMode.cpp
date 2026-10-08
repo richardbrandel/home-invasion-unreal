@@ -1,6 +1,7 @@
 #include "HIGameMode.h"
 
 #include "GameFramework/PlayerController.h"
+#include "HIHouse.h"
 #include "HIIntruder.h"
 #include "HIPlayerCharacter.h"
 #include "HIUnits.h"
@@ -25,13 +26,23 @@ void AHIGameMode::BeginPlay()
 	Super::BeginPlay();
 	Round = FHISim::FHIRound::Start(IntruderCount);
 
-	// One view per intruder, spawned from the round's own count so the two cannot disagree
-	// about how many men are in the house.
 	UWorld* World = GetWorld();
 	if (World == nullptr)
 	{
 		return;
 	}
+
+	// The house FIRST, so the walls exist before any body is placed among them. It is
+	// generated from the sim's own rectangle list rather than from a level, so the geometry
+	// the player collides with and the geometry the AI reasons about cannot drift apart.
+	FActorSpawnParameters HouseParams;
+	HouseParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	if (AHIHouse* House = World->SpawnActor<AHIHouse>(
+		AHIHouse::StaticClass(), FTransform::Identity, HouseParams))
+	{
+		House->Build();
+	}
+
 	IntruderActors.Reset();
 	for (const FHISim::FHIThief& T : Round.Intruders)
 	{
