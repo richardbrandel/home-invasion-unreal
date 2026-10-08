@@ -104,10 +104,9 @@ modes are misleading rather than obvious. Accumulated, measured, in
 
 ## Status
 
-`HI.Sim` passes **19/19** on ubuntu-dev, and **all 97 assertions** in the Godot spec are
-represented. The suite carries more assertions than the spec (120+) because several Godot
-checks are compound (`mag == 12 and reserve == 36`) and were split, and a few deliberate
-extras were added where a spec assertion could not fail as written.
+`HI.Sim` passes **20/20** on ubuntu-dev. **All 97 assertions** in the Godot *sim* spec are
+represented, and `HI.Sim.Round` adds coverage the Godot project has never had on either
+side, because its round rules live in a SceneTree node with rendering attached.
 
 | Test | Covers |
 |---|---|
@@ -130,6 +129,23 @@ extras were added where a spec assertion could not fail as written.
 | `HI.Sim.Searching` | he must look for loot; an empty room finds nothing |
 | `HI.Sim.PoliceClock` | one gunshot starts the clock; the sirens arrive and drive him off |
 | `HI.Sim.MultipleIntruders` | 3-body separation contract, id attribution, unbanked push |
+| `HI.Sim.Round` | the round model ported out of `game.gd`: momentum, the shot every intruder hears, and what actually ends a round |
+
+## The game layer, and where it stands
+
+`FHISim::FHIRound` is the round model lifted out of `game.gd` (2211 lines of SceneTree node
+with the camera, HUD, Mixamo loading and minimap attached, which is why it was never
+testable). It owns the homeowner, the intruders, the loot and the rules that end a round.
+
+**The split that matters:** `FHIRound` holds everything a trace cannot decide — movement
+and momentum, ammunition and cooldown, the distance-scaled alert, and the win/lose rules.
+It deliberately does **not** resolve hits: casting pellets at a body needs Unreal's
+collision, so the actor layer does the trace and calls `DamageIntruder` with the result.
+
+**Next, and not started:** `Source/HIUnreal/` is still an empty shell. It needs the player
+pawn and controller (input, camera, movement driven by `FHIRound`), one actor per intruder
+mirroring `FHIThief`, a game mode owning the `FHIRound` and ticking it, and the hit
+resolution that calls `DamageIntruder`. None of that exists yet.
 
 `HI.Sim.ThiefAI` reports its own timing, and it is worth watching: the port clears three
 items in **137.0 s** — identical to the Godot original — with 0 re-routes. That agreement
