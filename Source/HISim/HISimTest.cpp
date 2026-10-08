@@ -1577,4 +1577,89 @@ bool FHISimRound::RunTest(const FString& Parameters)
 	return true;
 }
 
+// ------------------------------------------------------------------- elevation
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHISimElevation,
+	"HI.Sim.Elevation",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FHISimElevation::RunTest(const FString& Parameters)
+{
+	// Fix-list item 18. The sim was XZ-only, so a wall blocked sight at every height and no
+	// floor could separate two storeys -- the blocker for a multi-level house. The mechanism
+	// is a per-solid vertical span plus a height-aware segment test.
+	const float Eye = FHISim::EyeHeight;
+
+	// ---- adding the axis changed NOTHING about the existing world.
+	// Every nav-node pair must agree between the 2-D test and the height-aware one at eye
+	// height. This is the regression harness for the elevation work: when a future session
+	// gives a sofa its real height, this is the assertion that will notice.
+	{
+		const TArray<FVector2D>& Poses = FHISim::NodePositions();
+		int32 Pairs = 0;
+		int32 Disagreements = 0;
+		for (int32 I = 0; I < Poses.Num(); ++I)
+		{
+			for (int32 J = I + 1; J < Poses.Num(); ++J)
+			{
+				++Pairs;
+				const FVector A(Poses[I].X, Poses[I].Y, Eye);
+				const FVector B(Poses[J].X, Poses[J].Y, Eye);
+				if (FHISim::LosBlocked(Poses[I], Poses[J]) != FHISim::LosBlocked3D(A, B))
+				{
+					++Disagreements;
+				}
+			}
+		}
+		TestTrue(FString::Printf(TEXT("the height axis changed nothing at eye level (%d node pairs, %d disagreements)"),
+			Pairs, Disagreements), Pairs > 0 && Disagreements == 0);
+	}
+
+	// ---- and a LOW obstacle really can be seen over, which is why the axis exists at all.
+	{
+		const TArray<FBox2D> One = { FBox2D(FVector2D(-1.0f, 0.0f), FVector2D(1.0f, 0.2f)) };
+		const TArray<FHISim::FHISolidSpan> Low = { FHISim::FHISolidSpan{0.0f, 0.9f} };
+		const TArray<FHISim::FHISolidSpan> Tall = { FHISim::FHISolidSpan{0.0f, 3.0f} };
+		const FVector A(-3.0f, 0.1f, Eye);
+		const FVector B(3.0f, 0.1f, Eye);
+
+		TestFalse(FString::Printf(TEXT("a waist-high obstacle does not block eye-level sight (span 0.0-0.9 m, eyes at %.2f m)"),
+			Eye), FHISim::LosBlocked3D(A, B, One, Low));
+		TestTrue(TEXT("but a full-height one in the same place does"),
+			FHISim::LosBlocked3D(A, B, One, Tall));
+	}
+
+	// ---- a FLOOR SLAB separates two storeys: the part of item 18 that blocks a multi-level
+	// house. A slab is new structure rather than a re-description of old, so it needs no
+	// invented data -- but it is only expressible now that solids have a span.
+	{
+		const TArray<FBox2D> Floor = { FBox2D(FVector2D(-6.0f, -6.0f), FVector2D(6.0f, 6.0f)) };
+		const TArray<FHISim::FHISolidSpan> Slab = { FHISim::FHISolidSpan{2.9f, 3.1f} };
+		const float Upper = 3.0f + Eye;
+
+		TestTrue(TEXT("a floor slab blocks sight between storeys"),
+			FHISim::LosBlocked3D(FVector(-2.0f, 0.0f, Eye), FVector(2.0f, 0.0f, Upper), Floor, Slab));
+
+		// And must NOT block two people on the same storey -- a ceiling that hides the room
+		// it roofs would be worse than no ceiling at all.
+		TestFalse(TEXT("but does not block two people on the SAME storey, which would hide the room it roofs"),
+			FHISim::LosBlocked3D(FVector(-4.0f, 0.0f, Eye), FVector(4.0f, 0.0f, Eye), Floor, Slab));
+		TestFalse(TEXT("nor two people both on the floor above"),
+			FHISim::LosBlocked3D(FVector(-4.0f, 0.0f, Upper), FVector(4.0f, 0.0f, Upper), Floor, Slab));
+	}
+
+	// ---- the entities carry the axis, and the spans stay in step with the solids
+	{
+		const FHISim::FHIPlayer P = FHISim::CreatePlayer();
+		const FHISim::FHIThief T = FHISim::CreateThief();
+		TestTrue(FString::Printf(TEXT("the homeowner and the intruder both carry a height, defaulting to the ground floor (%.1f, %.1f)"),
+			P.Z, T.Z), P.Z == 0.0f && T.Z == 0.0f);
+		TestEqual(FString::Printf(TEXT("and the solid spans are in step with the solids (%d vs %d)"),
+			FHISim::SolidSpans().Num(), FHISim::Solids().Num()),
+			FHISim::SolidSpans().Num(), FHISim::Solids().Num());
+	}
+
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS

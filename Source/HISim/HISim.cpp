@@ -770,6 +770,21 @@ const TArray<FBox2D>& FHISim::Solids()
 	return S;
 }
 
+const TArray<FHISim::FHISolidSpan>& FHISim::SolidSpans()
+{
+	// Uniform by construction rather than by listing: every solid spans a full storey, so
+	// the height-aware test below reproduces the 2-D one exactly and no existing assertion
+	// moves. See the header for why the numbers that would make this interesting -- a sofa
+	// you can see over -- are a design decision rather than a porting one.
+	static const TArray<FHISolidSpan> Spans = []()
+	{
+		TArray<FHISolidSpan> Out;
+		Out.Init(FHISolidSpan(), Solids().Num());
+		return Out;
+	}();
+	return Spans;
+}
+
 const TArray<FVector2D>& FHISim::LootPositions()
 {
 	static const TArray<FVector2D> L = {
@@ -903,6 +918,35 @@ bool FHISim::LosBlocked(const FVector2D& A, const FVector2D& B)
 		}
 	}
 	return false;
+}
+
+bool FHISim::LosBlocked3D(const FVector& A, const FVector& B,
+	const TArray<FBox2D>& InSolids, const TArray<FHISolidSpan>& Spans)
+{
+	const float SegLo = FMath::Min(A.Z, B.Z);
+	const float SegHi = FMath::Max(A.Z, B.Z);
+	for (int32 Idx = 0; Idx < InSolids.Num(); ++Idx)
+	{
+		// Vertical reject first, and it is the whole point of the function: a solid the
+		// segment never reaches in height cannot stop it, however its footprint lies. This
+		// is what lets a floor slab sit above a pair of ground-floor eyes without blocking
+		// them, and what would let a low obstacle be seen over.
+		const FHISolidSpan& Span = Spans[Idx];
+		if (SegHi < Span.MinZ || SegLo > Span.MaxZ)
+		{
+			continue;
+		}
+		if (SegRect(FVector2D(A.X, A.Y), FVector2D(B.X, B.Y), InSolids[Idx]))
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+bool FHISim::LosBlocked3D(const FVector& A, const FVector& B)
+{
+	return LosBlocked3D(A, B, Solids(), SolidSpans());
 }
 
 float FHISim::RayCastPx(const FVector2D& From, const FVector2D& Dir, float MaxT)

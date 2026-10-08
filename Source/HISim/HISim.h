@@ -31,6 +31,23 @@ struct HISIM_API FHISim
 	static const FBox2D House;
 	static constexpr float WallHeight = 3.0f;
 	static constexpr float WallThickness = 0.25f;
+
+	/**
+	 * A solid's vertical extent, in metres above the ground floor.
+	 *
+	 * The sim was XZ-only, so a wall blocked sight at EVERY height and no floor could
+	 * separate two storeys. The span is what makes both expressible. Declared here rather
+	 * than beside Solids() because the geometry group needs it and comes first.
+	 */
+	struct FHISolidSpan
+	{
+		float MinZ = 0.0f;
+		/**
+		 * A full storey by default, which is exactly the pre-elevation behaviour: every
+		 * solid blocked sight at any eye height.
+		 */
+		float MaxZ = WallHeight;
+	};
 	/** Front door, in the south wall. Godot Vector2(-1, 1). */
 	static const FVector2D DoorGap;
 	/** Opening in the interior wall. Godot Vector2(-2, 2). */
@@ -123,6 +140,21 @@ struct HISIM_API FHISim
 	static bool SegRect(const FVector2D& A, const FVector2D& B, const FBox2D& R, float RRadius = 0.0f);
 	static bool SegCircle(const FVector2D& A, const FVector2D& B, const FVector2D& C, float Radius);
 	static bool LosBlocked(const FVector2D& A, const FVector2D& B);
+
+	/**
+	 * Height-aware segment test: blocked only by a solid whose VERTICAL span the segment
+	 * also reaches. Against a world whose solids all span a full storey this returns
+	 * exactly what the 2-D LosBlocked returns, which is why adding it changed no behaviour.
+	 *
+	 * The vertical test is conservative: a span is rejected only when the segment's whole Z
+	 * range lies outside it, so a ray that climbs above a low wall is clear while one that
+	 * merely passes over one of its corners is not. Documented rather than hidden, because
+	 * the approximation is visible to anyone who leans over a low obstacle.
+	 */
+	static bool LosBlocked3D(const FVector& A, const FVector& B,
+		const TArray<FBox2D>& Solids, const TArray<FHISolidSpan>& Spans);
+	/** The same test against the real world. */
+	static bool LosBlocked3D(const FVector& A, const FVector& B);
 	/** Distance to the first solid along a unit direction, or MaxT when clear. */
 	static float RayCastPx(const FVector2D& From, const FVector2D& Dir, float MaxT = 60.0f);
 	static bool CanSee(const FVector2D& A, const FVector2D& B, float MaxRange = 28.0f);
@@ -176,6 +208,12 @@ struct HISIM_API FHISim
 	struct FHIPlayer
 	{
 		FVector2D Pos = FVector2D(0.0f, -10.6f);
+		/**
+		 * The third axis, in metres above the ground floor. Pos stays XZ -- FVector2D.X is
+		 * world X and .Y is world Z -- so this is additive and every existing assertion
+		 * still means exactly what it meant. A ground-floor round leaves it at 0.
+		 */
+		float Z = 0.0f;
 		float Yaw = 0.0f;
 		float Pitch = 0.24f;
 		float Hp = ThiefMaxHp;
@@ -203,6 +241,8 @@ struct HISIM_API FHISim
 	{
 		FVector2D Pos = Drop + FVector2D(0.0f, 0.5f);
 		FVector2D Prev = Drop + FVector2D(0.0f, 0.5f);
+		/** The third axis: see FHIPlayer::Z. A body spawned in the drive is at 0. */
+		float Z = 0.0f;
 		/** yaw PI faces -Z, i.e. back towards the house from the van. */
 		float Yaw = 3.14159265358979f;
 		float Hp = float(ThiefHealth);
@@ -450,6 +490,24 @@ struct HISIM_API FHISim
 	static const TArray<FBox2D>& Walls();
 	/** Everything collision cares about: walls plus non-flat furniture. */
 	static const TArray<FBox2D>& Solids();
+
+	/**
+	 * The vertical extent of each entry in Solids(), in the same order. The FHISolidSpan
+	 * type itself is declared up with the world constants, because the geometry group needs
+	 * it and that comes first.
+	 *
+	 * DELIBERATELY UNIFORM, and this is a modelling decision worth stating plainly. The
+	 * Godot source carries no furniture heights -- only a `flat` flag -- so inventing them
+	 * here would silently change which obstacles the AI can see over, and there is no test
+	 * that could tell me whether the invented numbers are right. Giving a sofa its real
+	 * height is a DESIGN decision, not a porting one, so every solid spans the full storey
+	 * for now and the original 19 tests hold unchanged.
+	 *
+	 * What this does buy, without inventing anything: a FLOOR SLAB is new structure rather
+	 * than a re-description of old, so it can carry its own span and block sight between
+	 * storeys. That is the part of fix-list item 18 that blocks a multi-level house.
+	 */
+	static const TArray<FHISolidSpan>& SolidSpans();
 	static const TArray<FBox2D>& FurnitureRects();
 	static const TArray<bool>& FurnitureFlat();
 	static const TArray<FVector2D>& LootPositions();
