@@ -809,4 +809,243 @@ bool FHISimFear::RunTest(const FString& Parameters)
 	return true;
 }
 
+// ------------------------------------- the intruder cannot fire hands-full
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHISimHandsFull,
+	"HI.Sim.HandsFull",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FHISimHandsFull::RunTest(const FString& Parameters)
+{
+	// spec: test_sim.gd banner "the intruder cannot fire with his hands full".
+	//
+	// Run both ways: the assertion is a DIFFERENCE, so it only means something if the
+	// unencumbered arm actually fires. A test that only checked the carrying case would
+	// pass just as happily against a thief who never fires at all.
+	const float Dt = 1.0f / 60.0f;
+	for (int32 CarryIdx = 0; CarryIdx < 2; ++CarryIdx)
+	{
+		const bool bCarrying = (CarryIdx == 1);
+		FHISim::FHIPlayer Player = FHISim::CreatePlayer();
+		FHISim::FHIThief Thief = FHISim::CreateThief();
+		TArray<FHISim::FHILootItem> Loot = FHISim::CreateLoot();
+		TArray<FHISim::FHIEvent> Events;
+
+		// 2 m in front of the homeowner, well inside the 26 m sight radius.
+		Thief.Pos = Player.Pos + FVector2D(0.0f, 2.0f);
+		Thief.Prev = Thief.Pos;
+		Thief.Carry = bCarrying ? TEXT("TV") : TEXT("");
+		Thief.Cd = 0.0f;
+		Thief.Mag = 8;
+		Thief.Reloading = 0.0f;
+
+		bool bFired = false;
+		// Long enough to clear both the aim settle and the first cooldown.
+		for (int32 Frame = 0; Frame < 60 * 3; ++Frame)
+		{
+			Events.Reset();
+			FHISim::StepThief(Thief, Player, Loot, Events, Dt);
+			for (const FHISim::FHIEvent& Ev : Events)
+			{
+				if (Ev.Type == TEXT("thiefShot"))
+				{
+					bFired = true;
+				}
+			}
+		}
+		TestTrue(FString::Printf(TEXT("%s (fired=%d carrying=%d)"),
+			bCarrying ? TEXT("does NOT fire while carrying the loot") : TEXT("fires when his hands are free"),
+			bFired ? 1 : 0, bCarrying ? 1 : 0),
+			bFired != bCarrying);
+	}
+	return true;
+}
+
+// ----------------------------------------------- the intruder must aim first
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHISimAiming,
+	"HI.Sim.Aiming",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FHISimAiming::RunTest(const FString& Parameters)
+{
+	// spec: test_sim.gd banner "the intruder must aim before firing".
+	//
+	// Without the settle he shot on the exact frame you became visible, so merely glimpsing
+	// him cost health instantly -- and because the tracer is drawn from him to you, what you
+	// saw was a line arriving through the wall you had just ducked behind.
+	const float Dt = 1.0f / 60.0f;
+	FHISim::FHIPlayer Player = FHISim::CreatePlayer();
+	FHISim::FHIThief Thief = FHISim::CreateThief();
+	TArray<FHISim::FHILootItem> Loot = FHISim::CreateLoot();
+	TArray<FHISim::FHIEvent> Events;
+
+	Thief.Pos = Player.Pos + FVector2D(0.0f, 2.0f);
+	Thief.Prev = Thief.Pos;
+	Thief.Cd = 0.0f;
+	Thief.Mag = 8;
+
+	float FirstShot = -1.0f;
+	float T = 0.0f;
+	while (T < 3.0f && FirstShot < 0.0f)
+	{
+		Events.Reset();
+		FHISim::StepThief(Thief, Player, Loot, Events, Dt);
+		for (const FHISim::FHIEvent& Ev : Events)
+		{
+			if (Ev.Type == TEXT("thiefShot"))
+			{
+				FirstShot = T;
+			}
+		}
+		T += Dt;
+	}
+	TestTrue(FString::Printf(TEXT("the intruder does not fire the instant he sees you (first shot at %.2fs, aim time is %.2fs)"),
+		FirstShot, FHISim::ThiefAimTime), FirstShot >= FHISim::ThiefAimTime - Dt);
+	TestTrue(FString::Printf(TEXT("but he does fire once he has settled (first shot at %.2fs)"), FirstShot),
+		FirstShot >= 0.0f && FirstShot < 1.5f);
+
+	return true;
+}
+
+// ------------------------------------------------------------------- searching
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHISimSearching,
+	"HI.Sim.Searching",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FHISimSearching::RunTest(const FString& Parameters)
+{
+	// spec: test_sim.gd banner "searching" -- he has to go and look, because he does not
+	// start knowing where anything is.
+	const float Dt = 1.0f / 60.0f;
+	FHISim::FHIPlayer Player = FHISim::CreatePlayer();
+	FHISim::FHIThief Thief = FHISim::CreateThief();
+	TArray<FHISim::FHILootItem> Loot = FHISim::CreateLoot();
+	TArray<FHISim::FHIEvent> Events;
+
+	TestTrue(TEXT("he spawns knowing where nothing is"),
+		!Loot[0].bKnown && !Loot[1].bKnown && !Loot[2].bKnown);
+	TestTrue(FString::Printf(TEXT("and having searched no rooms (searched=%d)"), Thief.Searched.Num()),
+		Thief.Searched.Num() == 0);
+
+	Thief.Think = 0.0f;
+	Events.Reset();
+	FHISim::StepThief(Thief, Player, Loot, Events, Dt);
+	TestTrue(FString::Printf(TEXT("so his first move is to go and look, not to a known coordinate (mode=%s)"), *Thief.Mode),
+		Thief.Mode == TEXT("search"));
+
+	// Stand him in the living room and let him look around. Node positions are looked up
+	// by name rather than hard-coded, so this cannot drift from the nav graph.
+	const int32 LivingIdx = FHISim::NodeNames().IndexOfByKey(TEXT("living"));
+	Thief.Pos = FHISim::NodePositions()[LivingIdx];
+	Thief.Prev = Thief.Pos;
+	Thief.Think = 0.0f;
+	Events.Reset();
+	FHISim::StepThief(Thief, Player, Loot, Events, Dt);
+	TestTrue(FString::Printf(TEXT("standing in the living room finds the TV (tv known=%d, searched=%d)"),
+		Loot[0].bKnown ? 1 : 0, Thief.Searched.Num()),
+		Loot[0].bKnown && Thief.Searched.Contains(TEXT("living")));
+	TestTrue(FString::Printf(TEXT("and it does NOT reveal what is in the study (laptop=%d safe=%d)"),
+		Loot[1].bKnown ? 1 : 0, Loot[2].bKnown ? 1 : 0),
+		!Loot[1].bKnown && !Loot[2].bKnown);
+
+	// The kitchen holds nothing, and searching has to be able to come up empty.
+	Thief = FHISim::CreateThief();
+	Loot = FHISim::CreateLoot();
+	const int32 KitchenIdx = FHISim::NodeNames().IndexOfByKey(TEXT("kitchen"));
+	Thief.Pos = FHISim::NodePositions()[KitchenIdx];
+	Thief.Prev = Thief.Pos;
+	Thief.Think = 0.0f;
+	Events.Reset();
+	FHISim::StepThief(Thief, Player, Loot, Events, Dt);
+	bool bFoundAny = false;
+	for (const FHISim::FHILootItem& L : Loot)
+	{
+		if (L.bKnown)
+		{
+			bFoundAny = true;
+		}
+	}
+	TestTrue(FString::Printf(TEXT("searching the kitchen, which is empty, finds nothing (searched=%d, anything found=%d)"),
+		Thief.Searched.Num(), bFoundAny ? 1 : 0),
+		!bFoundAny && Thief.Searched.Contains(TEXT("kitchen")));
+
+	// Godot writes this as `searched.count("kitchen") == 1`; TArray has no Count, so the
+	// occurrences are tallied by hand.
+	int32 KitchenCount = 0;
+	for (const FString& Name : Thief.Searched)
+	{
+		if (Name == TEXT("kitchen"))
+		{
+			++KitchenCount;
+		}
+	}
+	TestTrue(FString::Printf(TEXT("and he does not search the same room twice (kitchen appears %d times)"), KitchenCount),
+		KitchenCount == 1);
+
+	return true;
+}
+
+// -------------------------------------------------------------- the police clock
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHISimPoliceClock,
+	"HI.Sim.PoliceClock",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FHISimPoliceClock::RunTest(const FString& Parameters)
+{
+	// spec: test_sim.gd banner "the police clock" -- a gunshot starts it and nothing else
+	// does, and the sirens are what finally drives him off.
+	const float Dt = 1.0f / 60.0f;
+	FHISim::FHIPlayer Player = FHISim::CreatePlayer();
+	FHISim::FHIThief Thief = FHISim::CreateThief();
+	TArray<FHISim::FHILootItem> Loot = FHISim::CreateLoot();
+	TArray<FHISim::FHIEvent> Events;
+
+	Thief.Think = 0.0f;
+	TestTrue(FString::Printf(TEXT("no clock runs before anybody shoots (alarm=%.1f)"), Thief.Alarm),
+		Thief.Alarm < 0.0f);
+
+	Events.Reset();
+	for (int32 Frame = 0; Frame < 180; ++Frame)
+	{
+		FHISim::StepThief(Thief, Player, Loot, Events, Dt);
+	}
+	TestTrue(FString::Printf(TEXT("and a quiet round never starts one (alarm=%.1f after 3 s of a silent burglary)"), Thief.Alarm),
+		Thief.Alarm < 0.0f);
+
+	// A single shot is enough to make somebody call -- loudness 0.2, the quietest there is.
+	FHISim::AlertThief(Thief, FVector2D(0.0f, -11.0f), 0.2f);
+	TestTrue(FString::Printf(TEXT("one gunshot starts the clock (alarm=%.2f)"), Thief.Alarm),
+		Thief.Alarm >= 0.0f);
+
+	// Hold fear down, so ONLY the clock can end it, and run past the expected arrival.
+	Events.Reset();
+	int32 Steps = 0;
+	const int32 Limit = static_cast<int32>((FHISim::PoliceTime + 5.0f) / Dt);
+	while (Steps < Limit && !Thief.bSirens)
+	{
+		Thief.Fear = 0.0f;
+		FHISim::StepThief(Thief, Player, Loot, Events, Dt);
+		++Steps;
+	}
+	TestTrue(FString::Printf(TEXT("the sirens arrive on schedule (at %.1f s, expected %.0f s)"),
+		Steps * Dt, FHISim::PoliceTime), Thief.bSirens);
+
+	bool bHeard = false;
+	for (const FHISim::FHIEvent& Ev : Events)
+	{
+		if (Ev.Type == TEXT("sirens"))
+		{
+			bHeard = true;
+		}
+	}
+	TestTrue(TEXT("and the round is told, so it can react (sirens event raised)"), bHeard);
+	TestTrue(FString::Printf(TEXT("and the sirens are what finally drives him off (fear=%.1f, threshold=%.1f)"),
+		Thief.Fear, FHISim::FearFlee), Thief.Fear >= FHISim::FearFlee);
+
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS
