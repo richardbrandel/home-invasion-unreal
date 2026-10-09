@@ -16,11 +16,11 @@ the headless automation loop is the entire reason the Unreal route is viable.
 
 ## Where this runs
 
-**This repository has no remote.** `git remote -v` is empty and there is no `origin`: the
-Godot project is public and this one is not, so the copy on the Mac is the only copy, and
-`git push` here fails with *"No configured push destination"*. That is a deliberate-looking
-state rather than an accident, but it is worth knowing before treating a commit here as
-backed up.
+**The repository of record is this directory, on the Mac, and it is public:**
+<https://github.com/richardbrandel/home-invasion-unreal>. `ubuntu-dev` holds a *build tree*
+only — it is rsynced from here and has no commits of its own, so there is nothing to set up
+on the Linux box and no reason to work there beyond compiling. Up to 2026-10-09 the Mac copy
+was the only copy, because this repo had no remote at all.
 
 The Mac has no Unreal. Build and test happen on **ubuntu-dev**, and the build tree there
 is `/data/projects/HIUnreal`:
