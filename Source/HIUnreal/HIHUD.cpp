@@ -224,6 +224,119 @@ void AHIHUD::DrawOutcome(const FHISim::FHIRound& Round)
 	DrawText(Again, FLinearColor(1.0f, 0.85f, 0.35f), CX - W * 0.5f, Canvas->ClipY * 0.52f, Small, 1.3f);
 }
 
+FBox2D AHIHUD::MinimapView()
+{
+	// 38 x 32 m: the house (x -8..8, y -19..-8) with a working margin, and far enough up the
+	// drive to take in the van at y 7..9.4. 38/32 = 1.1875 against the panel inner's 1.178,
+	// so the distortion is under one percent and nothing has to be letterboxed.
+	return FBox2D(FVector2D(-19.0f, -21.0f), FVector2D(19.0f, 11.0f));
+}
+
+FVector2D AHIHUD::MinimapFraction(const FVector2D& SimPos)
+{
+	const FBox2D B = MinimapView();
+	const FVector2D Size = B.GetSize();
+	if (Size.X <= 0.0f || Size.Y <= 0.0f)
+	{
+		return FVector2D(0.5f, 0.5f);
+	}
+	return FVector2D((SimPos.X - B.Min.X) / Size.X, 1.0f - (SimPos.Y - B.Min.Y) / Size.Y);
+}
+
+void AHIHUD::DrawMinimap(const FHISim::FHIRound& Round)
+{
+	// Top right, and sized from the sim's own world bounds so the map and the world cannot
+	// disagree about how much ground there is.
+	const float PanelW = 232.0f;
+	const float PanelH = 200.0f;
+	const float X0 = Canvas->ClipX - PanelW - 22.0f;
+	const float Y0 = 22.0f;
+	const float Pad = 10.0f;
+	const float InnerW = PanelW - Pad * 2.0f;
+	const float InnerH = PanelH - Pad * 2.0f;
+
+	auto ToPanel = [&](const FVector2D& SimPos)
+	{
+		const FVector2D F = MinimapFraction(SimPos);
+		return FVector2D(X0 + Pad + F.X * InnerW, Y0 + Pad + F.Y * InnerH);
+	};
+
+	DrawRect(FLinearColor(0.0f, 0.0f, 0.0f, 0.42f), X0, Y0, PanelW, PanelH);
+	DrawRect(FLinearColor(0.6f, 0.6f, 0.6f, 0.30f), X0, Y0, PanelW, 2.0f);
+
+	// ---- the house: the sim's own wall list, so the map is drawn from the same data the
+	// player is actually walking into.
+	for (const FBox2D& W : FHISim::Walls())
+	{
+		const FVector2D A = ToPanel(W.Min);
+		const FVector2D B = ToPanel(W.Max);
+		DrawRect(FLinearColor(0.85f, 0.82f, 0.74f, 0.75f),
+			FMath::Min(A.X, B.X), FMath::Min(A.Y, B.Y),
+			FMath::Max(FMath::Abs(B.X - A.X), 1.5f), FMath::Max(FMath::Abs(B.Y - A.Y), 1.5f));
+	}
+
+	// ---- what the homeowner can SEE, drawn as a fan from him to each vertex of the sim's
+	// visibility polygon. A fan of lines rather than a filled polygon on purpose: a filled
+	// triangle fan needs FCanvasTriangleItem and a texture-resource cast, and the lines read
+	// as a sight cone -- which is exactly what the Godot original draws.
+	const FVector2D PlayerPos = Round.Player.Pos;
+	const FVector2D PlayerPx = ToPanel(PlayerPos);
+	{
+		const TArray<FVector2D> Poly = FHISim::VisibilityPolygon(PlayerPos);
+		for (const FVector2D& P : Poly)
+		{
+			const FVector2D E = ToPanel(P);
+			DrawLine(PlayerPx.X, PlayerPx.Y, E.X, E.Y, FLinearColor(1.0f, 0.95f, 0.70f, 0.10f), 1.0f);
+		}
+	}
+
+	// ---- the van, because it is where the valuables are being taken and the minimap is
+	// otherwise a map of a house with no reason to leave it.
+	{
+		const FVector2D A = ToPanel(FHISim::Van.Min);
+		const FVector2D B = ToPanel(FHISim::Van.Max);
+		DrawRect(FLinearColor(0.35f, 0.62f, 0.38f, 0.70f),
+			FMath::Min(A.X, B.X), FMath::Min(A.Y, B.Y),
+			FMath::Max(FMath::Abs(B.X - A.X), 2.0f), FMath::Max(FMath::Abs(B.Y - A.Y), 2.0f));
+	}
+
+	// ---- the valuables. Shown unconditionally: they are the homeowner's own possessions in
+	// his own house, and a defender who does not know where his own safe is would be absurd.
+	for (const FHISim::FHILootItem& L : Round.Loot)
+	{
+		const FVector2D P = ToPanel(L.Pos);
+		const FLinearColor Colour = L.bDelivered
+			? FLinearColor(0.45f, 0.45f, 0.45f, 0.9f)
+			: (L.bTaken ? FLinearColor(0.95f, 0.55f, 0.15f, 0.95f)
+						: FLinearColor(0.35f, 0.85f, 0.95f, 0.95f));
+		DrawRect(Colour, P.X - 3.0f, P.Y - 3.0f, 6.0f, 6.0f);
+	}
+
+	// ---- the intruders, ONLY when the homeowner can see them.
+	for (const FHISim::FHIThief& T : Round.Intruders)
+	{
+		if (!T.bAlive || T.bEscaped)
+		{
+			continue;
+		}
+		if (!FHISim::CanSee(PlayerPos, T.Pos, FHISim::ThiefSight))
+		{
+			continue;
+		}
+		const FVector2D P = ToPanel(T.Pos);
+		DrawRect(FLinearColor(0.95f, 0.25f, 0.25f, 0.95f), P.X - 3.5f, P.Y - 3.5f, 7.0f, 7.0f);
+	}
+
+	// ---- the homeowner, last and on top: a dot and a nose, so his facing is readable.
+	{
+		const float A = Round.Player.Yaw;
+		// The sim's yaw 0 faces +Y, which is UP the map; the screen's Y grows downward.
+		const FVector2D Nose(PlayerPx.X + FMath::Sin(A) * 9.0f, PlayerPx.Y - FMath::Cos(A) * 9.0f);
+		DrawLine(PlayerPx.X, PlayerPx.Y, Nose.X, Nose.Y, FLinearColor(1.0f, 1.0f, 0.4f, 0.95f), 2.0f);
+		DrawRect(FLinearColor(1.0f, 1.0f, 1.0f, 0.95f), PlayerPx.X - 3.0f, PlayerPx.Y - 3.0f, 6.0f, 6.0f);
+	}
+}
+
 void AHIHUD::DrawHUD()
 {
 	Super::DrawHUD();
@@ -286,6 +399,8 @@ void AHIHUD::DrawHUD()
 	// "playerShot", "thiefShot" and "grabbed" on top of the firefight. Every one of them now
 	// has a human message -- see the Message handling in AHIGameMode::Tick -- so the dump is
 	// gone rather than merely hidden.
+
+	DrawMinimap(Mode->Round);
 
 	// The damage edge goes UNDER the readout and the banner but over the world.
 	DrawDamageFlash(Mode->RoundSeconds - Mode->LastDamageTime);

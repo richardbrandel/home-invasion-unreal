@@ -393,6 +393,71 @@ bool FHIUnrealThiefAim::RunTest(const FString& Parameters)
 	return true;
 }
 
+// --------------------------------------------------------------- the minimap
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHIUnrealMinimap,
+	"HI.Unreal.Minimap",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FHIUnrealMinimap::RunTest(const FString& Parameters)
+{
+	// The minimap's coordinate mapping, checked without a canvas.
+	//
+	// Worth checking because THE PORT HAD NO MINIMAP AT ALL, and the sim's
+	// `VisibilityPolygon` was ported and tested for a consumer that did not exist. A map that
+	// is mirrored, or that puts the house in the wrong corner, is worse than no map: it sends
+	// the player to the wrong door with full confidence.
+
+	const FBox2D B = AHIHUD::MinimapView();
+
+	// ---- the framing itself. A map drawn to `FHISim::Bounds` renders the house as a small
+	// blob in a field of lawn; this asserts the view actually contains the house AND the van,
+	// which are the only two places anything happens.
+	TestTrue(FString::Printf(TEXT("the minimap view contains the whole house (view y %.0f..%.0f, house y %.0f..%.0f)"),
+		B.Min.Y, B.Max.Y, FHISim::House.Min.Y, FHISim::House.Max.Y),
+		B.Min.Y <= FHISim::House.Min.Y && B.Max.Y >= FHISim::House.Max.Y);
+	TestTrue(TEXT("and the van the intruders deliver to"),
+		B.Min.Y <= FHISim::Van.Min.Y && B.Max.Y >= FHISim::Van.Max.Y);
+	TestTrue(FString::Printf(TEXT("and it is not the whole world, or the house would be tiny (view is %.0f m wide, world is %.0f)"),
+		B.GetSize().X, FHISim::Bounds.GetSize().X),
+		B.GetSize().X < FHISim::Bounds.GetSize().X * 0.75f);
+
+	// ---- the corners, which is what catches a flipped axis
+	{
+		const FVector2D Min = AHIHUD::MinimapFraction(B.Min);
+		const FVector2D Max = AHIHUD::MinimapFraction(B.Max);
+		TestTrue(FString::Printf(TEXT("the world's min corner maps to the BOTTOM-LEFT (%.2f, %.2f)"),
+			Min.X, Min.Y),
+			FMath::IsNearlyEqual(Min.X, 0.0f, 1e-4f) && FMath::IsNearlyEqual(Min.Y, 1.0f, 1e-4f));
+		TestTrue(FString::Printf(TEXT("and its max corner to the top-right (%.2f, %.2f)"),
+			Max.X, Max.Y),
+			FMath::IsNearlyEqual(Max.X, 1.0f, 1e-4f) && FMath::IsNearlyEqual(Max.Y, 0.0f, 1e-4f));
+	}
+
+	// ---- THE FLIP, stated as the thing a player would notice: the driveway is at +Y, so it
+	// must be at the TOP of the map. Without the flip it appears at the bottom, and every
+	// reading of the map is mirrored.
+	{
+		const FVector2D Drive = AHIHUD::MinimapFraction(FHISim::Drop);
+		const FVector2D House = AHIHUD::MinimapFraction(
+			FVector2D(FHISim::House.GetCenter().X, FHISim::House.GetCenter().Y));
+		TestTrue(FString::Printf(TEXT("the van's drop point is ABOVE the house on the map (%.2f vs %.2f)"),
+			Drive.Y, House.Y),
+			Drive.Y < House.Y);
+	}
+
+	// ---- and the centre, so a constant would not pass the corners
+	{
+		const FVector2D Centre = AHIHUD::MinimapFraction(B.GetCenter());
+		TestTrue(FString::Printf(TEXT("the centre of the world is the centre of the map (%.3f, %.3f)"),
+			Centre.X, Centre.Y),
+			FMath::IsNearlyEqual(Centre.X, 0.5f, 1e-4f)
+			&& FMath::IsNearlyEqual(Centre.Y, 0.5f, 1e-4f));
+	}
+
+	return true;
+}
+
 // --------------------------------------------------------------- sound
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHIUnrealAudio,

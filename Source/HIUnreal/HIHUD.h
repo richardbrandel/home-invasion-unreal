@@ -62,6 +62,25 @@ public:
 		const FVector& CameraRight, const FVector& CameraUp, float HalfFovTangent,
 		float AspectRatio, FVector2D& OutFraction);
 
+	/**
+	 * The patch of world the minimap shows.
+	 *
+	 * NOT `FHISim::Bounds`. The world is 60 x 52 m and the house is 16 x 11, so a map drawn
+	 * to the world bounds spends most of its area on empty lawn and renders the house as a
+	 * small pale blob -- which is what the first version did, and a map you have to squint at
+	 * is a map that does not answer the only question it is asked. This is the house, the
+	 * driveway and the van, sized to the panel's own aspect so nothing is letterboxed.
+	 */
+	static FBox2D MinimapView();
+
+	/**
+	 * Sim coordinates to a 0..1 position on the minimap. Pure, so it can be asserted.
+	 *
+	 * The V axis is FLIPPED: the sim's +Y is the direction of the driveway, and on a map the
+	 * driveway must be at the top rather than the bottom, or every reading of it is mirrored.
+	 */
+	static FVector2D MinimapFraction(const FVector2D& SimPos);
+
 private:
 	/** The reticle, at whatever fraction of the viewport the aim projects to. */
 	void DrawCrosshair(const FVector2D& Fraction);
@@ -71,6 +90,21 @@ private:
 
 	/** The end-of-round banner: what happened, and how to play again. */
 	void DrawOutcome(const FHISim::FHIRound& Round);
+
+	/**
+	 * The minimap: the house, what the homeowner can see, and who is standing in it.
+	 *
+	 * The Godot original has a sight-cone minimap and this port had none, which is a much
+	 * bigger deal than it sounds. The ported sim already carries `VisibilityPolygon` --
+	 * ported, tested, and until now referenced by NOTHING, because its only consumer was the
+	 * minimap. Without it a player has no way to know that a man is in the kitchen, and the
+	 * game becomes one you lose to a stranger walking in behind you.
+	 *
+	 * INTRUDERS ARE ONLY DRAWN WHEN THE HOMEOWNER CAN ACTUALLY SEE THEM, which is the same
+	 * fog of war the original keeps: the minimap is not a wallhack, and printing every
+	 * intruder's position would delete the reason to look anywhere.
+	 */
+	void DrawMinimap(const FHISim::FHIRound& Round);
 
 	/** The latest event's message, in the middle of the screen where it is read. */
 	void DrawMessage(const FString& Text, float SecondsLeft);

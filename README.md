@@ -210,7 +210,7 @@ flare stay off, which costs nothing.
 
 ## Status
 
-`HI.` passes **32/32** on ubuntu-dev. **All 97 assertions** in the Godot *sim* spec are
+`HI.` passes **33/33** on ubuntu-dev. **All 97 assertions** in the Godot *sim* spec are
 represented; the port adds coverage the Godot project has never had on either side.
 
 | Test | Covers |
@@ -241,6 +241,7 @@ represented; the port adds coverage the Godot project has never had on either si
 | **`HI.Sim.GroupHeist`** | **a full heist through `StepIntruders`, the ONLY path the game calls** |
 | **`HI.Sim.NonLethal`** | **the shout and the police call: they frighten, and the shout does NOT call the police** |
 | **`HI.Unreal.Audio`** | **that the sound class, the reverb submix and the copied cue all resolve, plus the indoor/outdoor test** |
+| **`HI.Unreal.Minimap`** | **the map's coordinate mapping, its framing, and the flip that would mirror it** |
 | **`HI.Sim.StartView`** | **where a round starts looking (0.03 rad, not 0.24)** |
 | `HI.Unreal.Sizing` | the metre/centimetre split, the body-rotation mapping |
 | `HI.Unreal.Hud` | what the readout says |
@@ -248,7 +249,7 @@ represented; the port adds coverage the Godot project has never had on either si
 | **`HI.Unreal.Materials`** | **that the palette's material really has its `Color` parameter, with a control** |
 | **`HI.Unreal.ThiefAim`** | **the intruder's range falloff, guarding the 0.55 floor that made range meaningless** |
 
-## Four bugs the test suite could not have caught
+## Six bugs the test suite could not have caught
 
 Everything was green — 24/24, all 97 Godot sim assertions represented — while the game had
 no reload, no weapon switch, no shove, intruders who could not hurt anybody, and **intruders
@@ -268,18 +269,28 @@ test that would have failed.
    Godot source** reports the same 0.000 m. **The Godot original is fixed too**, with two new
    tests in its spec; both sides now clear the house in ~74 s. This is the bug that explains
    why nobody had watched three men come through the door.
-1. **The player could not reload, switch weapons or shove.** `Sim::Shove`, `LoadMagazine`
+1. **The game was ONE ROUND ONLY.** `ReadInput` is reached only while the round is *live*, and
+   the Enter check lived inside it — so it had never executed. The outcome banner promised
+   "[ENTER] to play again" and the key did nothing; the only way to play a second round was to
+   restart the process. Now polled from the decided-round branch, and verified by
+   `-HIRounds=3`, which plays three rounds through the same `RestartRound` the player's key
+   calls.
+2. **`bCrouching` and `bSprinting` were never written** after spawn, so the HUD stance read
+   STANDING forever, and **`CrouchEyeHeight` was declared and referenced nowhere** — [C]
+   slowed the homeowner down and left his viewpoint at standing height. The whole point of a
+   crouch in a home-defence game is not being seen over the furniture.
+3. **The player could not reload, switch weapons or shove.** `Sim::Shove`, `LoadMagazine`
    and the per-weapon `mags` map were ported *and tested* — as functions. `FHIRound::Step`
    had no input path to any of them, so the shotgun was unreachable and a dry pistol stayed
    dry forever. Fixed in `FHIRound::Step`, asserted through `Step` by `HI.Sim.Verbs`, with
    one weapon keeping its own magazine across a swap.
-2. **Twelve of the sim's fifteen event types were dropped.** Only `playerShot` and
+4. **Twelve of the sim's fifteen event types were dropped.** Only `playerShot` and
    `thiefDown` were handled. The sim *deliberately* leaves the intruder's hit/miss roll to
    the game layer, so with `thiefShot` unread **nothing damaged the homeowner and a round
    could not be lost by gunfire.** Now resolved in `ResolveThiefShot`, ported from `game.gd`:
    the round is a RAY traced against the world, so a wall stops it, with range falloff
    `clamp(1 - 0.035 r, 0.05, 1)`.
-3. **A round started pitched 0.24 rad down.** Godot keeps two pitches and the camera reads
+5. **A round started pitched 0.24 rad down.** Godot keeps two pitches and the camera reads
    the game layer's `reset()` value (0.03); the port merged the fields. The symptom was the
    first captured frame being the top of the homeowner's head, and it is nearly fourteen
    degrees of view. `HI.Sim.StartView` pins it.
@@ -300,7 +311,7 @@ column of that list**; the Godot column is unchanged.
 | 14 | Foot IK | **HALF DONE.** The visible half — the feet skating — is fixed by matching the clip's play rate to the body's actual speed. Foot PLANTING on an edge needs an anim graph, and the engine's `CR_Mannequin_FootIK` is available and unused |
 | 15 | Idle variation | **HALF DONE.** Every body's idle loop starts at a random phase, so three men no longer breathe in unison. Genuinely different IDLE POSES need more recorded clips; the engine ships one |
 | 16 | Voice / barks | **HOOK ONLY.** The bark system exists and fires at the right moments (a man goes down, you shout), but the cue is a pitched sine and sounds like equipment, not a person. Voices need recordings |
-| 17 | More non-lethal verbs | **Mostly done.** Shove, reload and weapon switch were already wired; now **[Q] shout** frightens every man who hears it without spending a round, and **[P] calls the police** without a gunshot — both tested. Barricading and lights are not started |
+| 17 | More non-lethal verbs | **Mostly done.** Shove, reload and weapon switch were already wired; now **[Q] shout** frightens every man who hears it without spending a round, and **[P] calls the police** without a gunshot — both tested. Barricading and lights are not started: a barricade is a new SOLID, and the sim's rectangle list is the Godot spec and is index-aligned with its spans, so adding one is a world-data change rather than a verb |
 | 18 | The simulation is 2-D | **DONE** — `FHISolidSpan`, `LosBlocked3D` and a `Z` on both entities, with `HI.Sim.Elevation` as the regression harness. The spans are deliberately uniform at a full storey: the Godot source carries no furniture heights, and inventing them is a design decision, not a porting one |
 | 19 | Blood / wounds | **PARTLY.** Pooled bullet holes where pellets land, a blood mark where a man falls, a flash on a hit and a red edge when the homeowner is hit. Nothing ON the person |
 | 20 | Audio buses | **DONE for the buses, placeholder content.** Every cue is routed through the engine's `SFX` sound class rather than Master, and carries a submix send to `MasterReverbSubmixDefault` — whose effect chain was inspected before it was relied on — set from whether the cue is inside the house, so a shot in the kitchen rings and a shot on the lawn does not. The gunshots are the engine's template cue; impacts and barks are that cue and a sine at shifted pitch. **Foley needs recordings** |
@@ -317,9 +328,15 @@ column of that list**; the Godot column is unchanged.
 - **The sound is placeholder.** Gunshots are the engine's template cue and everything else is
   that cue or a sine tone at a shifted pitch. The mixing and the timing are real; the foley is
   not, and barks in particular sound like equipment rather than men.
-- **There is no minimap.** The Godot game's sight-cone minimap is how a player finds intruders
-  through fog of war; this port has none, so a human has far less information than the
-  autopilot did when it won in five seconds.
+- **The van cannot be walked into, because it cannot be walked INTO.** The sim's world data
+  does not make the van solid — it is scenery in both projects — so a body driven by the sim
+  passes through it. This cannot be fixed from the actor layer: the player's movement is
+  sim-driven and ignores physics entirely, so adding collision to the van would stop nothing.
+  The fix is to add the van rectangle to the sim's solids, which changes AI routing and the
+  Godot spec's world-data assertions. Reported rather than done.
+- **Crouching does not make you harder to SEE**, only lower and slower. Every solid's vertical
+  span is a full storey by design (see item 18), so no furniture is short enough to hide
+  behind. That is the same open decision, and the same one a person has to make.
 - **Nothing has been played by a person.** Everything above is compile, test, and captured
   frames looked at by an agent. No human has held the controls.
 - **Mouse-look sensitivity is flagged TUNING** in `HIGameMode.h` and needs eyes.
