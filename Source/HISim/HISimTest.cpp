@@ -1756,4 +1756,325 @@ bool FHISimView::RunTest(const FString& Parameters)
 	return true;
 }
 
+// ------------------------------------------------------------- the player's verbs
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHISimGroupHeist,
+	"HI.Sim.GroupHeist",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FHISimGroupHeist::RunTest(const FString& Parameters)
+{
+	// A FULL HEIST THROUGH THE GROUP PATH. This test did not exist, and its absence is the
+	// single largest hole the port has had.
+	//
+	// Every heist assertion in this file drove `StepThief` for one intruder. The game only
+	// ever calls `StepIntruders`. Those two are not the same code path, and the difference
+	// was not cosmetic: `StepIntruders` separated the positions captured BEFORE the step and
+	// wrote the result back, so each intruder was returned to where he started every frame
+	// and NONE OF THEM EVER MOVED. All 24 tests passed while the game was unplayable.
+	//
+	// It is the same shape of mistake the project's own notes warn about: "a test suite in
+	// which every case holds the one varying actor still is not covering the system". Here
+	// the varying thing was the CODE PATH, not an actor.
+
+	const float Dt = 1.0f / 60.0f;
+
+	// ---- one intruder through the group path must MOVE. This is the cheap, sharp assertion:
+	// it fails in a way that says what is wrong, rather than as a heist that quietly times out.
+	{
+		FHISim::FHIPlayer Player = FHISim::CreatePlayer();
+		TArray<FHISim::FHIThief> Intruders = FHISim::CreateIntruders(1);
+		TArray<FHISim::FHILootItem> Loot = FHISim::CreateLoot();
+		TArray<FHISim::FHIEvent> Events;
+		const FVector2D Start = Intruders[0].Pos;
+
+		for (int32 Step = 0; Step < 300; ++Step)   // five seconds: Think alone is 2.0 s
+		{
+			FHISim::StepIntruders(Intruders, Player, Loot, Events, Dt);
+			Events.Reset();
+		}
+		const float Travelled = FVector2D::Distance(Start, Intruders[0].Pos);
+		TestTrue(FString::Printf(TEXT("an intruder driven by StepIntruders actually MOVES (%.2f m in 5 s, from (%.2f, %.2f) to (%.2f, %.2f))"),
+			Travelled, Start.X, Start.Y, Intruders[0].Pos.X, Intruders[0].Pos.Y),
+			Travelled > 1.0f);
+	}
+
+	// ---- and the whole heist, three of them, against an idle homeowner
+	{
+		FHISim::FHIPlayer Player = FHISim::CreatePlayer();
+		TArray<FHISim::FHIThief> Intruders = FHISim::CreateIntruders(3);
+		TArray<FHISim::FHILootItem> Loot = FHISim::CreateLoot();
+		TArray<FHISim::FHIEvent> Events;
+
+		float T = 0.0f;
+		int32 Sirens = 0;
+		TSet<FString> Grabbed;
+		TSet<FString> Delivered;
+		// 400 s, which is deliberately far more than the single-thief spec's 180: three men
+		// share one 2 m doorway and two of the three valuables, so they are slower and they
+		// get in each other's way. A timeout here would mean a stall, not a slow heist.
+		while (T < 400.0f && FHISim::Remaining(Loot) > 0)
+		{
+			FHISim::StepIntruders(Intruders, Player, Loot, Events, Dt);
+			for (const FHISim::FHIEvent& Ev : Events)
+			{
+				if (Ev.Type == TEXT("sirens"))
+				{
+					++Sirens;
+				}
+				else if (Ev.Type == TEXT("grabbed"))
+				{
+					Grabbed.Add(Ev.Label);
+				}
+				else if (Ev.Type == TEXT("delivered"))
+				{
+					Delivered.Add(Ev.Label);
+				}
+			}
+			Events.Reset();
+			T += Dt;
+		}
+
+		const int32 Left = FHISim::Remaining(Loot);
+		AddInfo(FString::Printf(TEXT("three intruders cleared %d/3 items in %.1fs, %d grabbed, %d delivered, %d sirens"),
+			3 - Left, T, Grabbed.Num(), Delivered.Num(), Sirens));
+		TestEqual(FString::Printf(TEXT("three intruders empty the house through the group path (delivered %d/3 in %.1fs)"),
+			3 - Left, T), Left, 0);
+
+		// The COUNT is asserted separately from the outcome, because "delivered 3/3" could
+		// also be reached by the sim's own bookkeeping being wrong. Three distinct labels must
+		// have been picked up and three distinct labels must have arrived, and those are
+		// different events raised by different code.
+		TestEqual(FString::Printf(TEXT("and all three valuables were individually carried (grabbed %d, delivered %d)"),
+			Grabbed.Num(), Delivered.Num()), Delivered.Num(), 3);
+		TestEqual(TEXT("by three different men or fewer, but each one a real grab"), Grabbed.Num(), 3);
+	}
+
+	return true;
+}
+
+// ------------------------------------------------------------- the player's verbs
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHISimStartView,
+	"HI.Sim.StartView",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FHISimStartView::RunTest(const FString& Parameters)
+{
+	// Where a round STARTS looking, which is a porting trap rather than a detail.
+	//
+	// Godot keeps two pitches: `player.pitch` (0.24, from create_player) and the game layer's
+	// own `pitch` (0.03, set by reset()). The camera reads the GAME LAYER's, so the 0.24 is
+	// vestigial in the original. This port merged the two fields because the sim now owns the
+	// view -- which means the reset value has to be applied deliberately, and nothing about
+	// `create_player` would ever tell you so.
+	//
+	// It cost a render: the first captured frame of this port was the top of the homeowner's
+	// head, because a 0.24 rad start is 13.7 degrees down at the floor.
+
+	// create_player still carries the literal from sim.gd -- changing it would be changing
+	// the SPEC rather than matching the game, and the two really are different numbers.
+	TestTrue(FString::Printf(TEXT("create_player keeps sim.gd's 0.24 rad (%.2f)"),
+		FHISim::CreatePlayer().Pitch),
+		FMath::IsNearlyEqual(FHISim::CreatePlayer().Pitch, 0.24f, 1e-4f));
+
+	// ...but a ROUND starts at game.gd reset()'s 0.03, whatever the number of intruders.
+	for (int32 Count = 1; Count <= 3; ++Count)
+	{
+		FHISim::FHIRound R = FHISim::FHIRound::Start(Count);
+		TestTrue(FString::Printf(TEXT("and a %d-intruder round starts level, at reset()'s 0.03 rad (%.3f)"),
+			Count, R.Player.Pitch),
+			FMath::IsNearlyEqual(R.Player.Pitch, 0.03f, 1e-4f));
+	}
+
+	// And the difference is visible, which is why it is worth pinning: it is nearly fourteen
+	// degrees of view, not a rounding difference.
+	TestTrue(TEXT("which is a materially different view from the spawn default"),
+		FMath::Abs(FHISim::CreatePlayer().Pitch - FHISim::FHIRound::Start(1).Player.Pitch) > 0.2f);
+
+	return true;
+}
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHISimVerbs,
+	"HI.Sim.Verbs",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FHISimVerbs::RunTest(const FString& Parameters)
+{
+	// The three things the homeowner can DO that this port had never wired to a key.
+	//
+	// HI.Sim.Shove already proves the shove FUNCTION works. It proved nothing about whether
+	// the round ever calls it, and it did not -- so a round could be played with no shove,
+	// no reload and no weapon switch, and every test stayed green. These assertions go
+	// through FHIRound::Step, which is the layer that was missing, because that is the
+	// layer where the gap was invisible.
+
+	const float Dt = 1.0f / 60.0f;
+
+	// A round whose intruder cannot interfere. The player-verb assertions below are about
+	// KEYS, and they take tens of frames; a firefight that ended the round part-way through
+	// a reload would fail them for a reason that has nothing to do with what they test.
+	// Setting `bAlive` directly rather than damaging him is deliberate: DamageIntruder would
+	// decide the round and freeze Step, which is the opposite of what is wanted here.
+	auto Isolated = []()
+	{
+		FHISim::FHIRound R = FHISim::FHIRound::Start(1);
+		R.Intruders[0].bAlive = false;
+		return R;
+	};
+
+	// ---- [R] actually starts a reload, and finishes it out of the reserve
+	{
+		FHISim::FHIRound R = Isolated();
+		R.Player.Mag = 0;
+		R.Player.Cd = 0.0f;
+
+		FHISim::FHIInput Dry;   // control: no key held
+		R.Step(Dry, Dt);
+		TestTrue(FString::Printf(TEXT("a dry pistol stays dry with no key held (mag %d, reloading %.2f)"),
+			R.Player.Mag, R.Player.Reloading),
+			R.Player.Mag == 0 && R.Player.Reloading <= 0.0f);
+
+		FHISim::FHIInput In;
+		In.bReload = true;
+		R.Step(In, Dt);
+		TestTrue(FString::Printf(TEXT("and [R] starts one (reloading %.2f s of %.2f)"),
+			R.Player.Reloading, FHISim::Weapon(TEXT("pistol")).Reload),
+			R.Player.Reloading > 0.0f);
+
+		// Hold the key down for the whole reload. A naive implementation restarts the timer
+		// every frame, so a held [R] freezes him mid-magazine forever and never finishes.
+		int32 Steps = 0;
+		while (R.Player.Reloading > 0.0f && Steps < 600)
+		{
+			R.Step(In, Dt);
+			++Steps;
+		}
+		const int32* Reserve = R.Player.Reserve.Find(TEXT("pistol"));
+		TestTrue(FString::Printf(TEXT("holding [R] finishes the reload rather than restarting it (%d frames, mag %d, reserve %d)"),
+			Steps, R.Player.Mag, Reserve != nullptr ? *Reserve : -1),
+			Steps < 600 && R.Player.Mag == 12 && Reserve != nullptr && *Reserve == 24);
+	}
+
+	// ---- and a full magazine cannot be reloaded at all
+	{
+		FHISim::FHIRound R = Isolated();
+		FHISim::FHIInput In;
+		In.bReload = true;
+		R.Step(In, Dt);
+		TestTrue(FString::Printf(TEXT("a full magazine is not reloadable (mag %d, reloading %.2f)"),
+			R.Player.Mag, R.Player.Reloading),
+			R.Player.Mag == 12 && R.Player.Reloading <= 0.0f);
+	}
+
+	// ---- [1] / [2] switch weapons, and CRUCIALLY each keeps its own magazine
+	{
+		FHISim::FHIRound R = Isolated();
+
+		FHISim::FHIInput ToShotgun;
+		ToShotgun.SwitchWeapon = TEXT("shotgun");
+		R.Step(ToShotgun, Dt);
+		TestTrue(FString::Printf(TEXT("the shotgun is reachable at all (holding '%s' with %d in it)"),
+			*R.Player.Weapon, R.Player.Mag),
+			R.Player.Weapon == TEXT("shotgun") && R.Player.Mag == 6);
+
+		// Fire one, then go back to the pistol: the pistol must still hold what it held.
+		FHISim::FHIInput Fire;
+		Fire.bFire = true;
+		R.Player.Cd = 0.0f;
+		R.Step(Fire, Dt);
+		TestTrue(FString::Printf(TEXT("and it fires (shotgun mag now %d)"), R.Player.Mag), R.Player.Mag == 5);
+
+		FHISim::FHIInput ToPistol;
+		ToPistol.SwitchWeapon = TEXT("pistol");
+		R.Step(ToPistol, Dt);
+		TestTrue(FString::Printf(TEXT("switching back does NOT conjure a fresh magazine (pistol mag %d, not 12)"),
+			R.Player.Mag),
+			R.Player.Weapon == TEXT("pistol") && R.Player.Mag == 12);
+
+		// Spend a pistol round, swap away and back, and the spent round must stay spent.
+		R.Player.Cd = 0.0f;
+		R.Step(Fire, Dt);
+		const int32 AfterFiring = R.Player.Mag;
+		R.Player.Cd = 0.0f;
+		R.Step(ToShotgun, Dt);
+		R.Step(ToPistol, Dt);
+		TestTrue(FString::Printf(TEXT("and a spent round stays spent across a swap (fired to %d, back holding %d)"),
+			AfterFiring, R.Player.Mag),
+			AfterFiring == 11 && R.Player.Mag == 11);
+
+		// Re-selecting what he is already holding must not bank or reload anything.
+		R.Step(ToPistol, Dt);
+		TestTrue(FString::Printf(TEXT("re-selecting the held weapon is a no-op (mag %d)"), R.Player.Mag),
+			R.Player.Mag == 11);
+
+		// A typo must not leave him holding a weapon that cannot fire.
+		FHISim::FHIInput ToGarbage;
+		ToGarbage.SwitchWeapon = TEXT("rocket");
+		R.Step(ToGarbage, Dt);
+		TestTrue(FString::Printf(TEXT("an unknown weapon is refused rather than emptying his hands (holding '%s')"),
+			*R.Player.Weapon),
+			R.Player.Weapon == TEXT("pistol"));
+	}
+
+	// ---- firing the shotgun really does report pellets, through the round
+	{
+		FHISim::FHIRound R = Isolated();
+		FHISim::FHIInput In;
+		In.SwitchWeapon = TEXT("shotgun");
+		R.Step(In, Dt);
+		R.ConsumeEvents();
+		R.Player.Cd = 0.0f;
+		In.SwitchWeapon.Empty();
+		In.bFire = true;
+		R.Step(In, Dt);
+
+		int32 Pellets = -1;
+		float Damage = -1.0f;
+		for (const FHISim::FHIEvent& Ev : R.ConsumeEvents())
+		{
+			if (Ev.Type == TEXT("playerShot"))
+			{
+				Pellets = Ev.Pellets;
+				Damage = Ev.Damage;
+			}
+		}
+		TestTrue(FString::Printf(TEXT("and the shot it reports carries the shotgun's pellets (%d) and damage (%.1f)"),
+			Pellets, Damage),
+			Pellets == FHISim::Weapon(TEXT("shotgun")).Pellets && Pellets > 1
+			&& FMath::IsNearlyEqual(Damage, FHISim::Weapon(TEXT("shotgun")).Damage, 0.01f));
+	}
+
+	// ---- [F] shoves, and it is the KEY that does it
+	{
+		FHISim::FHIRound R = FHISim::FHIRound::Start(1);
+		// Stand him a metre in front of the homeowner, well inside ShoveRange.
+		R.Player.Pos = FVector2D(0.0f, -11.0f);
+		R.Player.Yaw = 0.0f;                     // yaw 0 faces +Y
+		R.Intruders[0].Pos = FVector2D(0.0f, -10.0f);
+		R.Intruders[0].Carry = TEXT("Laptop");
+		R.Intruders[0].Yaw = UE_PI;
+
+		// Control first: with no key held he must be neither staggered nor relieved of it.
+		// Without this the assertions below would pass on a build that shoved unconditionally.
+		FHISim::FHIInput None;
+		const float GuardedY = R.Intruders[0].Pos.Y;
+		R.Step(None, Dt);
+		TestTrue(FString::Printf(TEXT("with no key held [F]'s effect does not happen (stagger %.2f, carry '%s')"),
+			R.Intruders[0].Stagger, *R.Intruders[0].Carry),
+			R.Intruders[0].Stagger <= 0.0f && R.Intruders[0].Carry == TEXT("Laptop"));
+
+		FHISim::FHIInput ShoveIn;
+		ShoveIn.bShove = true;
+		R.Intruders[0].Pos = FVector2D(0.0f, -10.0f);
+		R.Step(ShoveIn, Dt);
+		TestTrue(FString::Printf(TEXT("and holding it lands one (stagger %.2f s, driven from %.2f to %.2f)"),
+			R.Intruders[0].Stagger, GuardedY, R.Intruders[0].Pos.Y),
+			R.Intruders[0].Stagger > 0.0f && R.Intruders[0].Pos.Y > GuardedY);
+		TestTrue(FString::Printf(TEXT("knocking the loot loose (carry now '%s')"), *R.Intruders[0].Carry),
+			R.Intruders[0].Carry.IsEmpty());
+	}
+
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS

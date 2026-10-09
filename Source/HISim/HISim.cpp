@@ -329,12 +329,15 @@ TArray<int32> FHISim::StepIntruders(TArray<FHIThief>& Intruders, FHIPlayer& Play
 	TArray<FHILootItem>& Loot, TArray<FHIEvent>& Events, float Dt)
 {
 	TArray<int32> Seen;
-	TArray<FVector2D> Before;
-	Before.Reserve(Intruders.Num() + 1);
-	Before.Add(Player.Pos);
+	// WHERE EVERY BODY STOOD AT THE START OF THE FRAME. Kept only for `Prev`, so the stuck
+	// detector measures travel from the frame's start; the positions the step produces are
+	// captured separately below.
+	TArray<FVector2D> AtFrameStart;
+	AtFrameStart.Reserve(Intruders.Num() + 1);
+	AtFrameStart.Add(Player.Pos);
 	for (const FHIThief& T : Intruders)
 	{
-		Before.Add(T.Pos);
+		AtFrameStart.Add(T.Pos);
 	}
 
 	for (int32 Idx = 0; Idx < Intruders.Num(); ++Idx)
@@ -359,6 +362,32 @@ TArray<int32> FHISim::StepIntruders(TArray<FHIThief>& Intruders, FHIPlayer& Play
 		}
 	}
 
+	// THE SEPARATION RUNS ON THE POST-STEP POSITIONS, and this is the single most important
+	// line in the port.
+	//
+	// It used to run on the frame-START positions and write the result straight back, which
+	// discarded every body's movement on every frame: `separate_all` of an already-separated
+	// set is that same set, so each intruder was teleported back to where he began. The
+	// intruders therefore NEVER MOVED -- measured, one intruder and three alike, after 180
+	// simulated seconds: `pos=(0.00, 5.00)`, which is the spawn point exactly, with a valid
+	// four-node route and a target room.
+	//
+	// It survived every test this project had, because they all exercise `StepThief` alone:
+	// `HI.Sim.ThiefAI` clears three valuables in 137 s that way. Nothing ran a heist through
+	// the group path, which is the only path the game itself uses.
+	//
+	// The Godot original has the same ordering, and the same probe run against it reports
+	// the same thing: solo travel 2.1 m, group travel **0.000 m**. So this is not a porting
+	// slip; it is a bug inherited with the algorithm, and it is why the port keeps `Prev` in
+	// a separate list rather than reusing one array for both jobs.
+	TArray<FVector2D> Stepped;
+	Stepped.Reserve(Intruders.Num() + 1);
+	Stepped.Add(Player.Pos);
+	for (const FHIThief& T : Intruders)
+	{
+		Stepped.Add(T.Pos);
+	}
+
 	TArray<float> Radii;
 	Radii.Reserve(Intruders.Num() + 1);
 	Radii.Add(PlayerRadius);
@@ -367,16 +396,17 @@ TArray<int32> FHISim::StepIntruders(TArray<FHIThief>& Intruders, FHIPlayer& Play
 		Radii.Add(ThiefRadius);
 	}
 
-	const TArray<FVector2D> After = SeparateAll(Before, Radii);
+	const TArray<FVector2D> After = SeparateAll(Stepped, Radii);
 	Player.Pos = After[0];
 	for (int32 Idx = 0; Idx < Intruders.Num(); ++Idx)
 	{
 		FHIThief& T = Intruders[Idx];
 		T.Pos = After[Idx + 1];
-		// `prev` is re-anchored on the FRAME-START position, not the resolved one. The push
-		// is therefore exactly After - Before, and measuring travel across it would read a
-		// shove as progress, letting the offset accumulate and blinding the stuck detector.
-		T.Prev = Before[Idx + 1];
+		// `prev` is re-anchored on the FRAME-START position, not the resolved one, so the
+		// stuck detector measures the whole frame's travel -- the step plus whatever the
+		// body-push added. `StepThief` already wrote exactly this value; assigning it again
+		// from the list is what makes that explicit rather than incidental.
+		T.Prev = AtFrameStart[Idx + 1];
 	}
 	return Seen;
 }
@@ -404,7 +434,71 @@ FHISim::FHIRound FHISim::FHIRound::Start(int32 IntruderCount)
 	R.Loot = CreateLoot();
 	R.State = EHIRoundState::Play;
 	R.ThievesDown = 0;
+
+	// game.gd's `reset()` starts the VIEW looking 0.03 rad down, not the 0.24 that
+	// `create_player()` puts in the player dictionary -- and in Godot those are two different
+	// variables, because the camera reads the game layer's own `pitch`, not `player.pitch`.
+	// The player-dictionary value is vestigial there.
+	//
+	// The port merged them, because the sim now owns the view (it is what Shove's front arc
+	// and the movement basis are computed from). So the reset value has to be applied
+	// explicitly, or every round starts with the camera pitched thirteen degrees down at the
+	// floor. That is not a cosmetic difference: the first captured frame of this port showed
+	// the top of the homeowner's head and very little else, and the cause was this one
+	// number, not the camera distance.
+	R.Player.Pitch = 0.03f;
 	return R;
+}
+
+FHISim::FHIThief* FHISim::FHIRound::NearestIntruder()
+{
+	FHIThief* Best = nullptr;
+	float BestDist = TNumericLimits<float>::Max();
+	for (FHIThief& T : Intruders)
+	{
+		if (!T.bAlive)
+		{
+			continue;
+		}
+		const float Dist = FVector2D::Distance(Player.Pos, T.Pos);
+		if (Dist < BestDist)
+		{
+			BestDist = Dist;
+			Best = &T;
+		}
+	}
+	return Best;
+}
+
+void FHISim::FHIRound::SwitchWeapon(const FString& Key)
+{
+	// An unknown key must not be able to strip him of a weapon: `Weapon(Key)` returns a
+	// zeroed spec for anything unrecognised, so switching to a typo would leave him holding
+	// nothing that can fire. Refuse it rather than discover that at the worst moment.
+	if (Key.IsEmpty() || Key == Player.Weapon || Weapon(Key).Mag <= 0)
+	{
+		return;
+	}
+	// Bank the magazine he is holding against the weapon he is holding it for. Without this
+	// the new weapon either inherits his current magazine or starts empty, and neither is
+	// what `mags` is for.
+	Player.Mags.Add(Player.Weapon, Player.Mag);
+	Player.Weapon = Key;
+	const int32* Banked = Player.Mags.Find(Key);
+	Player.Mag = Banked != nullptr ? *Banked : 0;
+	// Canceled, not carried: a man who swaps mid-reload starts the new weapon's reload from
+	// scratch. game.gd zeroes it here for the same reason.
+	Player.Reloading = 0.0f;
+}
+
+bool FHISim::FHIRound::TryShove()
+{
+	FHIThief* Target = NearestIntruder();
+	if (Target == nullptr)
+	{
+		return false;
+	}
+	return Shove(Player, *Target, Loot, Events);
 }
 
 bool FHISim::FHIRound::AnyIntruderStanding() const
@@ -543,6 +637,28 @@ void FHISim::FHIRound::Step(const FHIInput& Input, float Dt)
 		// A finished round is inert. Ticking it would let bodies keep robbing a house whose
 		// outcome has already been decided.
 		return;
+	}
+
+	// ---- the durable verbs, BEFORE the movement they modify
+	//
+	// Order matters and is not arbitrary. Switching goes first because it decides which
+	// magazine a reload would fill; the reload goes before the movement because a man
+	// changing a magazine walks slower THIS frame, which is the whole cost of reloading and
+	// the reason reloading while sprinting through a doorway is no longer free. game.gd gets
+	// the same ordering for free, because Godot delivers _input before _process.
+	if (!Input.SwitchWeapon.IsEmpty())
+	{
+		SwitchWeapon(Input.SwitchWeapon);
+	}
+	if (Input.bReload && Player.Reloading <= 0.0f && CanLoadMagazine(Player))
+	{
+		Player.Reloading = Weapon(Player.Weapon).Reload;
+	}
+	if (Input.bShove)
+	{
+		// The cooldown and the front arc are both inside Shove, so a shove that lands
+		// nothing costs nothing -- exactly as firing a weapon on cooldown does.
+		TryShove();
 	}
 
 	// ---- the homeowner
@@ -1673,6 +1789,18 @@ bool FHISim::StepThief(FHIThief& Thief, FHIPlayer& Player, TArray<FHILootItem>& 
 	{
 		Thief.Speed = MoveToward(Thief.Speed, 0.0f, ThiefDecel * Dt);
 	}
+
+	// THE STEP'S RESULT IS ALWAYS WRITTEN BACK, and getting this wrong is what made the
+	// intruders unable to move. `bSeparate` gates the PAIRWISE SEPARATION below; it was
+	// wrongly also gating the position write, so the group path -- `step_intruders`, which is
+	// the only path the game calls -- computed a new `TPos` every frame and threw it away.
+	//
+	// The Godot original has exactly this shape too: `sim.gd` writes `thief["pos"] = tpos`
+	// inside `if separate:`, so `step_intruders` never records a step. Two defects compound
+	// there and here -- this one, and separating the frame-START positions in
+	// `StepIntruders` below -- and together they leave every intruder standing on the
+	// driveway for the whole round.
+	Thief.Pos = TPos;
 
 	// ---- solid bodies. Applied once both have moved; the homeowner's own step is taken
 	// by the caller before this. Skipped when step_intruders resolves the group at once.

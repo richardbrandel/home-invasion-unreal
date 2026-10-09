@@ -385,6 +385,21 @@ struct HISIM_API FHISim
 		bool bSprint = false;
 		/** Trigger held. The weapon's cooldown and the magazine still gate the shot. */
 		bool bFire = false;
+		/**
+		 * One frame of [R]. Starts a reload only if one CAN start, so holding the key does
+		 * not restart the timer every frame and freeze him mid-magazine forever.
+		 */
+		bool bReload = false;
+		/** One frame of [F]. Swings at the nearest man in front; the cooldown gates it. */
+		bool bShove = false;
+		/**
+		 * One frame of the weapon-select keys: "pistol", "shotgun", or EMPTY for no change.
+		 *
+		 * A string rather than an enum, and deliberately: sim.gd keys its weapons by name and
+		 * the magazine and reserve maps are keyed the same way, so an enum would need a
+		 * second mapping table -- and a second place for the two to disagree.
+		 */
+		FString SwitchWeapon;
 	};
 
 	enum class EHIRoundState : uint8
@@ -442,6 +457,36 @@ struct HISIM_API FHISim
 		bool AnyIntruderStanding() const;
 		FHIThief* FindIntruder(int32 Id);
 		int32 Remaining() const { return FHISim::Remaining(Loot); }
+
+		/**
+		 * The living intruder nearest the homeowner, or nullptr when none is standing.
+		 *
+		 * Empty-handed nearest, exactly as game.gd's `_nearest_intruder()` picks: it does NOT
+		 * test the shove arc. The arc is Shove's own rule, and duplicating it here would give
+		 * the two copies a place to drift apart.
+		 */
+		FHIThief* NearestIntruder();
+
+		/**
+		 * Swap the held weapon. Each weapon keeps its OWN magazine.
+		 *
+		 * game.gd learned this the hard way: handing over a full magazine on every switch made
+		 * tapping 1 / 2 a free reload, so ammunition stopped being a resource. The held
+		 * magazine is banked under the old weapon and the new one's is restored, and any
+		 * reload in progress is CANCELED rather than carried across.
+		 *
+		 * An unknown or already-held key is a no-op.
+		 */
+		void SwitchWeapon(const FString& Key);
+
+		/**
+		 * Swing at the nearest man in front.
+		 *
+		 * Returns true if it landed. Lives on the round rather than in the caller so the
+		 * target choice and the arc rule are reachable from a headless test -- which is the
+		 * whole reason the shove is in the sim at all.
+		 */
+		bool TryShove();
 
 	private:
 		/** Spend a round, start the cooldown, and tell every intruder he heard it. */
