@@ -16,6 +16,12 @@ the headless automation loop is the entire reason the Unreal route is viable.
 
 ## Where this runs
 
+**This repository has no remote.** `git remote -v` is empty and there is no `origin`: the
+Godot project is public and this one is not, so the copy on the Mac is the only copy, and
+`git push` here fails with *"No configured push destination"*. That is a deliberate-looking
+state rather than an accident, but it is worth knowing before treating a commit here as
+backed up.
+
 The Mac has no Unreal. Build and test happen on **ubuntu-dev**, and the build tree there
 is `/data/projects/HIUnreal`:
 
