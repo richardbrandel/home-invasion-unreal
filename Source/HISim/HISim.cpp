@@ -895,37 +895,91 @@ namespace
 	struct FFurnRow
 	{
 		float X, Z, W, D;
+		/**
+		 * `h` -- the item's HEIGHT, straight out of sim.gd's literal.
+		 *
+		 * This field was DROPPED by the first port of this table, and its absence is the
+		 * whole reason every couch and table in the game rendered as a floor-to-ceiling
+		 * column. The claim on record was that "the Godot source carries no furniture
+		 * heights, and inventing them is a design decision" -- the Godot source carries
+		 * them, one per row, and `game.gd:483` draws with them:
+		 *
+		 *     _add_box(body, f["rect"], f["h"])
+		 *
+		 * So this is a port of an existing number, not an invented one, and the sim's
+		 * SIGHT model is untouched by it: `SolidSpans` stays uniform because Godot's own
+		 * `los_blocked` is 2-D and ignores `h` entirely. Draw tall, see through -- that
+		 * mismatch is fix-list item 18, and it is the original's, not this port's.
+		 */
+		float H;
 		bool bFlat;
+		/** The sim's own `kind`, so the game layer can name what it draws. */
+		const TCHAR* Label;
 	};
 	const TArray<FFurnRow>& FurnitureRows()
 	{
 		static const TArray<FFurnRow> Rows = {
 			// living room (front west)
-			{ -7.40f, -12.60f, 1.20f, 3.20f, false },   // sofa
-			{ -7.00f, -14.10f, 0.40f, 0.40f, false },   // side_table
-			{ -5.60f, -11.70f, 1.40f, 1.40f, false },   // coffee_table
-			{ -6.40f, -13.60f, 2.20f, 0.50f, false },   // tv_stand
-			{ -7.60f,  -8.60f, 4.40f, 1.80f, true  },   // rug
-			{ -7.30f,  -9.90f, 0.45f, 0.45f, false },   // lamp
+			{ -7.40f, -12.60f, 1.20f, 3.20f, 0.80f, false, TEXT("sofa") },
+			{ -7.00f, -14.10f, 0.40f, 0.40f, 0.45f, false, TEXT("side_table") },
+			{ -5.60f, -11.70f, 1.40f, 1.40f, 0.42f, false, TEXT("coffee_table") },
+			{ -6.40f, -13.60f, 2.20f, 0.50f, 0.50f, false, TEXT("tv_stand") },
+			{ -7.60f,  -8.60f, 4.40f, 1.80f, 0.02f, true,  TEXT("rug") },
+			{ -7.30f,  -9.90f, 0.45f, 0.45f, 1.60f, false, TEXT("lamp") },
 			// kitchen (front east)
-			{  6.60f, -13.00f, 1.15f, 4.00f, false },   // counter
-			{  6.70f, -13.85f, 1.00f, 0.80f, false },   // fridge
-			{  2.60f, -12.40f, 2.00f, 1.50f, false },   // dining_table
-			{  3.15f, -10.75f, 0.55f, 0.50f, false },   // chair
-			{  3.55f, -13.00f, 0.55f, 0.45f, false },   // chair
+			{  6.60f, -13.00f, 1.15f, 4.00f, 0.92f, false, TEXT("counter") },
+			{  6.70f, -13.85f, 1.00f, 0.80f, 1.85f, false, TEXT("fridge") },
+			{  2.60f, -12.40f, 2.00f, 1.50f, 0.75f, false, TEXT("dining_table") },
+			{  3.15f, -10.75f, 0.55f, 0.50f, 0.90f, false, TEXT("chair") },
+			{  3.55f, -13.00f, 0.55f, 0.45f, 0.90f, false, TEXT("chair") },
 			// bedroom (back west)
-			{ -7.40f, -18.60f, 2.40f, 2.20f, false },   // bed
-			{ -7.40f, -16.20f, 0.50f, 0.50f, false },   // nightstand
-			{ -4.60f, -18.70f, 1.20f, 0.60f, false },   // wardrobe
-			{ -6.80f, -15.60f, 3.80f, 1.00f, true  },   // rug
+			{ -7.40f, -18.60f, 2.40f, 2.20f, 0.55f, false, TEXT("bed") },
+			{ -7.40f, -16.20f, 0.50f, 0.50f, 0.55f, false, TEXT("nightstand") },
+			{ -4.60f, -18.70f, 1.20f, 0.60f, 2.00f, false, TEXT("wardrobe") },
+			{ -6.80f, -15.60f, 3.80f, 1.00f, 0.02f, true,  TEXT("rug") },
 			// study (back east)
-			{  5.50f, -17.40f, 2.00f, 1.10f, false },   // desk
-			{  5.00f, -16.10f, 0.60f, 0.60f, false },   // desk_chair
-			{  0.60f, -18.60f, 0.80f, 2.60f, false },   // bookshelf
-			{  0.70f, -15.60f, 0.60f, 0.60f, false },   // cabinet
+			{  5.50f, -17.40f, 2.00f, 1.10f, 0.75f, false, TEXT("desk") },
+			{  5.00f, -16.10f, 0.60f, 0.60f, 0.95f, false, TEXT("desk_chair") },
+			{  0.60f, -18.60f, 0.80f, 2.60f, 2.00f, false, TEXT("bookshelf") },
+			{  0.70f, -15.60f, 0.60f, 0.60f, 1.30f, false, TEXT("cabinet") },
 		};
 		return Rows;
 	}
+}
+
+const TArray<float>& FHISim::FurnitureHeights()
+{
+	// Index-aligned with `FurnitureRects`, which is what the builder needs: it walks the
+	// non-flat half of `Solids()` and asks for the height of the row it is on.
+	static const TArray<float> H = []()
+	{
+		TArray<float> Out;
+		for (const FFurnRow& F : FurnitureRows())
+		{
+			Out.Add(F.H);
+		}
+		return Out;
+	}();
+	return H;
+}
+
+const TArray<FString>& FHISim::FurnitureLabels()
+{
+	// The sim's own `kind` per furniture row, in the same order as `FurnitureRects`.
+	//
+	// Descriptive only -- nothing in the sim reads it. It exists so a failure can name the
+	// item it is talking about, and so the game layer can key anything per-kind without
+	// guessing at a rectangle's identity from its coordinates.
+	static const TArray<FString> L = []()
+	{
+		TArray<FString> Out;
+		for (const FFurnRow& F : FurnitureRows())
+		{
+			Out.Add(F.Label);
+		}
+		return Out;
+	}();
+	return L;
 }
 
 const TArray<FBox2D>& FHISim::FurnitureRects()

@@ -28,6 +28,43 @@ namespace
 	};
 }
 
+const TArray<AHIHouse::FFitting>& AHIHouse::WallFittings()
+{
+	// Sockets, switches and a thermostat, in metres: x, y, z, sizeX, sizeY, sizeZ.
+	//
+	// EVERY POSITION IS FLUSH AGAINST A WALL FACE, and the arithmetic is written out so it
+	// can be checked rather than trusted. The wall list is `FHISim::Walls()`:
+	//
+	//   north      y -19.000 .. -18.750, x -8..8      inner face y = -18.750
+	//   south-west y  -8.250 ..  -8.000, x -8..-1     inner face y =  -8.250
+	//   south-east y  -8.250 ..  -8.000, x  1..8      inner face y =  -8.250
+	//   west       x  -8.000 ..  -7.750, y -19..-8    inner face x =  -7.750
+	//   east       x   7.750 ..   8.000, y -19..-8    inner face x =   7.750
+	//   divider W  y -14.125 .. -13.875, x -8..-2     faces y = -14.125 and y = -13.875
+	//   divider E  y -14.125 .. -13.875, x  2..8      faces y = -14.125 and y = -13.875
+	//
+	// A fitting's centre is the face plus half its own depth, so its back lands ON the wall.
+	// Two of these used to sit in the hall opening (x -2..2) and one inside `DoorGap`
+	// (x -1..1); those are the three that hung in mid-air. Sizes X and Y swap on the side
+	// walls, because the wall is thin in the other axis there.
+	static const TArray<FFitting> F = {
+		// ---- sockets, just above the floor
+		{ -1.20f, -18.720f, 0.30f, 0.09f, 0.06f, 0.13f },   // bedroom, north wall
+		{  1.20f, -18.720f, 0.30f, 0.09f, 0.06f, 0.13f },   // study, north wall
+		{  7.720f, -15.62f, 0.30f, 0.06f, 0.09f, 0.13f },   // kitchen, east wall
+		{ -7.720f, -11.00f, 0.30f, 0.06f, 0.09f, 0.13f },   // living room, west wall
+		// ---- switches, at hand height
+		{ -2.35f, -14.155f, 1.25f, 0.09f, 0.06f, 0.09f },   // bedroom, beside the hall doorway
+		{ -2.35f, -13.845f, 1.25f, 0.09f, 0.06f, 0.09f },   // living room, same stub, other side
+		{  3.00f, -13.845f, 1.25f, 0.09f, 0.06f, 0.09f },   // kitchen, divider
+		{  6.35f, -13.845f, 1.25f, 0.09f, 0.06f, 0.09f },   // kitchen, by the counter
+		{ -1.45f,  -8.280f, 1.25f, 0.09f, 0.06f, 0.09f },   // by the front door, west of the gap
+		// ---- thermostat
+		{ -2.60f, -13.850f, 1.50f, 0.14f, 0.05f, 0.14f },   // living room, divider
+	};
+	return F;
+}
+
 AHIHouse::AHIHouse()
 {
 	PrimaryActorTick.bCanEverTick = false;
@@ -83,6 +120,7 @@ AHIHouse::AHIHouse()
 	WindowInstances = MakeDecor(TEXT("Windows"), Cube, WallInstances);
 	FittingInstances = MakeDecor(TEXT("Fittings"), Cube, WallInstances);
 	PropInstances = MakeDecor(TEXT("Props"), Cube, WallInstances);
+	DoorHeadInstances = MakeDecor(TEXT("DoorHead"), Cube, WallInstances);
 	VanInstances = MakeDecor(TEXT("Van"), Cube, WallInstances);
 	VanDetailInstances = MakeDecor(TEXT("VanDetail"), Cube, WallInstances);
 }
@@ -126,8 +164,7 @@ void AHIHouse::AddBox(UInstancedStaticMeshComponent* Target, const FVector& Cent
 		SizeMeters), /*bWorldSpace=*/false);
 }
 
-void AHIHouse::AddWindow(bool bAlongX, float Along, float WallCoord, float Facing, float Width)
-{
+void AHIHouse::AddWindow(bool bAlongX, float Along, float WallCoord, float Facing, float Width){
 	// A window is a hole with a frame round it and something in the hole. The glazing is a
 	// PALE BLUE PANEL rather than real glass, because a translucent material is a .uasset
 	// and this project has none -- which is exactly the compromise the Godot original is
@@ -210,6 +247,28 @@ void AHIHouse::BuildDressing()
 		AddBox(RoofInstance, FVector(CXm, CYm, Wall + 0.50f), FVector(HSize.X + 0.9f, HSize.Y + 0.9f, 0.14f));
 	}
 
+	// ---- the HEAD of the front doorway, and the round starts facing it.
+	//
+	// `Walls()` splits the south wall either side of `DoorGap`, which is a horizontal split
+	// because the sim is a 2-D model with a single vertical span -- so the opening ran from
+	// the floor to the CEILING and the front of the house had a 3 m letterbox in it. Godot
+	// fills exactly this in `build_exterior` ("the doorway is a hole all the way to the
+	// ceiling, which a 3 m wall makes glaring"); the port never did. Measured on a capture.
+	//
+	// The two numbers are the original's: `DOOR_TOP` is 2.10 and the head runs to the wall
+	// top. It is a DECORATION, so it is drawn from `DoorHeadInstances` -- no collision, and
+	// no entry in `Walls()` -- which is what the original's plain MeshInstance3D amounts to.
+	{
+		const float HeadBottom = 2.10f;
+		AddBox(DoorHeadInstances,
+			FVector((FHISim::DoorGap.X + FHISim::DoorGap.Y) * 0.5f,
+				H.Max.Y - FHISim::WallThickness * 0.5f,
+				HeadBottom + (FHISim::WallHeight - HeadBottom) * 0.5f),
+			FVector(FHISim::DoorGap.Y - FHISim::DoorGap.X,
+				FHISim::WallThickness,
+				FHISim::WallHeight - HeadBottom));
+	}
+
 	// ---- skirting and picture rail, DERIVED from the wall list rather than hand-placed.
 	// Every wall in the sim is an axis-aligned box, so a band at its base and another near
 	// its top can be generated exactly, for all seven, with no positions to get wrong.
@@ -244,38 +303,19 @@ void AHIHouse::BuildDressing()
 	}
 
 	// ---- fix-list item 8: the things that are on a wall in a real house.
-	// (x, y, z, sizeX, sizeY, sizeZ) in metres. A socket is a 8 x 3 x 12 cm box; a switch is
-	// the same size at hand height; a thermostat is a small square; a light fitting is a
-	// shallow disc under the ceiling where each lamp hangs.
-	struct FDress
-	{
-		float X, Y, Z, SX, SY, SZ;
-	};
-	static const FDress Sockets[] =
-	{
-		{ -1.20f, -17.62f, 0.30f, 0.09f, 0.06f, 0.13f },
-		{  1.20f, -17.62f, 0.30f, 0.09f, 0.06f, 0.13f },
-		{  6.35f, -15.62f, 0.30f, 0.09f, 0.06f, 0.13f },
-		{ -7.62f, -11.00f, 0.30f, 0.06f, 0.09f, 0.13f },
-	};
-	for (const FDress& D : Sockets)
+	//
+	// The positions live in `WallFittings()` rather than here, because they were WRONG and
+	// only a test can keep them right: measured on a capture, the switch "by the front door"
+	// sat at x = -0.60, which is inside `DoorGap` (x -1..1), so it hung in the open doorway
+	// with no wall behind it -- visible from the spawn as a small pale box floating over the
+	// lawn. Two sockets and four switches were likewise up to 1.4 m off any wall face.
+	// `HI.Unreal.WallFittings` now asserts every one of them is within a centimetre of a wall.
+	for (const FFitting& D : WallFittings())
 	{
 		AddBox(FittingInstances, FVector(D.X, D.Y, D.Z), FVector(D.SX, D.SY, D.SZ));
 	}
-	static const FDress Switches[] =
-	{
-		{ -0.60f, -17.62f, 1.25f, 0.09f, 0.06f, 0.09f },   // beside the hall doorway
-		{  6.35f, -13.40f, 1.25f, 0.09f, 0.06f, 0.09f },   // kitchen
-		{ -2.10f, -13.62f, 1.25f, 0.09f, 0.06f, 0.09f },   // living room
-		{ -0.60f,  -8.38f, 1.25f, 0.09f, 0.06f, 0.09f },   // by the front door
-		{  3.00f, -13.62f, 1.25f, 0.09f, 0.06f, 0.09f },
-	};
-	for (const FDress& D : Switches)
-	{
-		AddBox(FittingInstances, FVector(D.X, D.Y, D.Z), FVector(D.SX, D.SY, D.SZ));
-	}
-	// Thermostat, and a smoke alarm on the hall ceiling.
-	AddBox(FittingInstances, FVector(-1.60f, -13.75f, 1.50f), FVector(0.14f, 0.05f, 0.14f));
+	// A smoke alarm on the hall ceiling. Not a wall fitting -- it is on the ceiling, and it
+	// belongs in the hall opening, which is where a smoke alarm goes.
 	AddBox(FittingInstances, FVector(0.00f, -14.00f, FHISim::WallHeight - 0.06f), FVector(0.16f, 0.16f, 0.07f));
 
 	// Light fittings: a shallow rose under the ceiling at each lamp, so the lamp in the game
@@ -299,8 +339,13 @@ void AHIHouse::BuildDressing()
 	AddBox(PropInstances, FVector(7.20f, -15.60f, 1.05f), FVector(0.22f, 0.22f, 0.26f));  // kettle
 	AddBox(PropInstances, FVector(7.20f, -14.90f, 0.98f), FVector(0.28f, 0.18f, 0.16f));  // toaster
 	AddBox(PropInstances, FVector(7.20f, -16.30f, 0.95f), FVector(0.30f, 0.24f, 0.12f));  // bread bin
-	AddBox(PropInstances, FVector(-0.80f, -8.35f, 1.75f), FVector(0.10f, 0.10f, 0.10f));  // coat hook
-	AddBox(PropInstances, FVector(-0.80f, -8.45f, 1.28f), FVector(0.44f, 0.22f, 0.86f));  // coat
+	// THE COAT IS ON THE WALL BESIDE THE DOOR, and it used to be IN the doorway. `DoorGap` is
+	// x -1..1, so the coat at x -0.80 with a width of 0.44 spanned -1.02..-0.58 -- the whole
+	// of it inside the opening -- and a pale slab hanging in the one hole in the house read
+	// as a bug rather than as a coat. Measured on a capture; the wall starts at x = -1, so it
+	// needs to be clear of that edge. See fix-list items 10 and 11.
+	AddBox(PropInstances, FVector(-1.80f, -8.35f, 1.75f), FVector(0.10f, 0.10f, 0.10f));  // coat hook
+	AddBox(PropInstances, FVector(-1.80f, -8.45f, 1.28f), FVector(0.44f, 0.22f, 0.86f));  // coat
 	AddBox(PropInstances, FVector(-6.86f, -13.95f, 0.62f), FVector(0.26f, 0.20f, 0.04f)); // keys on the table
 	AddBox(PropInstances, FVector(-6.62f, -14.10f, 0.62f), FVector(0.09f, 0.16f, 0.02f)); // phone
 	AddBox(PropInstances, FVector(-7.85f, -11.00f, 1.60f), FVector(0.05f, 0.90f, 0.68f)); // a picture
@@ -351,8 +396,8 @@ void AHIHouse::Build()
 	WallInstances->ClearInstances();
 	FurnitureInstances->ClearInstances();
 	for (UInstancedStaticMeshComponent* Comp : { GroundInstance, FloorInstance, RoofInstance,
-		TrimInstances, WindowInstances, FittingInstances, PropInstances, VanInstances,
-		VanDetailInstances })
+		TrimInstances, WindowInstances, FittingInstances, PropInstances, DoorHeadInstances,
+		VanInstances, VanDetailInstances })
 	{
 		if (Comp != nullptr)
 		{
@@ -374,17 +419,71 @@ void AHIHouse::Build()
 		return;
 	}
 
+	// The sim's own furniture labels and HEIGHTS, both index-aligned with `FurnitureRects`.
+	// The labels are carried only so a problem can name a row; the heights are what the
+	// drawing needs, and they come straight out of `sim.gd` rather than from anything
+	// invented here. `game.gd` draws with the same number: `_add_box(body, f["rect"], f["h"])`.
+	const TArray<FString>& AllLabels = FHISim::FurnitureLabels();
+	const TArray<float>& AllHeights = FHISim::FurnitureHeights();
+	const TArray<bool>& Flat = FHISim::FurnitureFlat();
+	if (AllHeights.Num() != AllLabels.Num() || Flat.Num() != AllLabels.Num())
+	{
+		return;
+	}
+
+	// The non-flat rows are the ones that appear in `Solids` after the walls, in the same
+	// order, so they can be indexed directly. Checked rather than assumed: a list out of step
+	// would give the sofa the fridge's height, which would look merely odd rather than wrong.
+	TArray<float> SolidHeights;
+	SolidHeights.Reserve(AllHeights.Num());
+	for (int32 Idx = 0; Idx < AllHeights.Num(); ++Idx)
+	{
+		if (!Flat[Idx])
+		{
+			SolidHeights.Add(AllHeights[Idx]);
+		}
+	}
+	if (SolidHeights.Num() != Solids.Num() - WallCount)
+	{
+		return;
+	}
+
 	for (int32 Idx = 0; Idx < Solids.Num(); ++Idx)
 	{
-		const FTransform Box = BoxTransform(Solids[Idx], Spans[Idx].MinZ, Spans[Idx].MaxZ);
 		if (Idx < WallCount)
 		{
-			WallInstances->AddInstance(Box, /*bWorldSpace=*/false);
+			WallInstances->AddInstance(
+				BoxTransform(Solids[Idx], Spans[Idx].MinZ, Spans[Idx].MaxZ), /*bWorldSpace=*/false);
 		}
 		else
 		{
-			FurnitureInstances->AddInstance(Box, /*bWorldSpace=*/false);
+			// THE HEIGHT IS THE ITEM'S OWN, not the sight model's. `SolidSpans` spans a full
+			// storey on purpose -- it answers "can he see past it", not "how tall is it" --
+			// and using it as geometry is what drew every couch, table and counter as a
+			// column from floor to ceiling. The mismatch that remains -- you cannot see over
+			// a sofa you can see the top of -- is Godot's too, because its `los_blocked` is
+			// 2-D and ignores `h`. That is fix-list item 18.
+			FurnitureInstances->AddInstance(
+				BoxTransform(Solids[Idx], Spans[Idx].MinZ, SolidHeights[Idx - WallCount]),
+				/*bWorldSpace=*/false);
 		}
+	}
+
+	// ---- the RUGS, which had never been drawn at all.
+	//
+	// `Solids()` is walls plus NON-FLAT furniture on purpose -- a rug that blocks a man is
+	// absurd -- so a rug is not in the list above and was invisible. It is drawn here from
+	// `FurnitureRects` and its own `h` of 2 cm, so it comes from the sim's numbers rather
+	// than from a second hand-written copy.
+	for (int32 Idx = 0; Idx < AllLabels.Num(); ++Idx)
+	{
+		if (!Flat[Idx])
+		{
+			continue;
+		}
+		FurnitureInstances->AddInstance(
+			BoxTransform(FHISim::FurnitureRects()[Idx], 0.0f, AllHeights[Idx]),
+			/*bWorldSpace=*/false);
 	}
 
 	// Colours, applied once to each component's single material slot, so every instance of
@@ -400,6 +499,9 @@ void AHIHouse::Build()
 	FHIMaterials::Tint(WindowInstances, FHIMaterials::Glass);
 	FHIMaterials::Tint(FittingInstances, FHIMaterials::Trim);
 	FHIMaterials::Tint(PropInstances, FHIMaterials::Counter);
+	// The door head is WALL, not trim: it is a piece of wall that was missing, and a white
+	// lintel against a cream wall would read as a mistake rather than as masonry.
+	FHIMaterials::Tint(DoorHeadInstances, FHIMaterials::Wall);
 	FHIMaterials::Tint(VanInstances, FHIMaterials::Van);
 	FHIMaterials::Tint(VanDetailInstances, FHIMaterials::Tyre);
 
@@ -410,13 +512,14 @@ void AHIHouse::Build()
 	// those apart. These counts can: 7 walls, 19 furniture solids, and every decorative
 	// component non-zero, or something in this function silently did not run.
 	UE_LOG(LogTemp, Display,
-		TEXT("HI: house built -- walls=%d furniture=%d ground=%d floor=%d roof=%d ceiling=%d trim=%d glass=%d fittings=%d props=%d van=%d van_detail=%d"),
+		TEXT("HI: house built -- walls=%d furniture=%d ground=%d floor=%d roof=%d ceiling=%d trim=%d glass=%d fittings=%d props=%d door_head=%d van=%d van_detail=%d"),
 		WallInstances->GetInstanceCount(), FurnitureInstances->GetInstanceCount(),
 		GroundInstance->GetInstanceCount(), FloorInstance->GetInstanceCount(),
 		RoofInstance->GetInstanceCount(), CeilingInstance->GetInstanceCount(),
 		TrimInstances->GetInstanceCount(),
 		WindowInstances->GetInstanceCount(), FittingInstances->GetInstanceCount(),
-		PropInstances->GetInstanceCount(), VanInstances->GetInstanceCount(),
+		PropInstances->GetInstanceCount(), DoorHeadInstances->GetInstanceCount(),
+		VanInstances->GetInstanceCount(),
 		VanDetailInstances->GetInstanceCount());
 	UE_LOG(LogTemp, Display, TEXT("HI: shape material %s"),
 		FHIMaterials::ShapeMaterial() != nullptr ? TEXT("loaded") : TEXT("MISSING -- everything will be default grey"));

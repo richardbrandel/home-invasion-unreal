@@ -1,11 +1,75 @@
 #include "HIHUD.h"
 
 #include "Camera/CameraComponent.h"
+#include "CanvasItem.h"
 #include "Engine/Canvas.h"
 #include "Engine/Engine.h"
 #include "GameFramework/PlayerController.h"
+#include "GlobalRenderResources.h"
 #include "HIGameMode.h"
 #include "HIPlayerCharacter.h"
+
+namespace
+{
+	/** `minimap.gd`'s POLY_EVERY: the sight polygon is recomputed one frame in three. */
+	constexpr int32 MinimapPolyEvery = 3;
+
+	/**
+	 * Even-odd point-in-polygon, in sim space.
+	 *
+	 * Membership is tested on the polygon OUTLINE rather than by re-deriving what is visible,
+	 * and that is deliberate -- it is what the Godot original does, and for the same reason:
+	 * the outline is not simple (the edge joining consecutive rays can cross), and an even-odd
+	 * crossing count is well-defined on a self-intersecting path where ear-clipping is not.
+	 */
+	bool PointInPolygon(const TArray<FVector2D>& Poly, const FVector2D& Pt)
+	{
+		bool bInside = false;
+		const int32 Num = Poly.Num();
+		for (int32 Idx = 0, Jdx = Num - 1; Idx < Num; Jdx = Idx++)
+		{
+			const FVector2D& A = Poly[Idx];
+			const FVector2D& B = Poly[Jdx];
+			if ((A.Y > Pt.Y) != (B.Y > Pt.Y))
+			{
+				const float T = (Pt.Y - A.Y) / (B.Y - A.Y);
+				if (Pt.X < A.X + T * (B.X - A.X))
+				{
+					bInside = !bInside;
+				}
+			}
+		}
+		return bInside;
+	}
+
+	/**
+	 * Clip a ray from `A` towards `P` to a rectangle, returning the point where it leaves.
+	 *
+	 * The minimap's sight fan is drawn as triangles from the viewer, and the visibility
+	 * polygon's rays run up to 28 m -- far outside the 38 x 32 m the panel shows. An
+	 * unclipped fan therefore paints a translucent wedge over the game ABOVE the panel, which
+	 * is what the second capture batch showed. Because every triangle shares the viewer as its
+	 * apex and the panel is convex and contains him, clipping each ray's far end is exact:
+	 * it is the same fan, intersected with the rectangle.
+	 */
+	FVector2D ClipRayToRect(const FVector2D& A, const FVector2D& P, const FVector2D& Lo,
+		const FVector2D& Hi)
+	{
+		const FVector2D D = P - A;
+		float T = 1.0f;
+		for (int32 Axis = 0; Axis < 2; ++Axis)
+		{
+			const float Dir = Axis == 0 ? D.X : D.Y;
+			if (FMath::IsNearlyZero(Dir))
+			{
+				continue;
+			}
+			const float Bound = Dir > 0.0f ? (Axis == 0 ? Hi.X : Hi.Y) : (Axis == 0 ? Lo.X : Lo.Y);
+			T = FMath::Min(T, (Bound - (Axis == 0 ? A.X : A.Y)) / Dir);
+		}
+		return A + D * FMath::Clamp(T, 0.0f, 1.0f);
+	}
+}
 
 AHIHUD::AHIHUD()
 {
@@ -243,6 +307,19 @@ FVector2D AHIHUD::MinimapFraction(const FVector2D& SimPos)
 	return FVector2D((SimPos.X - B.Min.X) / Size.X, 1.0f - (SimPos.Y - B.Min.Y) / Size.Y);
 }
 
+const TArray<FVector2D>& AHIHUD::CachedSightPolygon(const FVector2D& From)
+{
+	// `SightPolygon.IsEmpty()` rather than only the modulo: the first frame has to build it
+	// whether or not that frame happens to be a multiple of three, and a HUD drawn before any
+	// round exists must not hand an empty ring to the fan.
+	if (SightPolygon.IsEmpty() || MinimapFrame % MinimapPolyEvery == 0)
+	{
+		SightPolygon = FHISim::VisibilityPolygon(From);
+	}
+	++MinimapFrame;
+	return SightPolygon;
+}
+
 void AHIHUD::DrawMinimap(const FHISim::FHIRound& Round)
 {
 	// Top right, and sized from the sim's own world bounds so the map and the world cannot
@@ -264,30 +341,76 @@ void AHIHUD::DrawMinimap(const FHISim::FHIRound& Round)
 	DrawRect(FLinearColor(0.0f, 0.0f, 0.0f, 0.42f), X0, Y0, PanelW, PanelH);
 	DrawRect(FLinearColor(0.6f, 0.6f, 0.6f, 0.30f), X0, Y0, PanelW, 2.0f);
 
+	// ---- the house floor, DIM, under everything: the layout as known rather than as seen.
+	// `minimap.gd` draws its dim layer -- floor, furniture, then walls -- before the lit fan.
+	{
+		const FVector2D A = ToPanel(FHISim::House.Min);
+		const FVector2D B = ToPanel(FHISim::House.Max);
+		DrawRect(FLinearColor(0.106f, 0.122f, 0.141f, 0.9f),
+			FMath::Min(A.X, B.X), FMath::Min(A.Y, B.Y),
+			FMath::Abs(B.X - A.X), FMath::Abs(B.Y - A.Y));
+	}
+
+	// ---- what the homeowner can SEE, cast as the sim's own visibility polygon.
+	//
+	// DRAWN AS A FILLED TRIANGLE FAN, which is what the Godot original draws. An earlier
+	// version of this function drew a LINE from the homeowner to every vertex of the polygon
+	// and claimed in a comment that this "reads as a sight cone -- which is exactly what the
+	// Godot original draws". Both halves of that were wrong: `minimap.gd` FILLS the lit floor
+	// as a fan of (viewer, pts[Idx], pts[Idx+1]) triangles, and drawing only the rays of a fan
+	// leaves the fan's interior empty, so the map rendered as a starburst of spokes radiating
+	// to the panel corners. Measured on a capture, not inferred.
+	//
+	// `Sim::VisibilityPolygon` returns its vertices sorted by angle around the viewer, so the
+	// fan is star-shaped about that point by construction and the triangles tile the visible
+	// region exactly. The ring is drawn all the way round -- `Idx` wrapping to 0 -- where the
+	// Godot original stops two triangles short; Godot's own probe measured that version at
+	// 98.85% of the visible area lit, and the missing wedges are the sliver either side of
+	// angle zero. The fill colour is `minimap.gd`'s C_FLOOR_LIT.
+	const FVector2D PlayerPos = Round.Player.Pos;
+	const FVector2D PlayerPx = ToPanel(PlayerPos);
+	const TArray<FVector2D>& Poly = CachedSightPolygon(PlayerPos);
+	// The panel's inner rectangle. Every sight ray is clipped to it, because the polygon's
+	// rays reach 28 m and the panel shows 38 x 32 m -- an unclipped fan paints over the game
+	// outside the panel, which is exactly what the captures showed before this line existed.
+	const FVector2D InnerLo(X0 + Pad, Y0 + Pad);
+	const FVector2D InnerHi(X0 + Pad + InnerW, Y0 + Pad + InnerH);
+	const bool bPlayerOnPanel = PlayerPx.X >= InnerLo.X && PlayerPx.X <= InnerHi.X
+		&& PlayerPx.Y >= InnerLo.Y && PlayerPx.Y <= InnerHi.Y;
+	if (Poly.Num() > 2 && bPlayerOnPanel)
+	{
+		TArray<FCanvasUVTri> Tris;
+		Tris.Reserve(Poly.Num());
+		for (int32 Idx = 0; Idx < Poly.Num(); ++Idx)
+		{
+			FCanvasUVTri Tri;
+			Tri.V0_Pos = PlayerPx;
+			Tri.V1_Pos = ClipRayToRect(PlayerPx, ToPanel(Poly[Idx]), InnerLo, InnerHi);
+			Tri.V2_Pos = ClipRayToRect(PlayerPx, ToPanel(Poly[(Idx + 1) % Poly.Num()]), InnerLo, InnerHi);
+			Tri.V0_UV = Tri.V1_UV = Tri.V2_UV = FVector2D::ZeroVector;
+			Tri.V0_Color = Tri.V1_Color = Tri.V2_Color = FLinearColor(0.227f, 0.271f, 0.314f, 0.92f);
+			Tris.Add(Tri);
+		}
+		// FCanvasTriangleItem + the engine's own white texture, which is the same pair
+		// AHUD::DrawRect uses. There is no FCanvasTriangleItem overload that takes no texture.
+		FCanvasTriangleItem Item(Tris, GWhiteTexture);
+		Item.BlendMode = SE_BLEND_Translucent;
+		Canvas->DrawItem(Item);
+	}
+
 	// ---- the house: the sim's own wall list, so the map is drawn from the same data the
-	// player is actually walking into.
+	// player is actually walking into, and OVER the lit floor. A wall the sight polygon does
+	// not reach is drawn dim -- the fog-of-war half of the original, which tests membership on
+	// the rect's CENTRE because a canvas has no clip in a draw pass.
 	for (const FBox2D& W : FHISim::Walls())
 	{
 		const FVector2D A = ToPanel(W.Min);
 		const FVector2D B = ToPanel(W.Max);
-		DrawRect(FLinearColor(0.85f, 0.82f, 0.74f, 0.75f),
+		const bool bSeen = PointInPolygon(Poly, W.GetCenter());
+		DrawRect(bSeen ? FLinearColor(0.788f, 0.824f, 0.863f, 0.85f)
+					   : FLinearColor(0.204f, 0.227f, 0.255f, 0.85f),
 			FMath::Min(A.X, B.X), FMath::Min(A.Y, B.Y),
 			FMath::Max(FMath::Abs(B.X - A.X), 1.5f), FMath::Max(FMath::Abs(B.Y - A.Y), 1.5f));
-	}
-
-	// ---- what the homeowner can SEE, drawn as a fan from him to each vertex of the sim's
-	// visibility polygon. A fan of lines rather than a filled polygon on purpose: a filled
-	// triangle fan needs FCanvasTriangleItem and a texture-resource cast, and the lines read
-	// as a sight cone -- which is exactly what the Godot original draws.
-	const FVector2D PlayerPos = Round.Player.Pos;
-	const FVector2D PlayerPx = ToPanel(PlayerPos);
-	{
-		const TArray<FVector2D> Poly = FHISim::VisibilityPolygon(PlayerPos);
-		for (const FVector2D& P : Poly)
-		{
-			const FVector2D E = ToPanel(P);
-			DrawLine(PlayerPx.X, PlayerPx.Y, E.X, E.Y, FLinearColor(1.0f, 0.95f, 0.70f, 0.10f), 1.0f);
-		}
 	}
 
 	// ---- the van, because it is where the valuables are being taken and the minimap is
@@ -344,6 +467,18 @@ void AHIHUD::DrawHUD()
 	UWorld* World = GetWorld();
 	AHIGameMode* Mode = World != nullptr ? World->GetAuthGameMode<AHIGameMode>() : nullptr;
 	if (Mode == nullptr || Canvas == nullptr)
+	{
+		return;
+	}
+
+	// `-HIShotNoUI` has to be honoured HERE, and that is a correction rather than a choice.
+	// The flag was already being passed to `FScreenshotRequest::RequestScreenshot` as its
+	// `bShowUI` argument, and that argument suppresses SLATE -- the engine's own
+	// `UGameViewportClient::ProcessScreenShots` is what says so. The HUD is a canvas drawn
+	// into the viewport, so it survived, and every frame captured with the switch on came
+	// back with the full readout on it. A documented switch with no effect is the
+	// "pass-shaped nothing" this project keeps having to guard against; this makes it real.
+	if (Mode->ShouldHideHUD())
 	{
 		return;
 	}

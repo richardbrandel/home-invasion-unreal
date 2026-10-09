@@ -263,6 +263,18 @@ public:
 	 */
 	bool bNoThiefDamage = false;
 
+	/**
+	 * `-HIShotNoUI`: capture a frame with no HUD on it.
+	 *
+	 * This getter exists because the switch did not work for eleven captures. It was read,
+	 * and it was handed to `FScreenshotRequest::RequestScreenshot(bShowUI=...)` -- and that
+	 * flag suppresses SLATE, not the canvas the HUD is drawn on, so every "no UI" frame came
+	 * back with the readout, the minimap and the damage bars on it. Reading the engine's own
+	 * `UGameViewportClient::ProcessScreenShots` is what explained it. Measured, not assumed:
+	 * the frames are in `shots/`.
+	 */
+	bool ShouldHideHUD() const { return bHideUIForShot; }
+
 private:
 	/** Build the sun, the sky fill and the interior lights. Text-authored, no level. */
 	void SetupLighting();

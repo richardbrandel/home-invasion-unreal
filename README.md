@@ -205,6 +205,22 @@ toolchain, which is a separate job from making the game work.
   literals as UTF-16 on Linux, so `grep -a "text" libUnrealEditor-HISim.so` returns 0 and
   looks exactly like the test was never compiled in. Use
   `strings -e l .../libUnrealEditor-HISim.so | grep -F "assertion text"`.
+- **`FScreenshotRequest::RequestScreenshot(..., bShowUI=false)` does NOT hide the HUD.** It
+  suppresses SLATE. The HUD is a *canvas* drawn into the viewport, so it survives — measured:
+  eleven "no UI" captures came back with the readout, the minimap and the damage bars on
+  them, and `UGameViewportClient::ProcessScreenShots` is the code that says why. A capture
+  with no HUD has to skip `AHIHUD::DrawHUD` itself.
+- **`FCanvasTriangleItem` has no constructor that takes no texture**, so a filled shape needs
+  `GWhiteTexture` — which is `RENDERCORE_API` and lives in `GlobalRenderResources.h`. A game
+  module does not link RenderCore by default, and the compile succeeds: the failure is
+  `ld.lld: undefined symbol: GWhiteTexture` at link time. Add `RenderCore` to
+  `PrivateDependencyModuleNames`. `AHUD::DrawRect` reaches for the same global, which is where
+  to look when working out how.
+- **A model's bounding box is not its drawn size.** KayKit's glTF files carry identity node
+  transforms, so a mesh's AABB is its model-space AABB — and `house.gd` scales every one of
+  them by `SCALE` (0.5) at placement. Measuring the raw AABB gives numbers that look like
+  furniture and are all half again too big. The port does not need them anyway: the heights
+  are in `sim.gd`'s `FURNITURE` literal as `h`, which is what `game.gd` draws with.
 
 ### The engine has to be built for the game to run at all
 
@@ -241,7 +257,7 @@ flare stay off, which costs nothing.
 
 ## Status
 
-`HI.` passes **33/33** on ubuntu-dev. **All 97 assertions** in the Godot *sim* spec are
+`HI.` passes **35/35** on ubuntu-dev. **All 97 assertions** in the Godot *sim* spec are
 represented; the port adds coverage the Godot project has never had on either side.
 
 | Test | Covers |
@@ -279,13 +295,21 @@ represented; the port adds coverage the Godot project has never had on either si
 | **`HI.Unreal.Reticle`** | **the reticle projection, with an exact expected value** |
 | **`HI.Unreal.Materials`** | **that the palette's material really has its `Color` parameter, with a control** |
 | **`HI.Unreal.ThiefAim`** | **the intruder's range falloff, guarding the 0.55 floor that made range meaningless** |
+| **`HI.Unreal.Furniture`** | **the furniture heights against `sim.gd`'s own `h` field, and that a sofa is not a column** |
+| **`HI.Unreal.WallFittings`** | **that every socket, switch and thermostat is flush against a wall -- with a negative control** |
 
-## Six bugs the test suite could not have caught
+## Bugs the test suite could not have caught
 
 Everything was green — 24/24, all 97 Godot sim assertions represented — while the game had
 no reload, no weapon switch, no shove, intruders who could not hurt anybody, and **intruders
 who could not move**. Each was found by launching the thing, and each is now pinned by a
 test that would have failed.
+
+The **last three entries** were found by an adversarial pass over captures on 2026-10-09,
+after the port was already building with everything green. The method was to stand the camera
+at known sim coordinates, look at the frame, and ask what was wrong with it rather than
+whether the tests passed. None of the three is a behaviour the suite asserts, so none of them
+was reachable from it.
 
 0. **THE INTRUDERS COULD NOT MOVE AT ALL, and the Godot original has the same bug.**
    `StepIntruders` — the only path the game calls — called `StepThief(..., bSeparate=false)`,
@@ -325,6 +349,43 @@ test that would have failed.
    the game layer's `reset()` value (0.03); the port merged the fields. The symptom was the
    first captured frame being the top of the homeowner's head, and it is nearly fourteen
    degrees of view. `HI.Sim.StartView` pins it.
+6. **EVERY PIECE OF FURNITURE WAS A FLOOR-TO-CEILING COLUMN — and the claim that excused it
+   was wrong.** The port's furniture table had dropped the `h` field, so the builder had no
+   height to draw with and reached for `SolidSpans` instead, which is uniform at a full storey
+   *because it models sight*. A couch, a bed, a rug and a fridge all rendered as columns from
+   floor to ceiling, and the house read as a maze of blocks. `sim.gd` carries the height on
+   every row and `game.gd` draws with it — `_add_box(body, f["rect"], f["h"])` — so this was a
+   dropped field, not a missing design decision. The claim on record ("the Godot source
+   carries no furniture heights, and inventing them is a design decision") was **factually
+   wrong** and is corrected below. Ported, and `HI.Unreal.Furniture` asserts all nineteen
+   against the literal. Two of the nineteen rugs were not drawn at all, because `Solids()`
+   excludes flat things; they are now drawn from `FurnitureRects`.
+7. **The front door had no head, so it was a 3 m letterbox to the ceiling.** `Walls()` splits
+   the south wall either side of `DoorGap` — a horizontal split, because the sim's wall data
+   has one vertical span — and the port never filled the opening above the door. Godot does,
+   in `build_exterior`, and says why: *"the doorway is a hole all the way to the ceiling,
+   which a 3 m wall makes glaring."* It was the first thing visible, because the round starts
+   facing it. Ported as a decoration (`DoorHeadInstances`), not as a wall, because in the
+   original it is a plain `MeshInstance3D` with no collision — making it solid would block
+   shots the original lets through.
+8. **The light switch by the front door hung in the doorway, and five more fittings floated.**
+   The switch sat at x = -0.60, which is inside `DoorGap` (x -1..1), so it had no wall behind
+   it and read from the spawn as a small pale box floating over the lawn. Two sockets were
+   1.1-1.4 m off any wall and four switches up to 0.5 m off, because all eight were hand-typed
+   coordinate pairs. They are now data in `AHIHouse::WallFittings()` and
+   `HI.Unreal.WallFittings` asserts each is within a centimetre of a wall face — **with a
+   negative control**, because a check that cannot fail is not a check. The coat by the door
+   had the same fault and is moved clear of the opening.
+
+Also fixed in the same pass, and smaller: **`-HIShotNoUI` did nothing.** It was read and
+handed to `FScreenshotRequest::RequestScreenshot(bShowUI=...)`, and that flag suppresses
+SLATE, not the canvas the HUD is drawn on — the engine's own `UGameViewportClient::
+ProcessScreenShots` is what says so. Eleven "no UI" captures came back with the full readout
+on them. And the minimap's sight fan was drawn as a **line to every vertex of the visibility
+polygon**, which is not a fan: the rays are a fan's *edges*, so the map rendered as a
+starburst of spokes and — because the polygon reaches 28 m and the panel shows 38 x 32 — the
+spokes painted over the game outside the panel as well. It is now the filled triangle fan the
+Godot original draws, clipped to the panel.
 
 ## The fix list, item by item
 
@@ -343,7 +404,7 @@ column of that list**; the Godot column is unchanged.
 | 15 | Idle variation | **HALF DONE.** Every body's idle loop starts at a random phase, so three men no longer breathe in unison. Genuinely different IDLE POSES need more recorded clips; the engine ships one |
 | 16 | Voice / barks | **HOOK ONLY.** The bark system exists and fires at the right moments (a man goes down, you shout), but the cue is a pitched sine and sounds like equipment, not a person. Voices need recordings |
 | 17 | More non-lethal verbs | **Done except barricading.** Shove, reload and weapon switch were already wired; **[Q] shout** frightens every man who hears it without spending a round; **[P] calls the police** without a gunshot; and **[L] kills the lights**, which cuts the intruders' accuracy to 55% — applied in the GAME layer's `ThiefHitChance`, where the port's own design rule puts the shot and not the decision. Barricading is not started: it is a new SOLID, and the sim's rectangle list is this repo's spec and is index-aligned with its spans, so adding one is a world-data change rather than a verb |
-| 18 | The simulation is 2-D | **DONE** — `FHISolidSpan`, `LosBlocked3D` and a `Z` on both entities, with `HI.Sim.Elevation` as the regression harness. The spans are deliberately uniform at a full storey: the Godot source carries no furniture heights, and inventing them is a design decision, not a porting one |
+| 18 | The simulation is 2-D | **DONE** — `FHISolidSpan`, `LosBlocked3D` and a `Z` on both entities, with `HI.Sim.Elevation` as the regression harness. The spans are uniform at a full storey **on purpose, because they model SIGHT and Godot's own `los_blocked` is 2-D and ignores height** — so a sofa you can see the top of still blocks your view, in both projects. This paragraph used to justify the uniform spans by saying *"the Godot source carries no furniture heights"*. **That was wrong**: `sim.gd`'s `FURNITURE` literal carries `h` on every row and `game.gd` draws with it. The spans are the sight model and stay as they are; the *geometry* now draws at `h`, which is bug 6 above. The remaining mismatch — tall sight, short furniture — is the original's, not this port's |
 | 19 | Blood / wounds | **PARTLY.** Pooled bullet holes where pellets land, a blood mark where a man falls, a flash on a hit and a red edge when the homeowner is hit. Nothing ON the person |
 | 20 | Audio buses | **DONE for the buses, placeholder content.** Every cue is routed through the engine's `SFX` sound class rather than Master, and carries a submix send to `MasterReverbSubmixDefault` — whose effect chain was inspected before it was relied on — set from whether the cue is inside the house, so a shot in the kitchen rings and a shot on the lawn does not. The gunshots are the engine's template cue; impacts and barks are that cue and a sine at shifted pitch. **Foley needs recordings** |
 | 21 | Reflections / GI | **DONE.** Lumen for GI and reflections, virtual shadow maps off, distance fields on, stated in `DefaultEngine.ini` |
@@ -377,6 +438,29 @@ column of that list**; the Godot column is unchanged.
   behind. That is the same open decision, and the same one a person has to make.
 - **Nothing has been played by a person.** Everything above is compile, test, and captured
   frames looked at by an agent. No human has held the controls.
+- **A RUG LIES ON THE FRONT LAWN, and it is the Godot source's bug, not the port's.**
+  `sim.gd`'s living-room rug is `Rect2(-7.60, -8.60, 4.40, 1.80)` and the house is
+  `Rect2(-8, -19, 16, 11)` — so the rug runs from y -8.6 to -6.8 and **straddles the front
+  wall**, with about 1.2 m of it out on the drive. Nothing in either project ever noticed,
+  because a rug is `flat`, so it is excluded from `Solids()` and was never *drawn* — until
+  this pass started drawing rugs, which is why it is now visible. Verified in a capture from
+  the drive. The fix is one y value in **both** projects; guessing the intended one is a
+  design decision, so it is reported instead. A plausible value is -10.60, which puts it in
+  front of the sofa.
+- **`sim.gd`'s `DECOR` list was never ported.** The original has a second, separate list of
+  drawn-but-not-solid items — picture frames on specific walls, two cacti, two book sets, a
+  stove, a pot and a table lamp — added precisely because a picture frame must never block a
+  route. The port has its own hand-written props instead (kettle, toaster, bread bin, coat,
+  keys, phone, a picture, a desk mat), so the house is dressed, but not with the original's
+  objects or in the original's places.
+- **The props share the wall's colour.** `PropInstances` is tinted `FHIMaterials::Counter`
+  (0.72, 0.73, 0.71) and `Wall` is (0.74, 0.70, 0.62) — which is why the coat by the front
+  door reads as a small pale cabinet rather than as a coat. The palette already has an unused
+  `Sofa` colour. It is one component and one line, and it wants a person's eye rather than a
+  measurement.
+- **The damage flash is four hard-edged rectangles.** It is drawn as four edge bars so it does
+  not hide what is shooting you, which is right, but they meet at the corners with no falloff,
+  so at high alpha the frame reads as a picture frame rather than as being hurt. Cosmetic.
 - **Mouse-look sensitivity is flagged TUNING** in `HIGameMode.h` and needs eyes.
 - The house's door is an opening, not a leaf; the van's glazing is only on its flanks and
   windscreen; walls have no texture of any kind. All three need art, not code.

@@ -106,6 +106,16 @@ private:
 	 */
 	void DrawMinimap(const FHISim::FHIRound& Round);
 
+	/**
+	 * The sight polygon, recomputed every `MinimapPolyEvery` frames rather than every frame.
+	 *
+	 * `VisibilityPolygon` casts one ray per candidate angle -- a few thousand of them against
+	 * every solid in the world -- and the Godot original caches it for exactly this reason
+	 * (`minimap.gd`'s `POLY_EVERY`, "the polygon costs ~2.1 ms"). At 60 fps a three-frame
+	 * cache reads as instant and pays the cost a third as often.
+	 */
+	const TArray<FVector2D>& CachedSightPolygon(const FVector2D& From);
+
 	/** The latest event's message, in the middle of the screen where it is read. */
 	void DrawMessage(const FString& Text, float SecondsLeft);
 
@@ -118,4 +128,8 @@ private:
 	 * while being shot at from behind.
 	 */
 	void DrawDamageFlash(float SecondsSinceHit);
+
+	/** Frame counter and cache for `CachedSightPolygon`. */
+	int32 MinimapFrame = 0;
+	TArray<FVector2D> SightPolygon;
 };

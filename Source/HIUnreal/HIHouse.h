@@ -116,6 +116,24 @@ public:
 	TObjectPtr<class UInstancedStaticMeshComponent> PropInstances;
 
 	/**
+	 * The head of the front doorway: the wall above the opening.
+	 *
+	 * `Walls()` splits the south wall into two runs either side of `DoorGap` -- a split in a
+	 * 2-D model, which can only be horizontal -- so the opening was a slot from the floor to
+	 * the ceiling and the front of the house had a 3 m letterbox in it. That is what you see
+	 * first, because the round starts facing it. The Godot original fills it in
+	 * `build_exterior` and says why: "Without this the doorway is a hole all the way to the
+	 * ceiling, which a 3 m wall makes glaring."
+	 *
+	 * A DECORATION, not a wall, and that is deliberate: in the original it is a plain
+	 * `MeshInstance3D` with no collision, so `Sim.WALLS` -- and every sight and collision
+	 * test in the sim -- is untouched. Making it solid would block shots the original lets
+	 * through the top of the doorway, which is a design change rather than a port fix.
+	 */
+	UPROPERTY(VisibleAnywhere, Category = "Home Invasion")
+	TObjectPtr<class UInstancedStaticMeshComponent> DoorHeadInstances;
+
+	/**
 	 * The van the intruders arrive in.
 	 *
 	 * Its rectangle is in the sim (`FHISim::Van`) but the actor layer had never drawn it, so
@@ -135,6 +153,22 @@ public:
 	 */
 	UPROPERTY(VisibleAnywhere, Category = "Home Invasion")
 	TObjectPtr<class UInstancedStaticMeshComponent> VanDetailInstances;
+
+	/**
+	 * One wall-mounted fitting: a socket, a switch or the thermostat, in metres.
+	 *
+	 * Pure data rather than eight `AddBox` calls, because the eight calls were WRONG and no
+	 * amount of reading them would have said so: the switch "by the front door" sat inside
+	 * `DoorGap`, hanging in the opening with no wall behind it. `HI.Unreal.WallFittings`
+	 * asserts each of these is flush against a face of some rectangle in `FHISim::Walls()`.
+	 */
+	struct FFitting
+	{
+		float X, Y, Z, SX, SY, SZ;
+	};
+
+	/** Every wall fitting, in the order they are drawn. See the .cpp for the arithmetic. */
+	static const TArray<FFitting>& WallFittings();
 
 	/**
 	 * Turn one sim rectangle plus its vertical span into a world transform.

@@ -546,5 +546,168 @@ bool FHIUnrealAudio::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHIUnrealFurniture,
+	"HI.Unreal.Furniture",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+/**
+ * The furniture heights are sim.gd's, ported rather than invented.
+ *
+ * The first port of the furniture table DROPPED the `h` field -- the claim on record was that
+ * the Godot source carries no furniture heights -- and the consequence was that every couch,
+ * table, bed and rug was drawn as a floor-to-ceiling column. So this asserts each height
+ * against the literal in `../home-invasion-godot/scripts/sim.gd`, which IS the specification
+ * for this port. A missing or mistyped one fails here instead of looking odd in a capture.
+ */
+bool FHIUnrealFurniture::RunTest(const FString& Parameters)
+{
+	const TArray<FString>& Labels = FHISim::FurnitureLabels();
+	const TArray<float>& Heights = FHISim::FurnitureHeights();
+	const TArray<bool>& Flat = FHISim::FurnitureFlat();
+	const TArray<FBox2D>& Rects = FHISim::FurnitureRects();
+
+	TestEqual(TEXT("a label per furniture row"), Labels.Num(), 19);
+	TestEqual(TEXT("a height per furniture row"), Heights.Num(), Labels.Num());
+	TestEqual(TEXT("a flat flag per furniture row"), Flat.Num(), Labels.Num());
+	TestEqual(TEXT("a rect per furniture row"), Rects.Num(), Labels.Num());
+
+	// label -> h, verbatim from sim.gd's FURNITURE literal. Duplicated kinds (chair, rug)
+	// are listed once each and matched by kind as they are encountered.
+	static const TMap<FString, float> Spec = {
+		{ TEXT("sofa"),         0.80f },
+		{ TEXT("side_table"),   0.45f },
+		{ TEXT("coffee_table"), 0.42f },
+		{ TEXT("tv_stand"),     0.50f },
+		{ TEXT("rug"),          0.02f },
+		{ TEXT("lamp"),         1.60f },
+		{ TEXT("counter"),      0.92f },
+		{ TEXT("fridge"),       1.85f },
+		{ TEXT("dining_table"), 0.75f },
+		{ TEXT("chair"),        0.90f },
+		{ TEXT("bed"),          0.55f },
+		{ TEXT("nightstand"),   0.55f },
+		{ TEXT("wardrobe"),     2.00f },
+		{ TEXT("desk"),         0.75f },
+		{ TEXT("desk_chair"),   0.95f },
+		{ TEXT("bookshelf"),    2.00f },
+		{ TEXT("cabinet"),      1.30f },
+	};
+
+	for (int32 Idx = 0; Idx < Labels.Num(); ++Idx)
+	{
+		const float* Want = Spec.Find(Labels[Idx]);
+		TestTrue(*FString::Printf(TEXT("'%s' is a kind sim.gd names"), *Labels[Idx]),
+			Want != nullptr);
+		if (Want != nullptr)
+		{
+			TestEqual(*FString::Printf(TEXT("'%s' height matches sim.gd"), *Labels[Idx]),
+				Heights[Idx], *Want);
+		}
+		// Nothing is a ceiling and nothing is inside out.
+		TestTrue(*FString::Printf(TEXT("'%s' is a sane height (%.2f m)"), *Labels[Idx], Heights[Idx]),
+			Heights[Idx] > 0.0f && Heights[Idx] < FHISim::WallHeight);
+	}
+
+	// The RUG is the interesting one: it is flat, so it is not in `Solids()` and was never
+	// drawn at all by the first port. Both rugs must be flat, and everything else must not.
+	int32 FlatCount = 0;
+	for (int32 Idx = 0; Idx < Flat.Num(); ++Idx)
+	{
+		if (Flat[Idx])
+		{
+			++FlatCount;
+			TestEqual(*FString::Printf(TEXT("'%s' is a rug"), *Labels[Idx]), Labels[Idx], TEXT("rug"));
+			TestTrue(*FString::Printf(TEXT("'%s' is 2 cm, not a block"), *Labels[Idx]), Heights[Idx] < 0.1f);
+		}
+	}
+	TestEqual(TEXT("two rugs, as in sim.gd"), FlatCount, 2);
+
+	// And the alignment the builder relies on: the non-flat rows must line up with the
+	// non-wall half of `Solids()`, or heights get attached to the wrong rectangles.
+	TestEqual(TEXT("non-flat furniture count matches Solids()"),
+		Labels.Num() - FlatCount, FHISim::Solids().Num() - FHISim::Walls().Num());
+
+	// The specific regression, stated as a value: a sofa is not a column.
+	TestTrue(TEXT("the sofa is furniture, not a wall"),
+		Heights[0] < 1.0f && FHISim::WallHeight > 1.0f);
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHIUnrealWallFittings,
+	"HI.Unreal.WallFittings",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+/**
+ * Every socket, switch and thermostat must be ON a wall.
+ *
+ * This is a check that could not fail before it existed, and its absence is why a light
+ * switch sat inside `DoorGap` for the life of the port: it hung in the open front doorway
+ * with no wall behind it, visible from the spawn as a small pale box apparently floating
+ * over the lawn. Four more were up to 1.4 m off any face. Eight hand-typed coordinate pairs
+ * is exactly the kind of data that is wrong and looks fine, so it is measured instead.
+ *
+ * The gap between two axis-aligned boxes is the larger of the two per-axis separations; a
+ * fitting flush against a wall scores 0, and one in the middle of a room scores its distance
+ * from the nearest wall. A centimetre of slack covers the depth rounding, and nothing more.
+ */
+bool FHIUnrealWallFittings::RunTest(const FString& Parameters)
+{
+	const TArray<AHIHouse::FFitting>& Fittings = AHIHouse::WallFittings();
+	TestTrue(TEXT("there are wall fittings to check"), Fittings.Num() >= 8);
+
+	const TArray<FBox2D>& Walls = FHISim::Walls();
+	for (int32 Idx = 0; Idx < Fittings.Num(); ++Idx)
+	{
+		const AHIHouse::FFitting& F = Fittings[Idx];
+		const FBox2D Box(
+			FVector2D(F.X - F.SX * 0.5f, F.Y - F.SY * 0.5f),
+			FVector2D(F.X + F.SX * 0.5f, F.Y + F.SY * 0.5f));
+
+		float Nearest = TNumericLimits<float>::Max();
+		for (const FBox2D& W : Walls)
+		{
+			const float SepX = FMath::Max(0.0f, FMath::Max(Box.Min.X - W.Max.X, W.Min.X - Box.Max.X));
+			const float SepY = FMath::Max(0.0f, FMath::Max(Box.Min.Y - W.Max.Y, W.Min.Y - Box.Max.Y));
+			Nearest = FMath::Min(Nearest, FMath::Max(SepX, SepY));
+		}
+		TestTrue(*FString::Printf(
+			TEXT("fitting %d at (%.2f, %.2f) is on a wall -- nearest gap %.3f m"),
+			Idx, F.X, F.Y, Nearest), Nearest <= 0.011f);
+	}
+
+	// The specific one that was wrong, stated as a position: the switch by the front door must
+	// be OUTSIDE the doorway. `DoorGap` is x -1..1, and a fitting inside it hangs in the hole.
+	bool bAnyBesideTheDoor = false;
+	for (const AHIHouse::FFitting& F : Fittings)
+	{
+		if (FMath::IsNearlyEqual(F.Z, 1.25f) && F.Y < -8.0f && F.Y > -8.6f)
+		{
+			bAnyBesideTheDoor = true;
+			TestTrue(*FString::Printf(TEXT("the front-door switch (%.2f) is clear of DoorGap"), F.X),
+				F.X < FHISim::DoorGap.X || F.X > FHISim::DoorGap.Y);
+		}
+	}
+	TestTrue(TEXT("there is a switch by the front door"), bAnyBesideTheDoor);
+
+	// A NEGATIVE CONTROL, because the loop above passes trivially if the measure is broken.
+	// The middle of the living room is not on a wall, and the same arithmetic has to say so.
+	{
+		const FVector2D Mid(-5.0f, -11.0f);
+		float Nearest = TNumericLimits<float>::Max();
+		for (const FBox2D& W : Walls)
+		{
+			const float SepX = FMath::Max(0.0f, FMath::Max(Mid.X - W.Max.X, W.Min.X - Mid.X));
+			const float SepY = FMath::Max(0.0f, FMath::Max(Mid.Y - W.Max.Y, W.Min.Y - Mid.Y));
+			Nearest = FMath::Min(Nearest, FMath::Max(SepX, SepY));
+		}
+		TestTrue(*FString::Printf(
+			TEXT("the control -- mid-living-room -- is NOT on a wall (gap %.2f m, expected ~3.25)"),
+			Nearest), Nearest > 1.0f);
+	}
+
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS
 

@@ -637,6 +637,27 @@ struct HISIM_API FHISim
 	static const TArray<FHISolidSpan>& SolidSpans();
 	static const TArray<FBox2D>& FurnitureRects();
 	static const TArray<bool>& FurnitureFlat();
+	/**
+	 * Each item's height `h`, index-aligned with `FurnitureRects`.
+	 *
+	 * Ported from sim.gd's own literal, where every row carries one, and used by `game.gd`
+	 * exactly the same way: `_add_box(body, f["rect"], f["h"])`.
+	 *
+	 * The first port of this table DROPPED the field, and the consequence was that the game
+	 * layer had no height to draw with, reached for `SolidSpans` instead -- which is uniform
+	 * at a full storey because it models SIGHT -- and drew every couch, table and bed as a
+	 * floor-to-ceiling column. Nothing in the sim reads this value, and nothing about
+	 * navigation, line of sight or collision changes with it.
+	 */
+	static const TArray<float>& FurnitureHeights();
+	/**
+	 * The sim's own `kind` for each furniture row, index-aligned with `FurnitureRects`.
+	 *
+	 * Descriptive only -- nothing in the sim reads it. It exists so a failure can name the
+	 * item it is talking about, and so the game layer can key anything per-kind without
+	 * guessing at a rectangle's identity from its coordinates.
+	 */
+	static const TArray<FString>& FurnitureLabels();
 	static const TArray<FVector2D>& LootPositions();
 	static const TArray<FString>& LootLabels();
 	static const TArray<FString>& LootNodes();
