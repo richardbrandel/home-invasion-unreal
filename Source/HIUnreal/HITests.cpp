@@ -631,6 +631,33 @@ bool FHIUnrealFurniture::RunTest(const FString& Parameters)
 	TestTrue(TEXT("the sofa is furniture, not a wall"),
 		Heights[0] < 1.0f && FHISim::WallHeight > 1.0f);
 
+	// ---- and every piece of it must be INSIDE the house.
+	//
+	// The living-room rug sat at z -8.60 against a house of z -19..-8, so 1.2 m of it lay
+	// out on the drive, and it had been wrong since the literal was written. It survived
+	// because a rug is `flat`: excluded from `Solids()`, so never drawn -- and an invisible
+	// object cannot look wrong. Drawing flat furniture is what exposed it, so this is the
+	// check that makes the whole class fail loudly. `test_sim.gd` asserts the same thing.
+	{
+		const FBox2D& H = FHISim::House;
+		FString Outside;
+		for (int32 Idx = 0; Idx < Rects.Num(); ++Idx)
+		{
+			const FBox2D& R = Rects[Idx];
+			if (R.Min.X < H.Min.X || R.Min.Y < H.Min.Y || R.Max.X > H.Max.X || R.Max.Y > H.Max.Y)
+			{
+				Outside += FString::Printf(TEXT("%s at (%.2f,%.2f)-(%.2f,%.2f); "),
+					*Labels[Idx], R.Min.X, R.Min.Y, R.Max.X, R.Max.Y);
+			}
+		}
+		TestTrue(*FString::Printf(TEXT("every furniture rect is inside the house%s"), *Outside),
+			Outside.IsEmpty());
+		// A negative control: the rug's OLD rectangle must be rejected by the same test.
+		const FBox2D Bad(FVector2D(-7.60f, -8.60f), FVector2D(-3.20f, -6.80f));
+		TestTrue(TEXT("that check can fail (the rug's old rect is outside)"),
+			Bad.Min.Y < H.Min.Y || Bad.Max.Y > H.Max.Y);
+	}
+
 	return true;
 }
 

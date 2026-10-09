@@ -924,7 +924,12 @@ namespace
 			{ -7.00f, -14.10f, 0.40f, 0.40f, 0.45f, false, TEXT("side_table") },
 			{ -5.60f, -11.70f, 1.40f, 1.40f, 0.42f, false, TEXT("coffee_table") },
 			{ -6.40f, -13.60f, 2.20f, 0.50f, 0.50f, false, TEXT("tv_stand") },
-			{ -7.60f,  -8.60f, 4.40f, 1.80f, 0.02f, true,  TEXT("rug") },
+			// z was -8.60 in both projects, which put 1.2 m of this rug OUTSIDE the south
+			// wall and onto the drive -- `House` is z -19..-8, so the rug ran to -6.80. It
+			// went unnoticed because a rug is `flat`, so it is excluded from `Solids()` and
+			// was never drawn, until this port started drawing flat furniture. Fixed in
+			// `sim.gd` first, as the spec, and matched here.
+			{ -7.60f, -10.60f, 4.40f, 1.80f, 0.02f, true,  TEXT("rug") },
 			{ -7.30f,  -9.90f, 0.45f, 0.45f, 1.60f, false, TEXT("lamp") },
 			// kitchen (front east)
 			{  6.60f, -13.00f, 1.15f, 4.00f, 0.92f, false, TEXT("counter") },
