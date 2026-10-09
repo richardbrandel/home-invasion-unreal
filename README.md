@@ -131,6 +131,37 @@ exist to catch.
   because the round is over before anyone reaches the house. The report warns loudly that it
   says nothing about lethality.
 
+## How to actually PLAY it
+
+Everything above is a capture harness, and a capture harness is not a game you can hold. To
+play it, the binary needs a display and no `-RenderOffscreen`:
+
+```sh
+ssh -X ubuntu-dev            # only if the box has no monitor attached
+ssh ubuntu-dev '/home/richard/UnrealEngine/Engine/Binaries/Linux/UnrealEditor \
+  /data/projects/HIUnreal/HIUnreal.uproject -game'
+```
+
+| Key | |
+|---|---|
+| `W A S D` | move (camera-relative) |
+| mouse | turn |
+| left button | fire |
+| `1` / `2` | pistol / shotgun — **each keeps its own magazine** |
+| `R` | reload (walk slower while you do it) |
+| `F` | shove — the only way to take loot back off a man without killing him |
+| `C` | crouch — lowers the eye (but see the open item: it does not yet hide you) |
+| `Shift` | sprint |
+| `Q` | shout — frightens them, and tells them where you are |
+| `P` | call the police |
+| `L` | lights — off makes them shoot worse, and you see worse too |
+| `Enter` | play again, once the round is decided |
+
+**The port has never been played by a person.** A packaged build is deliberately absent: the
+standing instruction is to tell Richard it is ready and let him test, not to ship builds
+unasked. Packaging for Windows or macOS from here would need the engine's cross-compilation
+toolchain, which is a separate job from making the game work.
+
 ## Layout
 
 | Path | Contents |
