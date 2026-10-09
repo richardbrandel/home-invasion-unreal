@@ -114,6 +114,11 @@ void AHIGameMode::HandleCommandLine()
 	// that catches a thief who cannot path, cannot grab, or cannot leave.
 	const bool bAutoOff = FParse::Param(Cmd, TEXT("HINoAuto"));
 	bNoThiefDamage = FParse::Param(Cmd, TEXT("HINoThiefDamage"));
+	int32 Rounds = 0;
+	if (FParse::Value(Cmd, TEXT("HIRounds="), Rounds) && Rounds > 1)
+	{
+		RoundsToPlay = Rounds;
+	}
 	// A posed capture wants the world to hold still, so an explicit position turns the
 	// autopilot off unless it was asked for by name. A capture WITHOUT a position is a
 	// picture of the round in progress, which needs the round driven or it photographs an
@@ -422,14 +427,29 @@ FHISim::FHIInput AHIGameMode::ReadInput()
 		In.SwitchWeapon = TEXT("shotgun");
 	}
 
-	// Restarting is not a sim verb: a decided round is inert at the sim level, so this is
-	// handled where the round itself lives.
-	if (IsRoundOver() && PC->WasInputKeyJustPressed(EKeys::Enter))
+	return In;
+}
+
+void AHIGameMode::PollRestart()
+{
+	if (!IsRoundOver())
+	{
+		return;
+	}
+	const UWorld* World = GetWorld();
+	if (World == nullptr)
+	{
+		return;
+	}
+	const APlayerController* PC = World->GetFirstPlayerController();
+	if (PC == nullptr)
+	{
+		return;
+	}
+	if (PC->WasInputKeyJustPressed(EKeys::Enter))
 	{
 		RestartRound();
 	}
-
-	return In;
 }
 
 void AHIGameMode::ApplyLook()
@@ -872,18 +892,33 @@ void AHIGameMode::Tick(float DeltaSeconds)
 
 	if (Round.State != FHISim::EHIRoundState::Play)
 	{
-		// A soak ENDS WHEN THE ROUND DOES, and this is not a refinement -- without it the
-		// soak waits out its whole budget against a clock that has stopped, because
-		// RoundSeconds only advances while the round is live. Measured: a `-HISoak=120`
-		// round that was decided in under a minute produced no report at all and had to be
-		// killed by the caller's timeout, which looks exactly like a hang.
+		// Report the round that just ended. In a multi-round run every round reports, so the
+		// LAST line is not the only evidence that the earlier ones happened.
 		if (SoakSeconds > 0.0f && !bSoakReported)
 		{
-			bSoakReported = true;
 			ReportSoak();
+			++RoundsPlayed;
+			if (RoundsPlayed < RoundsToPlay)
+			{
+				// ANOTHER ROUND, through the same RestartRound the player's [ENTER] uses --
+				// so an automated multi-round run exercises the restart path rather than a
+				// private copy of it.
+				bSoakReported = false;
+				RestartRound();
+				return;
+			}
+			bSoakReported = true;
 			FPlatformMisc::RequestExit(false);
 			return;
 		}
+
+		// And the player's own way to do it.
+		PollRestart();
+		if (Round.State == FHISim::EHIRoundState::Play)
+		{
+			return;   // he restarted; the next Tick steps the new round
+		}
+
 		// A decided round is inert at the sim level too, so there is nothing to gain by
 		// stepping it -- and stepping it anyway would keep bodies robbing a house whose
 		// outcome is already settled.

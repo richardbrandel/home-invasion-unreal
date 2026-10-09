@@ -176,6 +176,17 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Home Invasion")
 	void RestartRound();
 
+	/**
+	 * Watch for [ENTER] after the round has been decided, and start another one.
+	 *
+	 * SEPARATE FROM ReadInput, and this is a bug fix rather than tidying. ReadInput is only
+	 * called from the branch of Tick that runs while the round is LIVE, so the Enter check
+	 * that used to live inside it had never once executed: the outcome banner promised
+	 * "[ENTER] to play again" and the key did nothing, leaving a process restart as the only
+	 * way to play a second round.
+	 */
+	void PollRestart();
+
 	/** Seconds of round time elapsed, for the HUD and for the capture harness. */
 	float RoundSeconds = 0.0f;
 
@@ -249,4 +260,7 @@ private:
 	bool bShotTaken = false;
 	/** Guards against reporting a soak twice, now that two paths can end one. */
 	bool bSoakReported = false;
+	/** `-HIRounds=N`: play N rounds back to back. 0 or 1 means one. */
+	int32 RoundsToPlay = 1;
+	int32 RoundsPlayed = 0;
 };
