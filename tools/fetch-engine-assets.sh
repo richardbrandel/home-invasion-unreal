@@ -61,4 +61,12 @@ copy "$TEMPLATES/Standard/Weapons/Content/Rifle" \
      "$DEST/Weapons/Rifle" \
      "rifle mesh (standing in for the shotgun)"
 
+# Audio, for fix-list items 16 and 20. One weapon-fire cue is all the engine's templates
+# ship as a sound WAVE; everything else in this port's mix is that cue or a sine tone at a
+# shifted pitch, which is a stand-in for foley rather than foley. The BUSES are the real
+# part of item 20 and they live in /Engine/EngineSounds, which needs no copying.
+copy "$TEMPLATES/Standard/Weapons/Content/GrenadeLauncher/Audio" \
+     "$DEST/Weapons/GrenadeLauncher/Audio" \
+     "the template weapon-fire cue"
+
 echo "Done. $(find "$DEST" -type f | wc -l | tr -d ' ') files, $(du -sh "$DEST" | cut -f1)."

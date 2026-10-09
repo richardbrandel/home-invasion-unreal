@@ -210,7 +210,7 @@ flare stay off, which costs nothing.
 
 ## Status
 
-`HI.` passes **30/30** on ubuntu-dev. **All 97 assertions** in the Godot *sim* spec are
+`HI.` passes **32/32** on ubuntu-dev. **All 97 assertions** in the Godot *sim* spec are
 represented; the port adds coverage the Godot project has never had on either side.
 
 | Test | Covers |
@@ -239,6 +239,8 @@ represented; the port adds coverage the Godot project has never had on either si
 | `HI.Sim.View` | the aim and chase-camera maths |
 | **`HI.Sim.Verbs`** | **reload, weapon switch and shove, driven through `FHIRound::Step`** |
 | **`HI.Sim.GroupHeist`** | **a full heist through `StepIntruders`, the ONLY path the game calls** |
+| **`HI.Sim.NonLethal`** | **the shout and the police call: they frighten, and the shout does NOT call the police** |
+| **`HI.Unreal.Audio`** | **that the sound class, the reverb submix and the copied cue all resolve, plus the indoor/outdoor test** |
 | **`HI.Sim.StartView`** | **where a round starts looking (0.03 rad, not 0.24)** |
 | `HI.Unreal.Sizing` | the metre/centimetre split, the body-rotation mapping |
 | `HI.Unreal.Hud` | what the readout says |
@@ -295,21 +297,26 @@ column of that list**; the Godot column is unchanged.
 | 8 | Sockets, switches, thermostats, light fittings | **DONE.** Sockets, switches, a thermostat, a smoke alarm and a ceiling rose under each lamp |
 | 10 / 11 | Valuables and props | **DONE.** TV, laptop and safe modelled from primitives (each with its BASE at floor level so one placement rule serves floor, hand and van), plus a kettle, toaster, bread bin, coat and hook, keys, a phone, a picture and a desk mat |
 | 13 | Animation blending | **DONE, and NOT the way this port's own notes assumed.** "Blending is built in" is true of a normal Unreal project and false of one with no editor session: an AnimBlueprint is a `.uasset`. So it uses `EAnimationMode::AnimationSingleNode` on the engine's 2-D **blend space** over speed and direction — a genuine continuous cross-fade, with the metre-to-centimetre conversion named in the one place it happens |
-| 14 | Foot IK | **NOT DONE.** Needs an anim graph; the engine's `CR_Mannequin_FootIK` is available and unused |
-| 15 | Idle variation | **NOT DONE.** One idle clip, so he stands in exactly one pose — the same fault the Godot original has |
-| 16 | Voice / barks | **NOT DONE.** No audio of any kind in this port |
-| 17 | More non-lethal verbs | **PARTLY.** Shove, reload and weapon switch are now wired and tested. Barricading, lights and calling the police are not started |
+| 14 | Foot IK | **HALF DONE.** The visible half — the feet skating — is fixed by matching the clip's play rate to the body's actual speed. Foot PLANTING on an edge needs an anim graph, and the engine's `CR_Mannequin_FootIK` is available and unused |
+| 15 | Idle variation | **HALF DONE.** Every body's idle loop starts at a random phase, so three men no longer breathe in unison. Genuinely different IDLE POSES need more recorded clips; the engine ships one |
+| 16 | Voice / barks | **HOOK ONLY.** The bark system exists and fires at the right moments (a man goes down, you shout), but the cue is a pitched sine and sounds like equipment, not a person. Voices need recordings |
+| 17 | More non-lethal verbs | **Mostly done.** Shove, reload and weapon switch were already wired; now **[Q] shout** frightens every man who hears it without spending a round, and **[P] calls the police** without a gunshot — both tested. Barricading and lights are not started |
 | 18 | The simulation is 2-D | **DONE** — `FHISolidSpan`, `LosBlocked3D` and a `Z` on both entities, with `HI.Sim.Elevation` as the regression harness. The spans are deliberately uniform at a full storey: the Godot source carries no furniture heights, and inventing them is a design decision, not a porting one |
 | 19 | Blood / wounds | **PARTLY.** Pooled bullet holes where pellets land, a blood mark where a man falls, a flash on a hit and a red edge when the homeowner is hit. Nothing ON the person |
-| 20 | Audio buses | **NOT DONE.** There is no audio at all — no buses because there is nothing to route |
+| 20 | Audio buses | **DONE for the buses, placeholder content.** Every cue is routed through the engine's `SFX` sound class rather than Master, and carries a submix send to `MasterReverbSubmixDefault` — whose effect chain was inspected before it was relied on — set from whether the cue is inside the house, so a shot in the kitchen rings and a shot on the lawn does not. The gunshots are the engine's template cue; impacts and barks are that cue and a sine at shifted pitch. **Foley needs recordings** |
 | 21 | Reflections / GI | **DONE.** Lumen for GI and reflections, virtual shadow maps off, distance fields on, stated in `DefaultEngine.ini` |
 
 ## What is still open, and it is not a green tick
 
-- **The intruders are lethal to a fault.** See the soaks above: 6.6 s to kill an idle
-  homeowner. Reported rather than retuned, because the numbers are the spec's — and note
-  that figure was measured while the intruders could not move, so it will need re-measuring
-  now that they can. Three men who walk in and shoot on sight will be worse.
+- **The intruders are still lethal, but no longer absurdly so.** The 6.6 s figure above was
+  measured while the intruders could not move — they stood at the van with a clear line
+  through the front door and shot an idle homeowner at leisure. **Re-measured after the fix:
+  74.2 s**, ending with all three valuables delivered and the homeowner dead. That is a much
+  more reasonable "if you do nothing, you lose", and it is reported rather than retuned
+  because the numbers are the spec's.
+- **The sound is placeholder.** Gunshots are the engine's template cue and everything else is
+  that cue or a sine tone at a shifted pitch. The mixing and the timing are real; the foley is
+  not, and barks in particular sound like equipment rather than men.
 - **There is no minimap.** The Godot game's sight-cone minimap is how a player finds intruders
   through fog of war; this port has none, so a human has far less information than the
   autopilot did when it won in five seconds.

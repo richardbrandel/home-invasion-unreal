@@ -35,6 +35,13 @@ TArray<FString> AHIHUD::RoundLines(const FHISim::FHIRound& Round)
 	Lines.Add(FString::Printf(TEXT("INTRUDERS DOWN  %d / %d"),
 		Round.ThievesDown, Round.Intruders.Num()));
 
+	// The stance, which is worth a line because crouching now genuinely changes the view --
+	// see AHIPlayerCharacter::EyePivot. Before that fix this would have read STANDING
+	// forever, and a readout that never changes is worse than none.
+	const TCHAR* Stance = P.bCrouching ? TEXT("CROUCHING")
+		: (P.bSprinting ? TEXT("SPRINTING") : TEXT("STANDING"));
+	Lines.Add(FString::Printf(TEXT("%s"), Stance));
+
 	// The police clock, once the first shot has been fired. Reported as a countdown because
 	// that is what it is: the sirens end the round whether or not anyone is winning.
 	// Read from whichever intruder is still up, because the alarm lives on the body that
@@ -274,14 +281,11 @@ void AHIHUD::DrawHUD()
 
 	DrawHealthBar(Mode->Round, 24.0f, 14.0f + 26.0f * Scale * Lines.Num() + 6.0f);
 
-	// The frame's events, so the round can say what it just did rather than only what is
-	// true. Last, so nothing shifts as they come and go.
-	float Ey = Canvas->ClipY - 120.0f;
-	for (const FHISim::FHIEvent& Ev : Mode->LastEvents)
-	{
-		DrawText(Ev.Type, FLinearColor(1.0f, 0.8f, 0.2f), 24.0f, Ey, GEngine->GetMediumFont(), Scale);
-		Ey += 26.0f * Scale;
-	}
+	// NOTE: the raw event names used to be printed down here. They were a debugging aid that
+	// shipped into the picture, and they read as an unfinished game: a column of the words
+	// "playerShot", "thiefShot" and "grabbed" on top of the firefight. Every one of them now
+	// has a human message -- see the Message handling in AHIGameMode::Tick -- so the dump is
+	// gone rather than merely hidden.
 
 	// The damage edge goes UNDER the readout and the banner but over the world.
 	DrawDamageFlash(Mode->RoundSeconds - Mode->LastDamageTime);

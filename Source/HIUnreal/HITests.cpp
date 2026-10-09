@@ -1,6 +1,7 @@
 #include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"
 
+#include "HIAudio.h"
 #include "HIGameMode.h"
 #include "HIHouse.h"
 #include "HIHUD.h"
@@ -83,6 +84,18 @@ bool FHIUnrealSizing::RunTest(const FString& Parameters)
 		const FVector Pivot = AHIPlayerCharacter::EyePivot(P);
 		TestTrue(FString::Printf(TEXT("the eye pivot is a storey-free eye height in CENTIMETRES (%.1f)"), Pivot.Z),
 			FMath::IsNearlyEqual(Pivot.Z, FHISim::EyeHeight * HI_METERS_TO_UU, 0.01f));
+
+		// CROUCHING LOWERS THE EYE. `CrouchEyeHeight` was declared in the sim and referenced
+		// nowhere, so [C] slowed the homeowner down and left his viewpoint at standing height
+		// -- and the whole point of a crouch in a home-defence game is that you cannot be seen
+		// over the furniture. Asserted as a DIFFERENCE, so a constant could not pass it.
+		FHISim::FHIPlayer Crouched = P;
+		Crouched.bCrouching = true;
+		const FVector CrouchPivot = AHIPlayerCharacter::EyePivot(Crouched);
+		TestTrue(FString::Printf(TEXT("and crouching actually lowers it (%.1f standing, %.1f crouched)"),
+			Pivot.Z, CrouchPivot.Z),
+			CrouchPivot.Z < Pivot.Z - 30.0f
+			&& FMath::IsNearlyEqual(CrouchPivot.Z, FHISim::CrouchEyeHeight * HI_METERS_TO_UU, 0.01f));
 
 		FVector CamLoc;
 		FVector CamDir;
@@ -375,6 +388,70 @@ bool FHIUnrealThiefAim::RunTest(const FString& Parameters)
 			Prev = Chance;
 		}
 		TestTrue(TEXT("and it never increases with range, at any range"), bMonotonic);
+	}
+
+	return true;
+}
+
+// --------------------------------------------------------------- sound
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHIUnrealAudio,
+	"HI.Unreal.Audio",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FHIUnrealAudio::RunTest(const FString& Parameters)
+{
+	// THERE WAS NO AUDIO IN THIS PORT AT ALL until this existed, so every assertion here is
+	// new rather than a check on something that used to work.
+	//
+	// The failure mode this is built around is a WRONG PATH: every one of these loads is a
+	// `LoadObject` by string, and a string that does not resolve returns null and makes the
+	// whole audio layer a silent no-op. Silence is also what a working game sounds like when
+	// the volume is down and when the machine has no sound card, so it is exactly the kind of
+	// failure that never gets noticed.
+
+	// ---- the copied asset really is where the code says it is
+	TestNotNull(TEXT("the weapon-fire cue the project copies out of the engine templates loads"),
+		FHIAudio::PistolShot());
+
+	// ---- THE BUSES. Item 20 is "everything on Master", so the point is that these are not
+	// Master: the engine's own SFX class, and a submix whose effect chain was inspected before
+	// the code relied on it (`SubmixEffectReverbPreset` -> `MasterReverbEffectPreset`).
+	TestNotNull(TEXT("the engine's SFX sound class loads, so cues are not all on Master"),
+		FHIAudio::SfxClass());
+	TestNotNull(TEXT("and the reverb submix loads, so the indoor/outdoor send is not dropped"),
+		FHIAudio::ReverbSubmix());
+
+	// ---- the indoor/outdoor test itself. This is what decides whether a shot rings.
+	{
+		// The living room, from the sim's own house rectangle.
+		const FVector Living(-5.0f * HI_METERS_TO_UU, -11.0f * HI_METERS_TO_UU, 150.0f);
+		TestTrue(TEXT("a gunshot in the living room counts as indoors"),
+			FHIAudio::bInsideHouse(Living));
+	}
+
+	{
+		// The driveway, where the van is. Well outside anything the house roofs.
+		const FVector Drive(0.0f, 8.0f * HI_METERS_TO_UU, 150.0f);
+		TestFalse(TEXT("and a gunshot out at the van does not"),
+			FHIAudio::bInsideHouse(Drive));
+	}
+
+	{
+		// The doorway. There is a deliberate margin here: a shot fired in the door frame is
+		// neither clearly in nor clearly out, and calling it indoor is the kinder error --
+		// the reverb is what tells the player he is fighting inside a room.
+		const FVector Doorway(0.0f, -8.05f * HI_METERS_TO_UU, 150.0f);
+		TestTrue(TEXT("while one in the open front door still rings, as a doorway should"),
+			FHIAudio::bInsideHouse(Doorway));
+	}
+
+	// ---- and the negative control, so a function that returned TRUE unconditionally would
+	// not pass everything above. Far up the lawn, 40 m past the van.
+	{
+		const FVector Far(0.0f, 40.0f * HI_METERS_TO_UU, 150.0f);
+		TestFalse(TEXT("but 40 m up the lawn is unambiguously outside"),
+			FHIAudio::bInsideHouse(Far));
 	}
 
 	return true;

@@ -1894,6 +1894,124 @@ bool FHISimStartView::RunTest(const FString& Parameters)
 
 	return true;
 }
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHISimNonLethal,
+	"HI.Sim.NonLethal",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FHISimNonLethal::RunTest(const FString& Parameters)
+{
+	// Fix-list item 17's remaining half: "no locking/barricading, no lights, no calling out,
+	// no calling police deliberately". Two of those four are here, and the pair is chosen
+	// because both are the SAME KIND of thing the rest of the game is not: they can end an
+	// intrusion without killing anybody.
+	//
+	// The assertion that matters most here is the NEGATIVE one -- that a shout does NOT start
+	// the police clock. Without it the shout is just a second way to do what the first
+	// gunshot already does, and the item would be closed on a synonym.
+
+	const float Dt = 1.0f / 60.0f;
+
+	// ---- calling the police is deliberate, immediate, and idempotent
+	{
+		FHISim::FHIRound R = FHISim::FHIRound::Start(3);
+		for (const FHISim::FHIThief& T : R.Intruders)
+		{
+			TestTrue(TEXT("nobody has called the police before the round starts"), T.Alarm < 0.0f);
+		}
+
+		FHISim::FHIInput In;
+		In.bCallPolice = true;
+		R.Step(In, Dt);
+
+		int32 Alarmed = 0;
+		for (const FHISim::FHIThief& T : R.Intruders)
+		{
+			if (T.Alarm >= 0.0f)
+			{
+				++Alarmed;
+			}
+		}
+		TestEqual(FString::Printf(TEXT("and [P] starts the clock for every man standing (%d of %d)"),
+			Alarmed, R.Intruders.Num()), Alarmed, R.Intruders.Num());
+
+		// Idempotent. A second call that RE-ZEROED the clock would make the sirens arrive
+		// sooner for being told twice; that is the bug this guards, not a tidy return value.
+		const float ClockBefore = R.Intruders[0].Alarm;
+		TestFalse(TEXT("a second call reports that it did nothing"), R.CallPolice());
+		TestTrue(FString::Printf(TEXT("and does not reset the clock (%.2f -> %.2f)"),
+			ClockBefore, R.Intruders[0].Alarm),
+			R.Intruders[0].Alarm >= ClockBefore);
+	}
+
+	// ---- shouting frightens them, marks your position, and does NOT call the police
+	{
+		FHISim::FHIRound R = FHISim::FHIRound::Start(3);
+		R.Player.Pos = FVector2D(0.0f, -11.0f);
+		for (int32 Idx = 0; Idx < R.Intruders.Num(); ++Idx)
+		{
+			R.Intruders[Idx].Pos = FVector2D(0.0f, 10.0f + Idx);
+			R.Intruders[Idx].Fear = 0.0f;
+			R.Intruders[Idx].Alarm = -1.0f;
+		}
+
+		FHISim::FHIInput In;
+		In.bShout = true;
+		R.Step(In, Dt);
+
+		int32 Frightened = 0;
+		int32 Alarmed = 0;
+		bool bAllKnowWhereItCameFrom = true;
+		for (const FHISim::FHIThief& T : R.Intruders)
+		{
+			if (T.Fear > 0.0f)
+			{
+				++Frightened;
+			}
+			if (T.Alarm >= 0.0f)
+			{
+				++Alarmed;
+			}
+			if (FVector2D::Distance(T.LastSeen, R.Player.Pos) > 0.01f)
+			{
+				bAllKnowWhereItCameFrom = false;
+			}
+		}
+		TestEqual(FString::Printf(TEXT("a shout is heard by every man in the house (%d of %d)"),
+			Frightened, R.Intruders.Num()), Frightened, R.Intruders.Num());
+		TestTrue(TEXT("and it tells them where it came from"), bAllKnowWhereItCameFrom);
+		TestEqual(FString::Printf(TEXT("but a man shouting in his own hall does NOT call the police (%d alarmed)"),
+			Alarmed), Alarmed, 0);
+
+		// The cooldown, which is what stops fear being piled on frame after frame. Asserted as
+		// "it did not go UP", not as "it stayed the same": fear DECAYS every frame
+		// (FearDecay), so a held key with no cooldown would show ~1.96 here and a working
+		// cooldown shows slightly less than 0.98 as the decay takes its bite.
+		const float FearAfterOne = R.Intruders[0].Fear;
+		R.Step(In, Dt);
+		TestTrue(FString::Printf(TEXT("and it cannot be spammed (fear %.2f then %.2f -- it decayed rather than stacking)"),
+			FearAfterOne, R.Intruders[0].Fear),
+			R.Intruders[0].Fear <= FearAfterOne + 1e-4f);
+		TestTrue(FString::Printf(TEXT("which is a real bound: an uncapped shout would have reached about %.2f"),
+			FearAfterOne * 2.0f),
+			R.Intruders[0].Fear < FearAfterOne * 1.5f);
+
+		// Enough of them and he breaks off, which is the point: FearFlee ends an intrusion
+		// without a corpse.
+		int32 Shouts = 0;
+		while (R.Intruders[2].Fear < FHISim::FearFlee && Shouts < 40)
+		{
+			R.Player.ShoutCd = 0.0f;
+			R.Shout();
+			++Shouts;
+		}
+		TestTrue(FString::Printf(TEXT("and repeated shouting eventually frightens a man off (fear %.2f after %d shouts, flee at %.1f)"),
+			R.Intruders[2].Fear, Shouts, FHISim::FearFlee),
+			R.Intruders[2].Fear >= FHISim::FearFlee);
+	}
+
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHISimVerbs,
 	"HI.Sim.Verbs",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)

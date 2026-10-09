@@ -228,7 +228,7 @@ bool FHISim::ThiefShove(FHIThief& Thief, FHIPlayer& Player, TArray<FHIEvent>& Ev
 	return true;
 }
 
-void FHISim::AlertThief(FHIThief& Thief, const FVector2D& From, float Loudness)
+void FHISim::Frighten(FHIThief& Thief, const FVector2D& From, float Loudness)
 {
 	if (!Thief.bAlive || Thief.bEscaped)
 	{
@@ -236,6 +236,15 @@ void FHISim::AlertThief(FHIThief& Thief, const FVector2D& From, float Loudness)
 	}
 	Thief.LastSeen = From;
 	Thief.Fear = FMath::Min(Thief.Fear + FearPerShot * Loudness, 8.0f);
+}
+
+void FHISim::AlertThief(FHIThief& Thief, const FVector2D& From, float Loudness)
+{
+	Frighten(Thief, From, Loudness);
+	if (!Thief.bAlive || Thief.bEscaped)
+	{
+		return;
+	}
 	// The first shot of the round starts the police clock. -1 means nobody has called.
 	if (Thief.Alarm < 0.0f)
 	{
@@ -491,6 +500,54 @@ void FHISim::FHIRound::SwitchWeapon(const FString& Key)
 	Player.Reloading = 0.0f;
 }
 
+bool FHISim::FHIRound::Shout()
+{
+	if (Player.ShoutCd > 0.0f || !Player.bAlive)
+	{
+		return false;
+	}
+	Player.ShoutCd = ShoutCd;
+	bool bHeard = false;
+	for (FHIThief& T : Intruders)
+	{
+		if (!T.bAlive || T.bEscaped)
+		{
+			continue;
+		}
+		// Frighten, NOT AlertThief: a man shouting in his own hall must not summon the
+		// police, or the shout and the telephone would be the same verb.
+		Frighten(T, Player.Pos, ShoutLoudness);
+		bHeard = true;
+	}
+	if (bHeard)
+	{
+		FHIEvent Ev;
+		Ev.Type = TEXT("shouted");
+		Events.Add(Ev);
+	}
+	return bHeard;
+}
+
+bool FHISim::FHIRound::CallPolice()
+{
+	if (bPoliceCalled)
+	{
+		return false;
+	}
+	bPoliceCalled = true;
+	for (FHIThief& T : Intruders)
+	{
+		if (T.bAlive && !T.bEscaped && T.Alarm < 0.0f)
+		{
+			T.Alarm = 0.0f;
+		}
+	}
+	FHIEvent Ev;
+	Ev.Type = TEXT("calledPolice");
+	Events.Add(Ev);
+	return true;
+}
+
 bool FHISim::FHIRound::TryShove()
 {
 	FHIThief* Target = NearestIntruder();
@@ -660,8 +717,27 @@ void FHISim::FHIRound::Step(const FHIInput& Input, float Dt)
 		// nothing costs nothing -- exactly as firing a weapon on cooldown does.
 		TryShove();
 	}
+	if (Input.bShout)
+	{
+		Shout();
+	}
+	if (Input.bCallPolice)
+	{
+		// Idempotent, so holding the key cannot make the sirens arrive sooner.
+		CallPolice();
+	}
 
 	// ---- the homeowner
+	// RECORDED, not just read. These two fields existed and were never written after spawn,
+	// so anything that asked him how he was moving got the answer he gave at birth: the HUD's
+	// stance readout said STANDING forever, and the crouch eye height below was unreachable.
+	// game.gd writes both every frame; this is the port catching up.
+	Player.bCrouching = Input.bCrouch;
+	// Sprinting needs BOTH the key and somewhere to go, and crouching wins over it -- the
+	// same three-way condition game.gd uses. A sprint flag set while standing still would
+	// make the stance readout lie and would let a future speed calculation trust it.
+	Player.bSprinting = Input.bSprint && !Input.bCrouch && Input.Axis.Size() > 0.0f;
+
 	float Speed = PlayerSpeed;
 	if (Input.bCrouch)
 	{
@@ -722,6 +798,7 @@ void FHISim::FHIRound::Step(const FHIInput& Input, float Dt)
 	}
 	Player.Cd -= Dt;
 	Player.ShoveCd = FMath::Max(0.0f, Player.ShoveCd - Dt);
+	Player.ShoutCd = FMath::Max(0.0f, Player.ShoutCd - Dt);
 	Player.Stagger = FMath::Max(0.0f, Player.Stagger - Dt);
 
 	// A man with his hands on you is a man you cannot aim through.

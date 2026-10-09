@@ -127,7 +127,7 @@ public:
 	 * The Godot original carries `msg`/`msg_t` for exactly this: "They grabbed the TV!" is
 	 * information the player needs and cannot get from a loot prop sliding behind a wall.
 	 */
-	FString Message = TEXT("DEFEND YOUR HOME   -   [F] shoves, [R] reloads, [1]/[2] switch weapon");
+	FString Message = TEXT("DEFEND YOUR HOME   -   [F] shoves   [R] reloads   [1]/[2] weapon   [Q] shout   [P] police");
 	float MessageTime = 8.0f;
 
 	/** True once the round has been decided, either way. */

@@ -14,6 +14,7 @@
 #include "Engine/World.h"
 #include "EngineUtils.h"
 #include "GameFramework/PlayerController.h"
+#include "HIAudio.h"
 #include "HIHouse.h"
 #include "HIHUD.h"
 #include "HIIntruder.h"
@@ -401,6 +402,17 @@ FHISim::FHIInput AHIGameMode::ReadInput()
 	{
 		In.bShove = true;
 	}
+	// Item 17's two non-lethal verbs. Both are EDGES like the others: holding [P] must not
+	// re-call the police every frame, and holding [Q] must not burn the cooldown it does not
+	// have.
+	if (PC->WasInputKeyJustPressed(EKeys::Q))
+	{
+		In.bShout = true;
+	}
+	if (PC->WasInputKeyJustPressed(EKeys::P))
+	{
+		In.bCallPolice = true;
+	}
 	if (PC->WasInputKeyJustPressed(EKeys::One))
 	{
 		In.SwitchWeapon = TEXT("pistol");
@@ -535,6 +547,10 @@ void AHIGameMode::ResolvePlayerShot(const FHISim::FHIEvent& Shot)
 	FCollisionQueryParams Params(SCENE_QUERY_STAT(HIShot), /*bTraceComplex=*/false);
 	Params.AddIgnoredActor(Pawn);
 
+	// The player's own weapon, once per trigger pull rather than once per pellet: eight
+	// shotgun pellets are one bang.
+	FHIAudio::PlayerGunshot(World, Origin, Round.Player.Weapon == TEXT("shotgun"));
+
 	for (int32 Pellet = 0; Pellet < Shot.Pellets; ++Pellet)
 	{
 		// The scatter keeps the original's SHAPE -- an independent uniform offset per axis
@@ -656,6 +672,10 @@ void AHIGameMode::ResolveThiefShot(const FHISim::FHIEvent& Shot)
 	// that he has fired at all, and without it a player losing health has no idea why.
 	FlashPoint(FromW + FVector(0.0f, 0.0f, 10.0f), 0.22f, FLinearColor(1.0f, 0.92f, 0.55f));
 
+	// And the report, POSITIONED on him. Three intruders firing from three rooms is a game
+	// you can play by ear; three unattributable bangs is a game that ambushes you.
+	FHIAudio::IntruderGunshot(World, Who->Pos, Who->Z, true);
+
 	// HIS ROUND IS A RAY. Trace the world between the two, ignoring the intruders so he
 	// cannot shoot his own hitbox, and ignoring the player's pawn -- his body has no
 	// collision at all, so any hit here is scenery and the round STOPS at it.
@@ -681,6 +701,7 @@ void AHIGameMode::ResolveThiefShot(const FHISim::FHIEvent& Shot)
 		// The tracer stops at the wall rather than passing through to you.
 		FlashLine(FromW + FVector(0.0f, 0.0f, 10.0f), WallHit.ImpactPoint, 0.02f,
 			FLinearColor(1.0f, 0.9f, 0.5f));
+		FHIAudio::Impact(World, WallHit.ImpactPoint, /*bFlesh=*/false);
 		if (!Marks.IsEmpty())
 		{
 			AHIMark* Mark = Marks[MarkCursor % Marks.Num()];
@@ -710,6 +731,7 @@ void AHIGameMode::ResolveThiefShot(const FHISim::FHIEvent& Shot)
 		{
 			FHISim::DamagePlayer(Round.Player, Shot.Damage, Round.Events);
 			LastDamageTime = RoundSeconds;
+			FHIAudio::Impact(World, ToW, /*bFlesh=*/true);
 		}
 	}
 	else
@@ -963,6 +985,12 @@ void AHIGameMode::Tick(float DeltaSeconds)
 				Message = FString::Printf(TEXT("Intruder down.  %d of %d neutralised."),
 					Round.ThievesDown, Round.Intruders.Num());
 				MessageTime = 2.5f;
+				FHIAudio::Impact(World, FVector(Who->Pos.X, Who->Pos.Y, 0.4f) * HI_METERS_TO_UU,
+					/*bFlesh=*/true);
+				// Item 16's bark system, with a placeholder cue: a man going down is the one
+				// moment a voice would carry furthest, and the hook has to exist before a
+				// recording can be dropped into it.
+				FHIAudio::Bark(World, FVector(Who->Pos.X, Who->Pos.Y, 1.4f) * HI_METERS_TO_UU, 0.55f);
 			}
 		}
 		else if (Ev.Type == TEXT("thiefHit"))
@@ -971,8 +999,9 @@ void AHIGameMode::Tick(float DeltaSeconds)
 			// the trace; this adds the flinch, which is the part a player reads.
 			if (const FHISim::FHIThief* Who = Round.FindIntruder(Ev.Id))
 			{
-				FlashPoint(FVector(Who->Pos.X, Who->Pos.Y, 1.15f) * HI_METERS_TO_UU, 0.16f,
-					FHIMaterials::Blood);
+				const FVector Where = FVector(Who->Pos.X, Who->Pos.Y, 1.15f) * HI_METERS_TO_UU;
+				FlashPoint(Where, 0.16f, FHIMaterials::Blood);
+				FHIAudio::Impact(World, Where, /*bFlesh=*/true);
 			}
 		}
 		else if (Ev.Type == TEXT("playerHit"))
@@ -1009,6 +1038,18 @@ void AHIGameMode::Tick(float DeltaSeconds)
 		{
 			Message = TEXT("He shoved you back!");
 			MessageTime = 1.6f;
+		}
+		else if (Ev.Type == TEXT("shouted"))
+		{
+			Message = TEXT("You shouted. They know where you are.");
+			MessageTime = 1.6f;
+			// Item 16's bark hook, from the homeowner this time. Placeholder cue, as above.
+			FHIAudio::Bark(World, FVector(Round.Player.Pos.X, Round.Player.Pos.Y, 1.6f) * HI_METERS_TO_UU, 0.85f);
+		}
+		else if (Ev.Type == TEXT("calledPolice"))
+		{
+			Message = TEXT("You called the police. They are on their way.");
+			MessageTime = 3.0f;
 		}
 		else if (Ev.Type == TEXT("allStolen"))
 		{

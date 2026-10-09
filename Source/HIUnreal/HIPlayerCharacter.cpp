@@ -119,9 +119,15 @@ void AHIPlayerCharacter::SetWeaponVisual(const FString& Weapon)
 FVector AHIPlayerCharacter::EyePivot(const FHISim::FHIPlayer& P)
 {
 	// The sim's plane is (X, Y) with Z up, so a 2-D position plus Z is already a world
-	// position -- only the units need converting. Eye height is added here rather than
-	// stored, so a crouch is a change of constant and not a change of state.
-	return FVector(P.Pos.X, P.Pos.Y, P.Z + FHISim::EyeHeight) * HI_METERS_TO_UU;
+	// position -- only the units need converting.
+	//
+	// CROUCHING LOWERS THE EYE, and this was broken until it was measured: `CrouchEyeHeight`
+	// was declared in the sim and referenced NOWHERE, so pressing [C] slowed the homeowner
+	// down and left his viewpoint at standing height. The whole point of crouching in a
+	// home-defence game is that you cannot be seen over the furniture, and a crouch that
+	// changes nothing but your walking speed is not a crouch.
+	const float Eye = P.bCrouching ? FHISim::CrouchEyeHeight : FHISim::EyeHeight;
+	return FVector(P.Pos.X, P.Pos.Y, P.Z + Eye) * HI_METERS_TO_UU;
 }
 
 void AHIPlayerCharacter::ViewTransform(const FHISim::FHIPlayer& P, FVector& OutLocation, FVector& OutDirection)

@@ -45,6 +45,16 @@ struct FHICharAnim
 	/**
 	 * Drive the blend from a speed in METRES per second. This is the only place the
 	 * metre-to-centimetre conversion for animation happens.
+	 *
+	 * Also sets the PLAY RATE from the same speed, which is fix-list item 14's visible half.
+	 * A blend space chooses WHICH CLIP by speed; it does not make the clip's stride match the
+	 * ground the body actually covers. Running one at a fixed rate while the sim moves the
+	 * body at a different one is precisely what "the feet skate" looks like -- and it is the
+	 * half of item 14 that does not need an anim graph.
+	 *
+	 * The rate is speed over the speed the clip was authored at, clamped so a body shoved
+	 * backwards or briefly sprinting past the top of the blend does not strobe. Foot
+	 * PLANTING on an edge, which is the other half of item 14, does need one.
 	 */
 	static void DriveLocomotion(USkeletalMeshComponent* Mesh, float SpeedMps, bool bAlive);
 

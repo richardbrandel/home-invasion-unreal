@@ -128,6 +128,10 @@ struct HISIM_API FHISim
 	static constexpr float ShovePush = 0.45f;
 	static constexpr float ShoveCd = 0.8f;
 
+	/** A shout's reach and its effect. Loud enough to carry a house, weaker than a shot. */
+	static constexpr float ShoutLoudness = 1.4f;
+	static constexpr float ShoutCd = 3.0f;
+
 	static constexpr float ThiefShoveRange = 1.5f;
 	static constexpr float ThiefShoveCd = 2.6f;
 	static constexpr float ThiefShoveStagger = 0.9f;
@@ -262,6 +266,8 @@ struct HISIM_API FHISim
 		float Cd = 0.0f;
 		/** Seconds left on a reload; 0 means not reloading. */
 		float Reloading = 0.0f;
+		/** Seconds before he can shout again. The shout had no cooldown and could be spammed. */
+		float ShoutCd = 0.0f;
 	};
 
 	/** sim.gd create_thief(), key for key. */
@@ -393,6 +399,17 @@ struct HISIM_API FHISim
 		/** One frame of [F]. Swings at the nearest man in front; the cooldown gates it. */
 		bool bShove = false;
 		/**
+		 * One frame of the shout key. FIX-LIST ITEM 17, "more non-lethal verbs".
+		 *
+		 * A shout frightens every man who can hear it and tells him where you are, without
+		 * spending a round and -- deliberately -- without starting the police clock. It is the
+		 * cheap deterrent: it costs you your position, which is exactly the trade a homeowner
+		 * makes when he yells at someone in his hall.
+		 */
+		bool bShout = false;
+		/** One frame of the call-police key. Starts the clock without a gunshot. */
+		bool bCallPolice = false;
+		/**
 		 * One frame of the weapon-select keys: "pistol", "shotgun", or EMPTY for no change.
 		 *
 		 * A string rather than an enum, and deliberately: sim.gd keys its weapons by name and
@@ -488,6 +505,28 @@ struct HISIM_API FHISim
 		 */
 		bool TryShove();
 
+		/**
+		 * Shout at the house. True if anyone heard.
+		 *
+		 * Raises every standing intruder's fear and marks the homeowner's position for them,
+		 * WITHOUT starting the police clock and without a shot. Enough shouts and he breaks
+		 * off and runs, which is the only way to end an intrusion without killing anyone --
+		 * and killing is the alternative the fix list wanted a non-lethal answer to.
+		 */
+		bool Shout();
+
+		/**
+		 * Call the police. True the first time, false after.
+		 *
+		 * The clock already starts on the first gunshot, so this exists for the player who
+		 * would rather not fire at all. Idempotent, because the police do not arrive sooner
+		 * for being told twice.
+		 */
+		bool CallPolice();
+
+		/** True once the police have been called by any means. */
+		bool bPoliceCalled = false;
+
 	private:
 		/** Spend a round, start the cooldown, and tell every intruder he heard it. */
 		void FireWeapon();
@@ -535,6 +574,15 @@ struct HISIM_API FHISim
 	 * first shot of the round also starts the police clock.
 	 */
 	static void AlertThief(FHIThief& Thief, const FVector2D& From, float Loudness = 1.0f);
+
+	/**
+	 * The fear-and-position half of AlertThief, WITHOUT the police clock.
+	 *
+	 * Split out for the shout, which must frighten him without summoning the police: a
+	 * homeowner yelling at a burglar is not a 999 call, and having the shout start the clock
+	 * would have made the two verbs the same verb.
+	 */
+	static void Frighten(FHIThief& Thief, const FVector2D& From, float Loudness = 1.0f);
 	/** Apply damage to the intruder. True when it was lethal; emits thiefDown or thiefHit. */
 	static bool DamageThief(FHIThief& Thief, float Damage, TArray<FHIEvent>& Events);
 	/** Apply damage to the homeowner. True when it was lethal; emits playerDown or playerHit. */
