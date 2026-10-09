@@ -373,6 +373,30 @@ bool FHIUnrealThiefAim::RunTest(const FString& Parameters)
 			Far < 0.55f * 0.5f);
 	}
 
+	// ---- and the dark makes him worse, which is what the light switch is FOR
+	{
+		const float LitAt8 = AHIGameMode::ThiefHitChance(8.0f, /*bLightsOn=*/true);
+		const float DarkAt8 = AHIGameMode::ThiefHitChance(8.0f, /*bLightsOn=*/false);
+		TestTrue(FString::Printf(TEXT("a shot across a dark room is harder than one across a lit one (%.2f dark vs %.2f lit at 8 m)"),
+			DarkAt8, LitAt8),
+			DarkAt8 < LitAt8);
+
+		// A MULTIPLIER, not a second floor: the advantage of distance and the advantage of
+		// darkness have to compose. A floor would mean darkness did nothing at close range,
+		// which is the one range where the player most wants it to.
+		TestTrue(FString::Printf(TEXT("and the two advantages compose rather than one hiding the other (%.3f dark/%.3f lit = %.2f, and closer: %.3f/%.3f = %.2f)"),
+			DarkAt8, LitAt8, DarkAt8 / LitAt8,
+			AHIGameMode::ThiefHitChance(2.0f, false), AHIGameMode::ThiefHitChance(2.0f, true),
+			AHIGameMode::ThiefHitChance(2.0f, false) / AHIGameMode::ThiefHitChance(2.0f, true)),
+			FMath::IsNearlyEqual(DarkAt8 / LitAt8,
+				AHIGameMode::ThiefHitChance(2.0f, false) / AHIGameMode::ThiefHitChance(2.0f, true), 0.01f));
+
+		// The default argument must be the LIT case, or every existing caller silently
+		// becomes a darkness call and the game gets easier without anyone deciding it.
+		TestTrue(TEXT("and the default is the lit case, so existing callers are unchanged"),
+			FMath::IsNearlyEqual(AHIGameMode::ThiefHitChance(8.0f), LitAt8, 1e-5f));
+	}
+
 	// ---- monotonic over the whole useful span, not just at three sample points
 	{
 		bool bMonotonic = true;

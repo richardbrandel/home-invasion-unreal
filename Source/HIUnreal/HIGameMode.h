@@ -103,7 +103,51 @@ public:
 	 * stays out of the simulation, so the sim decides THAT he fires and the game layer
 	 * decides where it went.
 	 */
-	static float ThiefHitChance(float RangeMeters);
+	/**
+	 * @param bLightsOn  false when the homeowner has killed the lights.
+	 *
+	 * LIGHTS, fix-list item 17's remaining half, and the whole effect lives HERE rather than
+	 * in the sim -- on purpose. The port's own design rule is that the sim decides THAT an
+	 * intruder fires and the game layer decides WHERE the shot goes, so degrading his aim in
+	 * the dark belongs in this function and needs no change to any ported AI function.
+	 *
+	 * A shot taken across a dark room is harder than one taken across a lit one, and that
+	 * makes the light switch a real tactical choice: you give up your own view of the house
+	 * to make theirs worse. A fuller model -- per-man vision, furniture you can actually hide
+	 * behind -- is the same open decision item 18 records, and needs furniture heights.
+	 */
+	static float ThiefHitChance(float RangeMeters, bool bLightsOn = true);
+
+	/**
+	 * Push `bLightsOn` onto the lamps. IDEMPOTENT.
+	 *
+	 * Separate from the toggle below because a start-dark run that called the TOGGLE flipped
+	 * the flag straight back to lit -- so the "dark" measurement and the lit one were the same
+	 * run, and the comparison proving the verb does something proved nothing. A setter and a
+	 * flipper are different operations and conflating them is exactly how a check stops being
+	 * able to fail.
+	 */
+	void ApplyLights();
+
+	/** Turn the house lights on or off. Bound to [L]. */
+	void ToggleLights();
+
+	/** True while the house lights are on. */
+	bool bLightsOn = true;
+
+	/** The interior lamps, so the switch can actually do something visible. */
+	UPROPERTY()
+	TArray<TObjectPtr<class APointLight>> Lamps;
+
+	/**
+	 * Each lamp's intensity with the lights ON, index-aligned with `Lamps`.
+	 *
+	 * Kept because the switch has to be reversible, and reading the intensity back off a
+	 * dimmed lamp would give the dimmed value -- so the second press would dim it again, and
+	 * the third, and the room would darken by a factor each time. That is a one-way switch
+	 * wearing a two-way label.
+	 */
+	TArray<float> LampLitIntensity;
 
 	/**
 	 * Tracers and muzzle flashes, pooled and hidden on a timer.

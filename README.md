@@ -311,7 +311,7 @@ column of that list**; the Godot column is unchanged.
 | 14 | Foot IK | **HALF DONE.** The visible half — the feet skating — is fixed by matching the clip's play rate to the body's actual speed. Foot PLANTING on an edge needs an anim graph, and the engine's `CR_Mannequin_FootIK` is available and unused |
 | 15 | Idle variation | **HALF DONE.** Every body's idle loop starts at a random phase, so three men no longer breathe in unison. Genuinely different IDLE POSES need more recorded clips; the engine ships one |
 | 16 | Voice / barks | **HOOK ONLY.** The bark system exists and fires at the right moments (a man goes down, you shout), but the cue is a pitched sine and sounds like equipment, not a person. Voices need recordings |
-| 17 | More non-lethal verbs | **Mostly done.** Shove, reload and weapon switch were already wired; now **[Q] shout** frightens every man who hears it without spending a round, and **[P] calls the police** without a gunshot — both tested. Barricading and lights are not started: a barricade is a new SOLID, and the sim's rectangle list is the Godot spec and is index-aligned with its spans, so adding one is a world-data change rather than a verb |
+| 17 | More non-lethal verbs | **Done except barricading.** Shove, reload and weapon switch were already wired; **[Q] shout** frightens every man who hears it without spending a round; **[P] calls the police** without a gunshot; and **[L] kills the lights**, which cuts the intruders' accuracy to 55% — applied in the GAME layer's `ThiefHitChance`, where the port's own design rule puts the shot and not the decision. Barricading is not started: it is a new SOLID, and the sim's rectangle list is this repo's spec and is index-aligned with its spans, so adding one is a world-data change rather than a verb |
 | 18 | The simulation is 2-D | **DONE** — `FHISolidSpan`, `LosBlocked3D` and a `Z` on both entities, with `HI.Sim.Elevation` as the regression harness. The spans are deliberately uniform at a full storey: the Godot source carries no furniture heights, and inventing them is a design decision, not a porting one |
 | 19 | Blood / wounds | **PARTLY.** Pooled bullet holes where pellets land, a blood mark where a man falls, a flash on a hit and a red edge when the homeowner is hit. Nothing ON the person |
 | 20 | Audio buses | **DONE for the buses, placeholder content.** Every cue is routed through the engine's `SFX` sound class rather than Master, and carries a submix send to `MasterReverbSubmixDefault` — whose effect chain was inspected before it was relied on — set from whether the cue is inside the house, so a shot in the kitchen rings and a shot on the lawn does not. The gunshots are the engine's template cue; impacts and barks are that cue and a sine at shifted pitch. **Foley needs recordings** |
@@ -334,6 +334,13 @@ column of that list**; the Godot column is unchanged.
   sim-driven and ignores physics entirely, so adding collision to the van would stop nothing.
   The fix is to add the van rectangle to the sim's solids, which changes AI routing and the
   Godot spec's world-data assertions. Reported rather than done.
+- **The light switch is a weak lever against a passive player, measured.** Two passive soaks,
+  lit and dark, over the same 74.2 s: **13 hits / 8 misses lit against 12 hits / 16 misses
+  dark.** The 55 % accuracy cut works exactly as the unit test says (0.27 against 0.48 at
+  14.7 m) and the intruders miss twice as often — but they keep firing, so an idle homeowner
+  still takes twelve hits and still dies. It should matter much more to a player who moves
+  and takes cover, and that is not measurable without one. Reported as measured rather than
+  as designed.
 - **Crouching does not make you harder to SEE**, only lower and slower. Every solid's vertical
   span is a full storey by design (see item 18), so no furniture is short enough to hide
   behind. That is the same open decision, and the same one a person has to make.

@@ -114,6 +114,13 @@ void AHIGameMode::HandleCommandLine()
 	// that catches a thief who cannot path, cannot grab, or cannot leave.
 	const bool bAutoOff = FParse::Param(Cmd, TEXT("HINoAuto"));
 	bNoThiefDamage = FParse::Param(Cmd, TEXT("HINoThiefDamage"));
+	// Start with the house dark, so the effect of the light switch can be MEASURED rather than
+	// asserted: two passive soaks, one lit and one dark, is the only way to say whether the
+	// verb changes anything a player would feel.
+	if (FParse::Param(Cmd, TEXT("HIDark")))
+	{
+		bLightsOn = false;
+	}
 	int32 Rounds = 0;
 	if (FParse::Value(Cmd, TEXT("HIRounds="), Rounds) && Rounds > 1)
 	{
@@ -172,6 +179,12 @@ void AHIGameMode::BeginPlay()
 	}
 
 	SetupLighting();
+	if (!bLightsOn)
+	{
+		// SetupLighting spawns them lit, so a dark start pushes the flag onto them. NOT the
+		// toggle: that flips the flag back and the run is lit after all.
+		ApplyLights();
+	}
 	SpawnLoot();
 
 	IntruderActors.Reset();
@@ -316,9 +329,13 @@ void AHIGameMode::SetupLighting()
 		float Y;
 		float Intensity;
 	};
-	static const FLamp Lamps[] =
+	// `LampSpecs`, NOT `Lamps`: `Lamps` is the member the light switch iterates, and a local
+	// array of the same name shadows it -- which the -Wshadow the project builds with turns
+	// into a compile error rather than a silent surprise, and that is the only reason this
+	// was caught before it became a switch that toggled a table nobody could see.
+	static const FLamp LampSpecs[] =
 	{
-		// 800 lumens, which is one ordinary LED bulb rather than the 2600 this started at.
+		// 800-ish lumens, which is one ordinary LED bulb rather than the 2600 this started at.
 		// The first value was chosen against a fixed exposure that has since been reversed,
 		// and against auto-exposure a house lit to 2600 lumens a room looks like an office.
 		{ -5.00f, -11.00f,  900.0f },   // living room
@@ -327,12 +344,13 @@ void AHIGameMode::SetupLighting()
 		{  4.00f, -16.50f,  700.0f },   // study
 		{  0.00f, -14.00f,  700.0f },   // hall
 	};
-	for (const FLamp& L : Lamps)
+	for (const FLamp& L : LampSpecs)
 	{
 		if (APointLight* Lamp = World->SpawnActor<APointLight>(
 			APointLight::StaticClass(),
 			FTransform(FRotator::ZeroRotator, FVector(L.X, L.Y, 2.60f) * HI_METERS_TO_UU), Params))
 		{
+			Lamps.Add(Lamp);
 			if (UPointLightComponent* Bulb = Cast<UPointLightComponent>(Lamp->GetLightComponent()))
 			{
 				Bulb->SetMobility(EComponentMobility::Movable);
@@ -340,6 +358,7 @@ void AHIGameMode::SetupLighting()
 				// calling it "intensity" is how a room ends up either unlit or nuclear.
 				Bulb->SetIntensityUnits(ELightUnits::Lumens);
 				Bulb->SetIntensity(L.Intensity);
+				LampLitIntensity.Add(L.Intensity);
 				Bulb->SetLightColor(FHIMaterials::WarmLight);
 				Bulb->SetAttenuationRadius(9.0f * HI_METERS_TO_UU);
 				Bulb->SetCastShadows(true);
@@ -417,6 +436,12 @@ FHISim::FHIInput AHIGameMode::ReadInput()
 	if (PC->WasInputKeyJustPressed(EKeys::P))
 	{
 		In.bCallPolice = true;
+	}
+	// The light switch is NOT a sim verb either -- it changes what the game layer does with a
+	// shot, not what the round does -- so it is polled here rather than through FHIInput.
+	if (PC->WasInputKeyJustPressed(EKeys::L))
+	{
+		ToggleLights();
 	}
 	if (PC->WasInputKeyJustPressed(EKeys::One))
 	{
@@ -657,12 +682,49 @@ void AHIGameMode::TickFlashes()
 	}
 }
 
-float AHIGameMode::ThiefHitChance(float RangeMeters)
+float AHIGameMode::ThiefHitChance(float RangeMeters, bool bLightsOn)
 {
 	// Falloff 0.035 per metre, floor 0.05. Both are the Godot original's CURRENT values,
 	// read out of game.gd's `_drain_events` rather than from a note about them -- the notes
 	// in the project memory carry an older pair (0.02 and 0.55) that is no longer true.
-	return FMath::Clamp(1.0f - RangeMeters * 0.035f, 0.05f, 1.0f);
+	const float Lit = FMath::Clamp(1.0f - RangeMeters * 0.035f, 0.05f, 1.0f);
+
+	// DARKNESS. Not a floor and not a bonus: a flat multiplier on the whole curve, so the
+	// advantage of distance and the advantage of darkness compose instead of one hiding the
+	// other. 0.55 was chosen against the arithmetic rather than by feel -- in the dark a
+	// three-man crew that would kill an idle homeowner in 74 s takes roughly twice as long,
+	// which is enough time for the switch to have been worth reaching for.
+	return bLightsOn ? Lit : Lit * 0.55f;
+}
+
+void AHIGameMode::ToggleLights()
+{
+	bLightsOn = !bLightsOn;
+	ApplyLights();
+	Message = bLightsOn ? TEXT("Lights on.") : TEXT("Lights off. They can see you less well - and you them.");
+	MessageTime = 1.8f;
+}
+
+void AHIGameMode::ApplyLights()
+{
+	// DIMMED, not zeroed. A house with the lights off is not a sealed void: moonlight through
+	// the windows is not modelled here, and a room the player cannot see AT ALL is a room he
+	// cannot play in. A quarter is dark enough to change how the house reads and bright enough
+	// that the layout is still legible.
+	constexpr float DarkScale = 0.25f;
+
+	for (int32 Idx = 0; Idx < Lamps.Num(); ++Idx)
+	{
+		APointLight* Lamp = Lamps[Idx];
+		if (Lamp == nullptr || !LampLitIntensity.IsValidIndex(Idx))
+		{
+			continue;
+		}
+		if (ULightComponent* Bulb = Lamp->GetLightComponent())
+		{
+			Bulb->SetIntensity(bLightsOn ? LampLitIntensity[Idx] : LampLitIntensity[Idx] * DarkScale);
+		}
+	}
 }
 
 void AHIGameMode::ResolveThiefShot(const FHISim::FHIEvent& Shot)
@@ -737,10 +799,20 @@ void AHIGameMode::ResolveThiefShot(const FHISim::FHIEvent& Shot)
 	// Clear line. Range falls off with a floor of 0.05, so distance is worth keeping: the
 	// Godot original's older 0.55 floor meant he hit more than half the time at ANY range,
 	// and closing or opening the gap bought the player nothing.
-	const float Chance = ThiefHitChance(RangeM);
+	const float Chance = ThiefHitChance(RangeM, bLightsOn);
 	if (FMath::FRand() <= Chance)
 	{
-		FlashLine(FromW + FVector(0.0f, 0.0f, 10.0f), ToW, 0.02f, FLinearColor(1.0f, 0.85f, 0.4f));
+			// DIAGNOSTIC, and it exists because a measurement said the light switch did nothing:
+		// a lit and a dark passive soak returned identical outcomes to the sim step, which is
+		// only possible if either the darkness is not reaching this code or the intruders are
+		// not shooting at all. Silence and a no-op look the same from the outside; this line
+		// is what tells them apart.
+		// VERBOSE, not Display: this is per-shot and a firefight produces hundreds. It earned
+		// its place -- it is what showed that the light switch WAS reaching this code when two
+		// soak runs looked identical -- so it stays, one log level down.
+		UE_LOG(LogTemp, Verbose,
+			TEXT("HI: thief %d fires at %.1f m -- chance %.2f (lights=%d) HIT (hp %.0f)"),
+			Shot.Id, RangeM, Chance, bLightsOn ? 1 : 0, Round.Player.Hp);
 		// The report goes into the ROUND's event list, not into LastEvents, because that is
 		// the list the round's own rules read -- `playerDown` has to reach ApplyRoundRules or
 		// a lethal hit would leave the round in Play forever.
@@ -763,6 +835,9 @@ void AHIGameMode::ResolveThiefShot(const FHISim::FHIEvent& Shot)
 		FlashLine(FromW + FVector(0.0f, 0.0f, 10.0f),
 			ToW + Wide.GetSafeNormal() * 1.4f * HI_METERS_TO_UU, 0.02f,
 			FLinearColor(1.0f, 0.85f, 0.4f));
+		UE_LOG(LogTemp, Verbose,
+			TEXT("HI: thief %d fires at %.1f m -- chance %.2f (lights=%d) miss"),
+			Shot.Id, RangeM, Chance, bLightsOn ? 1 : 0);
 	}
 }
 
