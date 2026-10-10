@@ -476,26 +476,54 @@ AUTHOR and IMPORT assets headlessly (`tools/make-assets.py`, `tools/import-asset
 `.uasset` is an engine binary that only an editor can make, and asking for one means asking
 someone to sit in a GUI.
 
-Put files in `/data/projects/HIUnreal/SourceAssets/` on the build machine and run the import
-script. `SourceAssets/` is gitignored.
+**This list was ten items. It is two.** The first pass asked for things that were already on
+disk in the Godot repository, or that the engine already ships, or that this machine can
+synthesise -- so before asking anyone for anything, check the three places below. Measured
+2026-10-10: **28 source files imported, 0 failed**, all of them free.
 
-| # | What | Format | Why, and what it unblocks |
-|---|---|---|---|
-| 1 | **Gunshots**: pistol and shotgun, ideally 3-4 variations each | `.wav`, 48 kHz mono, dry (no reverb) | Item 20. The buses, the indoor/outdoor reverb and the ducking are real; the *content* is the engine's template cue. Dry, because the reverb is applied by the game per room -- a pre-reverbed file cannot be un-reverbed |
-| 2 | **Foley**: footsteps on wood, carpet and grass; a door; a body falling; picking something up; breaking glass | `.wav`, 48 kHz, a few variations each | Items 20 and 11. Same reason. Footsteps are the one a player hears most |
-| 3 | **Voices for the intruders (item 16)**: a challenge, an order to the others, pain, a shout to retreat, a death grunt | `.wav`, 48 kHz mono | The bark SYSTEM works and fires at the right moments; the cue is a pitched sine, so it sounds like equipment. This is the single biggest gap in the game's feel |
-| 4 | **A voice line or two for the homeowner** -- a challenge, a warning | `.wav`, 48 kHz mono | Same item. There is a shout verb (`Q`) with no voice behind it |
-| 5 | **Sirens** for the police arrival | `.wav` | The police clock already runs and drives the intruders off; the sound is synthetic |
-| 6 | **A clothed character mesh** for the homeowner | `.fbx` or `.glb`, rigged to the UE5 skeleton, or a MetaHuman | Item 2's expensive half. The port uses the engine Mannequin, which is why he reads as a mannequin. A MetaHuman needs an editor session to assemble, so an FBX is the more useful thing to receive |
-| 7 | **A shotgun mesh** | `.fbx` or `.glb` | Item 23 in Godot's list. The shotgun is currently the engine's *rifle* standing in for one -- disclosed, but it is a rifle |
-| 8 | **Wall, floor and door textures** | `.png`, 1024 or 2048, tileable | Item 3. Walls, floors and doors are flat colours because there are no textures at all. Tileable matters: it is a whole house from a handful of images |
-| 9 | **An anim graph, or more idle clips** | `.fbx` animation, or someone with an editor | Items 14 and 15's remaining halves. Feet do not plant, and every man idles in the same pose. The engine ships `CR_Mannequin_BasicFootIK` as a `.uasset` and ControlRig is exposed to Python, so an AnimBlueprint may be authorable headlessly -- **not yet attempted** |
-| 10 | **Furniture meshes**, if the flat-box look is to go | `.fbx` or `.glb` | Items 9 and 11. Furniture is a box per sim rectangle, which is why a sofa reads as a slab. The Godot original uses KayKit glTF models, so those exact files would be ideal and are already in the Godot repo |
+### Already in hand
 
-Two things that are **not** on this list, deliberately: anything that already exists in the
-Godot repository (its audio, its KayKit models and its animations are all committed and can be
-copied across), and anything that is a design decision rather than an asset -- barricading and
-loot scarcity are Richard's calls, not shopping.
+| Was asked for | Where it actually was | State |
+|---|---|---|
+| Gunshots (pistol, shotgun) | `../home-invasion-godot/assets/audio/gunshot_pistol.wav`, `gunshot_shotgun.wav` | **Imported** |
+| Foley: door, footstep, impact, van idle | The same repository's `assets/audio/` -- `door.wav`, `footstep.wav`, `impact.wav`, `van_idle.wav` | **Imported** |
+| Sirens | `assets/audio/siren.wav` | **Imported** |
+| Intruder and homeowner voices | **This Mac.** `say -v '?'` lists 177 offline voices and `tools/make-voices.sh` renders nine lines to 48 kHz mono WAV via `say` + `afconvert`. The README's old claim that "synthesised audio cannot do voices" was wrong -- it had not tried the speech synthesiser that ships with the OS | **Generated and imported** |
+| Wall, floor and door textures | `assets/textures/` -- `ceiling_plaster`, `floor_tile`, `floor_wood`, `driveway`, `lawn`, `roof_shingle`, `bullet_hole`, `muzzle_flash`, `smoke_puff` | **Imported.** There is no wall texture in either project, but `ceiling_plaster` is plaster and serves |
+| Furniture meshes | `assets/kaykit/furniture/*.gltf` -- **the exact KayKit models the Godot original places**, 40 of them | **Proven**: `couch.gltf` imported headlessly to `StaticMeshes/couch` with its material and texture. glTF needs no editor |
+| A clothed character mesh | `assets/characters/*.fbx` -- eight rigged Mixamo characters | **Reachable**: `Female_Casual.fbx` imports as a SkeletalMesh. See the open item below |
+| A shotgun mesh | Nowhere -- KayKit has no weapons and the engine ships only a pistol and a rifle | **Build it in code.** Every prop in this port is already composed from primitives, and `HILootProp` is the pattern. A shotgun from three boxes is free; only the last 10% needs an artist |
+
+### The two things still genuinely needed
+
+1. **Real voice recordings.** `say` is intelligible, correctly timed and enormously better
+   than the sine tone it replaces -- but it is obviously synthetic. Nine lines would cover the
+   whole game: a challenge, an order, pain, a shove reaction, a retreat, a death, and three
+   homeowner lines. `.wav`, 48 kHz mono.
+2. **A shotgun mesh**, if the primitive one is not good enough. `.fbx` or `.glb`.
+
+### Open work items, not assets
+
+- **Retargeting Mixamo animations.** `assets/mixamo/` has 28 clips across `player/` and
+  `thief/` -- including `crouch_idle` and `look_around`, which are exactly the *idle variation*
+  item 15 asks for. Measured: an animation-only FBX imports to **nothing** without a target
+  skeleton, and setting `task.skeleton` on the import task makes the run stop part-way through
+  with no error. So this needs an IK Retargeter or an Interchange user-defined pipeline, and it
+  is a job rather than a file. **This is the highest-value open item**, because item 15 and
+  half of item 14 are waiting behind it.
+- **The Mixamo characters are on the Mixamo skeleton**, so the engine's own animations do not
+  apply to them without the same retargeting work.
+
+### How to add a source file
+
+```sh
+# put it under SourceAssets/ (audio/, textures/, models/, voice/), then:
+ssh ubuntu-dev '/data/projects/HIUnreal/tools/import-assets.sh'
+```
+
+The importer walks the whole tree and puts each file in a folder named after its
+subdirectory. `SourceAssets/` is gitignored -- the files are yours, and the point is that
+receiving one needs no GUI.
 
 ## What is still open, and it is not a green tick
 - **The intruders are still lethal, but no longer absurdly so.** The 6.6 s figure above was
