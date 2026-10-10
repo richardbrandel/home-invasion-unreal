@@ -39,6 +39,10 @@ UMaterialInterface* FHIMaterials::ShapeMaterial()
 	{
 		Cached = LoadObject<UMaterialInterface>(
 			nullptr, TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial"));
+		if (Cached != nullptr)
+		{
+			Cached->AddToRoot();
+		}
 	}
 	return Cached;
 }
@@ -59,6 +63,13 @@ UMaterialInterface* FHIMaterials::Generated(const TCHAR* Name)
 	// `PI`/`I`/`J` macros -- a short, ordinary-looking name that already means something.
 	const FString AssetPath = FString::Printf(TEXT("/Game/HIGenerated/%s.%s"), Name, Name);
 	UMaterialInterface* Loaded = LoadObject<UMaterialInterface>(nullptr, *AssetPath);
+	if (Loaded != nullptr)
+	{
+		// Rooted: an asset held only by a raw static pointer is invisible to the GC, and the
+		// failure is a use-after-free minutes later rather than a null. See HIAudio.cpp, where
+		// this exact mistake ended a play session.
+		Loaded->AddToRoot();
+	}
 	Cache.Add(Key, Loaded);
 	return Loaded;
 }

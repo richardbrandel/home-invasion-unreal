@@ -510,6 +510,25 @@ bool FHIUnrealAudio::RunTest(const FString& Parameters)
 		FHIAudio::Imported(TEXT("impact")));
 	TestNotNull(TEXT("the imported siren loads"), FHIAudio::Imported(TEXT("siren")));
 
+	// ---- AND THE ATTENUATION MUST BE GC-ROOTED. This is the bug that ended the second play
+	// session: a NewObject'd asset held only by a raw static pointer is invisible to the
+	// collector, so it is freed once the auto-destroying audio components are gone, and the
+	// next gunshot dereferences freed memory. It worked for minutes and then segfaulted inside
+	// the engine's own audio code, which is a hard thing to find from the crash alone.
+	{
+		USoundAttenuation* Atten = FHIAudio::Attenuation();
+		TestNotNull(TEXT("the attenuation object exists"), Atten);
+		if (Atten != nullptr)
+		{
+			TestTrue(TEXT("and is GC-ROOTED, or it is freed mid-session"), Atten->IsRooted());
+			// The other half of the original crash: an invalid shape makes GetMaxDimension
+			// assert. Sphere is the value that was not being set.
+			TestEqual(TEXT("with a valid attenuation shape"),
+				static_cast<int32>(Atten->Attenuation.AttenuationShape.GetValue()),
+				static_cast<int32>(EAttenuationShape::Sphere));
+		}
+	}
+
 	// ---- THE BUSES. Item 20 is "everything on Master", so the point is that these are not
 	// Master: the engine's own SFX class, and a submix whose effect chain was inspected before
 	// the code relied on it (`SubmixEffectReverbPreset` -> `MasterReverbEffectPreset`).

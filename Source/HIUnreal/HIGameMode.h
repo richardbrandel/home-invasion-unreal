@@ -187,23 +187,15 @@ public:
 	 * Radians of view per unit of the Turn / LookUp axis.
 	 *
 	 * DERIVED FROM THE ORIGINAL, which the first version of this comment said could not be
-	 * done. `game.gd` uses AIM_SENS_X = 0.0022 radians per mouse PIXEL. Unreal's `Turn` axis
-	 * value is the mouse delta already multiplied by the axis's own sensitivity from
-	 * DefaultInput.ini (MouseX, 0.07), so radians-per-axis-unit is the original's
-	 * radians-per-pixel DIVIDED by that 0.07:
+	 * done. `game.gd` uses AIM_SENS_X = 0.0022 radians per mouse PIXEL, and the view is driven
+	 * from the raw mouse delta (`GetInputMouseDelta`), which is also in pixels -- so the
+	 * original's number transfers exactly, with no axis-sensitivity conversion anywhere.
 	 *
-	 *     0.0022 / 0.07 = 0.0314286
-	 *
-	 * The old value was 0.05, i.e. 0.0035 rad/px -- about 60% faster than the Godot original,
-	 * which is a difference you feel immediately and one that the first play session did.
-	 * The raw-mouse fallback path in `ApplyLook` divides by the same 0.07 so both routes give
-	 * the identical feel.
+	 * The port previously used an axis value times 0.05, which was both the wrong speed AND
+	 * dead: the `Turn` axis is not bound on the controller, so it read 0 and the view never
+	 * moved at all.
 	 */
-	UPROPERTY(EditDefaultsOnly, Category = "Home Invasion")
-	float LookRadiansPerAxisUnit = 0.0314286f;
-
-	/** DefaultInput.ini's MouseX sensitivity. Only needed to convert pixels to axis units. */
-	static constexpr float MouseAxisSensitivity = 0.07f;
+	static constexpr float GodotRadiansPerPixel = 0.0022f;
 
 	/**
 	 * Recoil: `game.gd` kicks the view on every shot and drifts it back at 0.85 rad/s.

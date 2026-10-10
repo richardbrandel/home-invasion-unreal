@@ -56,6 +56,21 @@ namespace
 			UE_LOG(LogTemp, Warning, TEXT("HI: no voice line at %s -- run tools/import-assets.sh"),
 				*AssetPath);
 		}
+		else
+		{
+		// ROOTED, and this is not belt-and-braces -- it is the bug that ended the second play
+		// session. An asset returned by `LoadObject` and held ONLY in a raw static pointer can
+		// be garbage collected: nothing in the object graph references it, and the cache is
+		// invisible to the collector. The pointer survives, still passes a null check, and the
+		// next use is a use-after-free -- which presents as a SIGSEGV inside the engine, at a
+		// frame that has nothing to do with this file.
+		//
+		// It went unnoticed for the life of the port because the only assets loaded this way
+		// were engine content that is always resident, and because a 30-second soak never
+		// outlived the 60-second GC interval. Proven by negative control: a soak with
+		// `gc.CollectGarbageEveryFrame 1` dies in seconds.
+			Loaded->AddToRoot();
+		}
 		Cache.Add(Key, Loaded);
 		return Loaded;
 	}
@@ -109,6 +124,21 @@ USoundBase* FHIAudio::Imported(const TCHAR* Name)
 		UE_LOG(LogTemp, Warning,
 			TEXT("HI: no sound at %s -- run tools/import-assets.sh"), *AssetPath);
 	}
+	else
+	{
+		// ROOTED, and this is not belt-and-braces -- it is the bug that ended the second play
+		// session. An asset returned by `LoadObject` and held ONLY in a raw static pointer can
+		// be garbage collected: nothing in the object graph references it, and the cache is
+		// invisible to the collector. The pointer survives, still passes a null check, and the
+		// next use is a use-after-free -- which presents as a SIGSEGV inside the engine, at a
+		// frame that has nothing to do with this file.
+		//
+		// It went unnoticed for the life of the port because the only assets loaded this way
+		// were engine content that is always resident, and because a 30-second soak never
+		// outlived the 60-second GC interval. Proven by negative control: a soak with
+		// `gc.CollectGarbageEveryFrame 1` dies in seconds.
+		Loaded->AddToRoot();
+	}
 	Cache.Add(Key, Loaded);
 	return Loaded;
 }
@@ -127,6 +157,26 @@ USoundAttenuation* FHIAudio::Attenuation()
 	{
 		return nullptr;
 	}
+
+	// ROOT IT, or the game segfaults minutes into a session -- and this line is the whole
+	// reason the first fix did not work.
+	//
+	// A raw pointer held in a `static` is NOT a reference as far as the garbage collector is
+	// concerned. The components this is handed to are `bAutoDestroy`, so once they have played
+	// and gone, nothing references the attenuation, the GC frees it, and `Cached` becomes a
+	// dangling pointer that still passes a null check. The crash is then a SIGSEGV inside
+	// `UAudioComponent::GetAttenuationSettingsToApply()`, reading `&AttenuationSettings->Attenuation`
+	// on freed memory, on the next gunshot.
+	//
+	// WHY THE SOAKS MISSED IT, which is the more useful lesson: the engine's GC interval is 60
+	// seconds of WALL time and a soak ran about 30, so nothing was ever collected. Proved by
+	// negative control -- the same soak with `-execcmds="gc.CollectGarbageEveryFrame 1"` dies in
+	// the audio path in seconds and never reaches a verdict. `HI.Unreal.Audio` now asserts this
+	// object is rooted, so the regression cannot come back quietly.
+	//
+	// AddToRoot and never RemoveFromRoot: this lives for the process, and the leak is one
+	// object of a few hundred bytes.
+	Cached->AddToRoot();
 
 	// These four lines are the crash fix. `AttenuationShape` must be one of Sphere, Capsule,
 	// Box or Cone -- `FBaseAttenuationSettings::GetMaxDimension` asserts on anything else, and

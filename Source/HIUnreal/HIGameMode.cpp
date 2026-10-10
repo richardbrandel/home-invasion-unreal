@@ -406,31 +406,26 @@ FHISim::FHIInput AHIGameMode::ReadInput()
 		return In;
 	}
 
-	// Axis names come from Config/DefaultInput.ini. The sim's plane is (X, Y) with +Y
-	// forward, so MoveRight maps to the X component and MoveForward to the Y one -- and
-	// "+1 forward" is the convention FHIRound::Step already expects.
+	// ---- MOVEMENT: raw keys, NOT GetInputAxisValue, and the log is why.
 	//
-	// AND THEN THE RAW KEYS, because the axis path did not move anybody. Reported from the
-	// first real play session: "do the A W S keys work for movement, didn't work for me".
-	// The mappings are in DefaultInput.ini and are correct, so rather than argue with a
-	// config that could not be reproduced headlessly, movement now reads whichever of the
-	// two paths has something to say. The axis value wins when it is non-zero, so a working
-	// mapping is unaffected; the keys are the floor under it.
-	In.Axis = FVector2D(PC->GetInputAxisValue(TEXT("MoveRight")),
-		PC->GetInputAxisValue(TEXT("MoveForward")));
-	if (In.Axis.IsNearlyZero())
-	{
-		const float Right = (PC->IsInputKeyDown(EKeys::D) ? 1.0f : 0.0f)
-			- (PC->IsInputKeyDown(EKeys::A) ? 1.0f : 0.0f);
-		const float Forward = (PC->IsInputKeyDown(EKeys::W) ? 1.0f : 0.0f)
-			- (PC->IsInputKeyDown(EKeys::S) ? 1.0f : 0.0f);
-		In.Axis = FVector2D(Right, Forward);
-		InputSource = TEXT("keys");
-	}
-	else
-	{
-		InputSource = TEXT("axes");
-	}
+	// The first real play session reported "do the A W S keys work for movement, didn't work
+	// for me", and every frame the log carried four copies of this:
+	//
+	//   LogPlayerController: Warning: Request for value of axis 'MoveForward' returning 0 as
+	//   it is not bound on this input component.
+	//
+	// The mappings in DefaultInput.ini are correct -- W/S/A/D are there -- but the axis is
+	// never BOUND on the controller's input component, so the accessor returns 0 forever and
+	// warns each time. The same was true of `Turn` and `LookUp`, which is why the mouse did
+	// not turn the view either. Reading the keys directly is what actually works, and it also
+	// stops four warnings per frame from burying the log.
+	//
+	// The sim's plane is (X, Y) with +Y forward, so `MoveRight` is the X component and
+	// `MoveForward` the Y one -- and "+1 forward" is what FHIRound::Step already expects.
+	In.Axis = FVector2D(
+		(PC->IsInputKeyDown(EKeys::D) ? 1.0f : 0.0f) - (PC->IsInputKeyDown(EKeys::A) ? 1.0f : 0.0f),
+		(PC->IsInputKeyDown(EKeys::W) ? 1.0f : 0.0f) - (PC->IsInputKeyDown(EKeys::S) ? 1.0f : 0.0f));
+	InputSource = TEXT("keys");
 	In.bCrouch = PC->IsInputKeyDown(EKeys::C) || PC->IsInputKeyDown(EKeys::LeftControl);
 	In.bSprint = PC->IsInputKeyDown(EKeys::LeftShift);
 	In.bFire = PC->IsInputKeyDown(EKeys::LeftMouseButton);
@@ -524,25 +519,23 @@ void AHIGameMode::ApplyLook()
 	// whose own sensitivity is 0.07, which is 0.0035 -- about 60% faster than the original.
 	// The axis value is already scaled by that 0.07, so the conversion back to radians per
 	// PIXEL has to divide it out. Both paths below therefore agree with Godot.
-	float Turn = PC->GetInputAxisValue(TEXT("Turn"));
-	float LookUp = PC->GetInputAxisValue(TEXT("LookUp"));
-	if (FMath::IsNearlyZero(Turn) && FMath::IsNearlyZero(LookUp))
-	{
-		// Same fallback as movement, and for the same reason: a mouse that turns nothing is
-		// not a mouse problem this port can reproduce headlessly.
-		float DeltaX = 0.0f;
-		float DeltaY = 0.0f;
-		PC->GetInputMouseDelta(DeltaX, DeltaY);
-		// The raw delta is in PIXELS, so it needs no divide by the axis sensitivity.
-		Turn = DeltaX / MouseAxisSensitivity;
-		LookUp = -DeltaY / MouseAxisSensitivity;
-	}
+	// RAW MOUSE DELTA, for the same reason as the keys above: the `Turn` and `LookUp` axes are
+	// not bound, so `GetInputAxisValue` returned 0 and the view never moved. `game.gd` reads
+	// the mouse delta directly too, which is why the two now agree on the number as well as
+	// the scheme -- GodotRadiansPerPixel is the original's own AIM_SENS_X.
+	float DeltaX = 0.0f;
+	float DeltaY = 0.0f;
+	PC->GetInputMouseDelta(DeltaX, DeltaY);
+	const float Turn = DeltaX * GodotRadiansPerPixel;
+	// The mouse's +Y is downwards and the sim's negative pitch is "looking up", so the sign
+	// flips once, here.
+	const float LookUp = -DeltaY * GodotRadiansPerPixel;
 
-	Round.Player.Yaw += Turn * LookRadiansPerAxisUnit;
+	Round.Player.Yaw += Turn;
 	// The look axis is bound inverted (see DefaultInput.ini), so pushing the mouse up
 	// raises the pitch rather than lowering it.
 	Round.Player.Pitch = FMath::Clamp(
-		Round.Player.Pitch + LookUp * LookRadiansPerAxisUnit,
+		Round.Player.Pitch + LookUp,
 		FHISim::PitchMin, FHISim::PitchMax);
 
 	// RECOIL RECOVERY, and the first version of this was wrong in a way worth writing down:
