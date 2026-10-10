@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 
 class UAudioComponent;
+class USoundAttenuation;
 class USoundBase;
 class USoundClass;
 class USoundSubmix;
@@ -23,19 +24,51 @@ class UWorld;
  * The send level is set from whether the cue is INSIDE the house, which is the indoor/outdoor
  * split the item asks for -- a shot in the kitchen rings, a shot on the lawn does not.
  *
- * WHAT IS A STAND-IN. The gunshots are the engine's template weapon-fire cue, and the impacts
- * and barks are that same cue and a sine tone at shifted pitch. They are placeholders that
- * make the timing and the mix real; the foley is not. Recording is the part of items 16 and
- * 20 that no amount of C++ supplies.
+ * WHAT IS REAL NOW THAT WAS A STAND-IN. This file used to say, in as many words, that "the
+ * gunshots are the engine's template weapon-fire cue, and the impacts and barks are that same
+ * cue and a sine tone at shifted pitch... recording is the part of items 16 and 20 that no
+ * amount of C++ supplies." Both halves of that were wrong. The audio already existed in the
+ * Godot repository (`assets/audio/`), and the voices did not need recording at all -- macOS
+ * ships 177 voices and `tools/make-voices.sh` renders nine lines to WAV offline. Everything
+ * here now plays a real file.
  */
 struct FHIAudio
 {
 	// ---- assets, by path so a missing one is a log line rather than a crash
 	static USoundClass* SfxClass();
 	static USoundSubmix* ReverbSubmix();
-	static USoundBase* Gunshot();
-	static USoundBase* PistolShot();
-	static USoundBase* SineTone();
+
+	/**
+	 * A sound imported by `tools/import-assets.py`, or nullptr if that has not been run.
+	 *
+	 * `Name` is the file's stem: "gunshot_pistol", "impact", "thief_down". A missing one
+	 * returns nullptr and the caller falls back, because a renamed asset becoming a silent
+	 * game is exactly the failure this project keeps having to guard against.
+	 */
+	static USoundBase* Imported(const TCHAR* Name);
+
+	/**
+	 * An explicit attenuation, and it is NOT optional -- leaving it out CRASHES the game.
+	 *
+	 * Measured, from the crash report of the first session a person ever played:
+	 *
+	 *     Assertion failed: false [File: ./Runtime/Engine/Private/Attenuation.cpp] [Line: 55]
+	 *       FBaseAttenuationSettings::GetMaxDimension()
+	 *       UAudioComponent::OnRegister()
+	 *       FHIAudio::Play() -> FHIAudio::IntruderGunshot() -> AHIGameMode::ResolveThiefShot()
+	 *
+	 * `GetMaxDimension` switches on `AttenuationShape` and `check(false)`s on anything
+	 * outside Sphere/Capsule/Box/Cone. A component built with `NewObject` and given no
+	 * attenuation inherits the SOUND's, and the engine's template weapon cue carries one whose
+	 * shape does not survive being copied into this project without the template's own
+	 * content -- so the shape read as garbage. It fired on the first INTRUDER shot, which is
+	 * why the round died within seconds whether or not the player did anything.
+	 *
+	 * The fix is to stop inheriting: build one valid attenuation and hand it to every
+	 * spatialised cue. It also gives this file the falloff it actually wants, instead of
+	 * whatever the engine's template happened to use.
+	 */
+	static USoundAttenuation* Attenuation();
 
 	/**
 	 * Is this world point inside the house? Drives the reverb send.
@@ -76,11 +109,19 @@ struct FHIAudio
 	static void Impact(UWorld* World, const FVector& Where, bool bFlesh);
 
 	/**
-	 * A short non-verbal bark: a placeholder for a voice.
+	 * A VOICE LINE, by name, at a place.
 	 *
-	 * Fix-list item 16 asks for a "bark system" and that is what this is -- the hook, at the
-	 * right moments, with a cue attached. The cue is a pitched sine and sounds like a piece of
-	 * equipment, not a person. Making it sound like a person needs recordings.
+	 * Fix-list item 16 asked for a "bark system"; the hook existed and the cue was a pitched
+	 * sine, and the file used to say that making it sound like a person "needs recordings".
+	 * It needed a speech synthesiser that ships with the OS. `tools/make-voices.sh` renders
+	 * these offline; `Line` is the file's stem -- "thief_down", "owner_challenge".
+	 *
+	 * Clearly synthetic next to a real actor, and still a different category of thing from a
+	 * sine: the words are intelligible and the player hears a man. A recording is still the
+	 * right end state.
 	 */
-	static void Bark(UWorld* World, const FVector& Where, float BasePitch);
+	static void Voice(UWorld* World, const FVector& Where, const TCHAR* Line, float Volume = 1.0f);
+
+	/** The police arrive. Fix-list item 17's clock, with the Godot original's siren behind it. */
+	static void Siren(UWorld* World, const FVector& Where);
 };

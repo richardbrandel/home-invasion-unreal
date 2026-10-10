@@ -498,7 +498,26 @@ void AHIHouse::Build()
 	// Colours, applied once to each component's single material slot, so every instance of
 	// that component shares it. Without these the whole world is the BasicShapeMaterial's
 	// default grey and a wall, a floor, a van and a man are indistinguishable.
+	// TEXTURES, where there is one, and the flat colour where there is not. The Godot
+	// repository's own `assets/textures/` are imported to /Game/HIImported/textures; until
+	// the generated M_HITextured existed there was nothing in this project that could sample
+	// one, and every surface was a flat colour because a .uasset could not be made.
+	//
+	// Each of these keeps its `Tint` fallback underneath, so a missing texture or a missing
+	// generator run leaves the previous look rather than a black house.
 	FHIMaterials::Tint(WallInstances, FHIMaterials::Wall);
+	if (FHIMaterials::Textured(WallInstances, TEXT("ceiling_plaster"), 40.0f) == nullptr)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("HI: walls stay flat -- no M_HITextured or texture"));
+	}
+	FHIMaterials::Tint(FloorInstance, FHIMaterials::Floor);
+	FHIMaterials::Textured(FloorInstance, TEXT("floor_wood"), 6.0f);
+	FHIMaterials::Tint(GroundInstance, FHIMaterials::Grass);
+	// The lawn is a 5 km plane, so its tiling is large: one repeat every ~13 m reads as grass
+	// from the doorstep without turning to noise at the horizon.
+	FHIMaterials::Textured(GroundInstance, TEXT("lawn"), 400.0f);
+	FHIMaterials::Tint(RoofInstance, FHIMaterials::WallExterior);
+	FHIMaterials::Textured(RoofInstance, TEXT("roof_shingle"), 8.0f);
 	FHIMaterials::Tint(FurnitureInstances, FHIMaterials::Wood);
 	FHIMaterials::Tint(GroundInstance, FHIMaterials::Grass);
 	FHIMaterials::Tint(FloorInstance, FHIMaterials::Floor);
@@ -529,7 +548,13 @@ void AHIHouse::Build()
 	FHIMaterials::Tint(PropInstances, FHIMaterials::Counter);
 	// The door head is WALL, not trim: it is a piece of wall that was missing, and a white
 	// lintel against a cream wall would read as a mistake rather than as masonry.
+	//
+	// AND IT NEEDS THE WALL'S TEXTURE, which the first textured capture made obvious: a flat
+	// 2 m panel of untextured masonry above a textured wall reads as a patch of missing paint
+	// from the front lawn. Its tiling is the wall's scaled by the ratio of their widths
+	// (2 m against the 16 m wall run), so the grain matches instead of merely approximating.
 	FHIMaterials::Tint(DoorHeadInstances, FHIMaterials::Wall);
+	FHIMaterials::Textured(DoorHeadInstances, TEXT("ceiling_plaster"), 40.0f * (2.0f / 16.0f));
 	FHIMaterials::Tint(VanInstances, FHIMaterials::Van);
 	FHIMaterials::Tint(VanDetailInstances, FHIMaterials::Tyre);
 

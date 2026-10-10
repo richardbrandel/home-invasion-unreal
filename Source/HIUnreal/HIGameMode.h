@@ -186,13 +186,47 @@ public:
 	/**
 	 * Radians of view per unit of the Turn / LookUp axis.
 	 *
-	 * TUNING, NOT PORTING, and worth saying so: the Godot original uses 0.0022 rad per mouse
-	 * PIXEL, while Unreal's axis is already scaled by its own sensitivity from
-	 * DefaultInput.ini, so the two numbers are not comparable and this cannot be derived
-	 * from the original. It needs a person looking at it, which is exactly what I cannot do.
+	 * DERIVED FROM THE ORIGINAL, which the first version of this comment said could not be
+	 * done. `game.gd` uses AIM_SENS_X = 0.0022 radians per mouse PIXEL. Unreal's `Turn` axis
+	 * value is the mouse delta already multiplied by the axis's own sensitivity from
+	 * DefaultInput.ini (MouseX, 0.07), so radians-per-axis-unit is the original's
+	 * radians-per-pixel DIVIDED by that 0.07:
+	 *
+	 *     0.0022 / 0.07 = 0.0314286
+	 *
+	 * The old value was 0.05, i.e. 0.0035 rad/px -- about 60% faster than the Godot original,
+	 * which is a difference you feel immediately and one that the first play session did.
+	 * The raw-mouse fallback path in `ApplyLook` divides by the same 0.07 so both routes give
+	 * the identical feel.
 	 */
 	UPROPERTY(EditDefaultsOnly, Category = "Home Invasion")
-	float LookRadiansPerAxisUnit = 0.05f;
+	float LookRadiansPerAxisUnit = 0.0314286f;
+
+	/** DefaultInput.ini's MouseX sensitivity. Only needed to convert pixels to axis units. */
+	static constexpr float MouseAxisSensitivity = 0.07f;
+
+	/**
+	 * Recoil: `game.gd` kicks the view on every shot and drifts it back at 0.85 rad/s.
+	 *
+	 * Ported here rather than left out, because it is the difference between firing feeling
+	 * like a gun going off and firing feeling like a cursor click -- and because the port
+	 * already claimed to have "recoil bookkeeping" in a comment while having none.
+	 */
+	static constexpr float RecoilPistol = 0.022f;
+	static constexpr float RecoilShotgun = 0.062f;
+	static constexpr float RecoilRecoverRate = 0.85f;
+
+	/** Radians of kick still to be handed back to the view. */
+	float RecoilPending = 0.0f;
+
+	/** Which path fed the last look input: "axes", "keys", or "raw mouse". Diagnostics. */
+	FString InputSource = TEXT("none");
+	/** Seconds since the last input log line, so a stuck control can be told from a dead one. */
+	float InputLogTime = 0.0f;
+
+	/** Counters for the things that must not repeat every frame: not every hit is a cry. */
+	int32 WoundCries = 0;
+	int32 ShoutsMade = 0;
 
 	/**
 	 * Apply this frame's look input to the sim's OWN yaw and pitch, rather than keeping the

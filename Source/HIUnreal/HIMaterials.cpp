@@ -3,6 +3,7 @@
 #include "Components/MeshComponent.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/MaterialInterface.h"
+#include "Engine/Texture.h"
 
 // Interior colours were lifted against the render rather than picked from a swatch: the
 // first pass had a wall and a ceiling within a few percent of each other and the rooms read
@@ -82,6 +83,41 @@ UMaterialInstanceDynamic* FHIMaterials::Tint(UMeshComponent* Mesh, const FLinear
 	// like "colours do not work" in a screenshot. The name is checked against the asset's
 	// own name table in HI.Unreal.Materials, so a rename fails a test rather than the eye.
 	Mid->SetVectorParameterValue(TEXT("Color"), Colour);
+	Mesh->SetMaterial(Slot, Mid);
+	return Mid;
+}
+
+UMaterialInstanceDynamic* FHIMaterials::Textured(UMeshComponent* Mesh, const TCHAR* TextureName,
+	float Tiling, int32 Slot)
+{
+	if (Mesh == nullptr || TextureName == nullptr)
+	{
+		return nullptr;
+	}
+	UMaterialInterface* Base = Generated(TEXT("M_HITextured"));
+	if (Base == nullptr)
+	{
+		return nullptr;
+	}
+
+	// The importer names an asset after its file stem, so door.png becomes "door.door".
+	const FString AssetPath =
+		FString::Printf(TEXT("/Game/HIImported/textures/%s.%s"), TextureName, TextureName);
+	UTexture* Tex = LoadObject<UTexture>(nullptr, *AssetPath);
+	if (Tex == nullptr)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("HI: no texture at %s -- run tools/import-assets.sh"),
+			*AssetPath);
+		return nullptr;
+	}
+
+	UMaterialInstanceDynamic* Mid = UMaterialInstanceDynamic::Create(Base, Mesh);
+	if (Mid == nullptr)
+	{
+		return nullptr;
+	}
+	Mid->SetTextureParameterValue(TEXT("BaseTexture"), Tex);
+	Mid->SetScalarParameterValue(TEXT("UVTiling"), Tiling);
 	Mesh->SetMaterial(Slot, Mid);
 	return Mid;
 }

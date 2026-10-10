@@ -499,9 +499,16 @@ bool FHIUnrealAudio::RunTest(const FString& Parameters)
 	// the volume is down and when the machine has no sound card, so it is exactly the kind of
 	// failure that never gets noticed.
 
-	// ---- the copied asset really is where the code says it is
-	TestNotNull(TEXT("the weapon-fire cue the project copies out of the engine templates loads"),
-		FHIAudio::PistolShot());
+	// ---- the imported assets really are where the code says they are. Every one of these is
+	// a LoadObject by string, and the engine's template cue that used to be here is GONE --
+	// it carried the attenuation that crashed the first real play session.
+	TestNotNull(TEXT("the imported pistol gunshot loads"),
+		FHIAudio::Imported(TEXT("gunshot_pistol")));
+	TestNotNull(TEXT("the imported shotgun blast loads"),
+		FHIAudio::Imported(TEXT("gunshot_shotgun")));
+	TestNotNull(TEXT("the imported impact loads -- the impact.wav from the Godot repo"),
+		FHIAudio::Imported(TEXT("impact")));
+	TestNotNull(TEXT("the imported siren loads"), FHIAudio::Imported(TEXT("siren")));
 
 	// ---- THE BUSES. Item 20 is "everything on Master", so the point is that these are not
 	// Master: the engine's own SFX class, and a submix whose effect chain was inspected before

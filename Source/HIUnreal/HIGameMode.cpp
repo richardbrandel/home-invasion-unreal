@@ -409,8 +409,28 @@ FHISim::FHIInput AHIGameMode::ReadInput()
 	// Axis names come from Config/DefaultInput.ini. The sim's plane is (X, Y) with +Y
 	// forward, so MoveRight maps to the X component and MoveForward to the Y one -- and
 	// "+1 forward" is the convention FHIRound::Step already expects.
+	//
+	// AND THEN THE RAW KEYS, because the axis path did not move anybody. Reported from the
+	// first real play session: "do the A W S keys work for movement, didn't work for me".
+	// The mappings are in DefaultInput.ini and are correct, so rather than argue with a
+	// config that could not be reproduced headlessly, movement now reads whichever of the
+	// two paths has something to say. The axis value wins when it is non-zero, so a working
+	// mapping is unaffected; the keys are the floor under it.
 	In.Axis = FVector2D(PC->GetInputAxisValue(TEXT("MoveRight")),
 		PC->GetInputAxisValue(TEXT("MoveForward")));
+	if (In.Axis.IsNearlyZero())
+	{
+		const float Right = (PC->IsInputKeyDown(EKeys::D) ? 1.0f : 0.0f)
+			- (PC->IsInputKeyDown(EKeys::A) ? 1.0f : 0.0f);
+		const float Forward = (PC->IsInputKeyDown(EKeys::W) ? 1.0f : 0.0f)
+			- (PC->IsInputKeyDown(EKeys::S) ? 1.0f : 0.0f);
+		In.Axis = FVector2D(Right, Forward);
+		InputSource = TEXT("keys");
+	}
+	else
+	{
+		InputSource = TEXT("axes");
+	}
 	In.bCrouch = PC->IsInputKeyDown(EKeys::C) || PC->IsInputKeyDown(EKeys::LeftControl);
 	In.bSprint = PC->IsInputKeyDown(EKeys::LeftShift);
 	In.bFire = PC->IsInputKeyDown(EKeys::LeftMouseButton);
@@ -490,12 +510,68 @@ void AHIGameMode::ApplyLook()
 		return;
 	}
 
-	Round.Player.Yaw += PC->GetInputAxisValue(TEXT("Turn")) * LookRadiansPerAxisUnit;
+	// THE SAME CONE QUESTION THE GODOT ORIGINAL SETTLED, and settled as FIXED.
+	//
+	// `game.gd` carries both schemes behind `aim_cone`, whose default is `false`: with the
+	// cone off, `aim_yaw`/`aim_pitch` are forced to zero and the body's own yaw and pitch ARE
+	// the aim. That is what Richard chose as the default and what he asked for here. This
+	// function has only ever done the fixed thing -- there is no cone in the port to disable,
+	// and the comment on `FHISim::AimDir` calling it "a limited cone of free aim" describes
+	// where the code came from rather than what it does.
+	//
+	// What was NOT matching was the SPEED. `game.gd` uses AIM_SENS_X = 0.0022 radians per
+	// unit of mouse movement; this used `GetInputAxisValue() * 0.05` against a MouseX axis
+	// whose own sensitivity is 0.07, which is 0.0035 -- about 60% faster than the original.
+	// The axis value is already scaled by that 0.07, so the conversion back to radians per
+	// PIXEL has to divide it out. Both paths below therefore agree with Godot.
+	float Turn = PC->GetInputAxisValue(TEXT("Turn"));
+	float LookUp = PC->GetInputAxisValue(TEXT("LookUp"));
+	if (FMath::IsNearlyZero(Turn) && FMath::IsNearlyZero(LookUp))
+	{
+		// Same fallback as movement, and for the same reason: a mouse that turns nothing is
+		// not a mouse problem this port can reproduce headlessly.
+		float DeltaX = 0.0f;
+		float DeltaY = 0.0f;
+		PC->GetInputMouseDelta(DeltaX, DeltaY);
+		// The raw delta is in PIXELS, so it needs no divide by the axis sensitivity.
+		Turn = DeltaX / MouseAxisSensitivity;
+		LookUp = -DeltaY / MouseAxisSensitivity;
+	}
+
+	Round.Player.Yaw += Turn * LookRadiansPerAxisUnit;
 	// The look axis is bound inverted (see DefaultInput.ini), so pushing the mouse up
 	// raises the pitch rather than lowering it.
 	Round.Player.Pitch = FMath::Clamp(
-		Round.Player.Pitch + PC->GetInputAxisValue(TEXT("LookUp")) * LookRadiansPerAxisUnit,
+		Round.Player.Pitch + LookUp * LookRadiansPerAxisUnit,
 		FHISim::PitchMin, FHISim::PitchMax);
+
+	// RECOIL RECOVERY, and the first version of this was wrong in a way worth writing down:
+	// it applied the kick gradually and then had nothing left to give back, which is a view
+	// that drifts upward permanently -- one shot and your aim is never the same again. The
+	// kick is applied IMMEDIATELY where the shot happens (`ResolvePlayerShot`); this only
+	// hands it back, at `game.gd`'s RECOIL_RECOVER rad/s, until the whole kick is returned.
+	//
+	// Negative pitch is "looking up" in the sim, so the kick subtracts and the recovery adds.
+	{
+		const float Dt = GetWorld() != nullptr ? GetWorld()->GetDeltaSeconds() : 0.0f;
+		const float GiveBack = FMath::Min(RecoilRecoverRate * Dt, RecoilPending);
+		if (GiveBack > 0.0f)
+		{
+			Round.Player.Pitch = FMath::Clamp(Round.Player.Pitch + GiveBack,
+				FHISim::PitchMin, FHISim::PitchMax);
+			RecoilPending -= GiveBack;
+		}
+	}
+
+	// Logged once a second, and only while something is happening: this is the line that
+	// turns "the controls do not work" into a fact on the next run.
+	InputLogTime += GetWorld()->GetDeltaSeconds();
+	if (InputLogTime >= 1.0f && (!FMath::IsNearlyZero(Turn) || !FMath::IsNearlyZero(LookUp)))
+	{
+		InputLogTime = 0.0f;
+		UE_LOG(LogTemp, Display, TEXT("HI: look src=%s turn=%.3f up=%.3f -> yaw=%.2f pitch=%.2f"),
+			*InputSource, Turn, LookUp, Round.Player.Yaw, Round.Player.Pitch);
+	}
 }
 
 bool AHIGameMode::NearestStanding(FVector2D& OutPos, float& OutDist) const
@@ -594,7 +670,17 @@ void AHIGameMode::ResolvePlayerShot(const FHISim::FHIEvent& Shot)
 
 	// The player's own weapon, once per trigger pull rather than once per pellet: eight
 	// shotgun pellets are one bang.
-	FHIAudio::PlayerGunshot(World, Origin, Round.Player.Weapon == TEXT("shotgun"));
+	const bool bShotgun = Round.Player.Weapon == TEXT("shotgun");
+	FHIAudio::PlayerGunshot(World, Origin, bShotgun);
+	// `game.gd`'s recoil: the kick lands on THIS frame, and ApplyLook hands it back over the
+	// next fraction of a second. Kicking the body pitch rather than a separate aim pitch,
+	// because with the cone off there is only one pitch.
+	{
+		const float Kick = bShotgun ? RecoilShotgun : RecoilPistol;
+		Round.Player.Pitch = FMath::Clamp(Round.Player.Pitch - Kick,
+			FHISim::PitchMin, FHISim::PitchMax);
+		RecoilPending += Kick;
+	}
 
 	for (int32 Pellet = 0; Pellet < Shot.Pellets; ++Pellet)
 	{
@@ -1097,10 +1183,11 @@ void AHIGameMode::Tick(float DeltaSeconds)
 				MessageTime = 2.5f;
 				FHIAudio::Impact(World, FVector(Who->Pos.X, Who->Pos.Y, 0.4f) * HI_METERS_TO_UU,
 					/*bFlesh=*/true);
-				// Item 16's bark system, with a placeholder cue: a man going down is the one
-				// moment a voice would carry furthest, and the hook has to exist before a
-				// recording can be dropped into it.
-				FHIAudio::Bark(World, FVector(Who->Pos.X, Who->Pos.Y, 1.4f) * HI_METERS_TO_UU, 0.55f);
+				// Item 16, now with a VOICE in it. A man going down is the moment a line
+				// carries furthest, and it is the one the player is listening for: it tells
+				// him how many are left without looking at the HUD.
+				FHIAudio::Voice(World, FVector(Who->Pos.X, Who->Pos.Y, 1.4f) * HI_METERS_TO_UU,
+					TEXT("thief_down"));
 			}
 		}
 		else if (Ev.Type == TEXT("thiefHit"))
@@ -1112,6 +1199,12 @@ void AHIGameMode::Tick(float DeltaSeconds)
 				const FVector Where = FVector(Who->Pos.X, Who->Pos.Y, 1.15f) * HI_METERS_TO_UU;
 				FlashPoint(Where, 0.16f, FHIMaterials::Blood);
 				FHIAudio::Impact(World, Where, /*bFlesh=*/true);
+				// Not every hit: a grunt per pellet would machine-gun the line into noise.
+				// One in three is enough to make a hit audible as a person being hurt.
+				if ((WoundCries++ % 3) == 0)
+				{
+					FHIAudio::Voice(World, Where, TEXT("thief_pain"), 0.85f);
+				}
 			}
 		}
 		else if (Ev.Type == TEXT("playerHit"))
@@ -1153,13 +1246,17 @@ void AHIGameMode::Tick(float DeltaSeconds)
 		{
 			Message = TEXT("You shouted. They know where you are.");
 			MessageTime = 1.6f;
-			// Item 16's bark hook, from the homeowner this time. Placeholder cue, as above.
-			FHIAudio::Bark(World, FVector(Round.Player.Pos.X, Round.Player.Pos.Y, 1.6f) * HI_METERS_TO_UU, 0.85f);
+			// Item 16's bark hook, from the homeowner this time, alternating between his two
+			// lines so shouting twice does not sound like a broken record.
+			FHIAudio::Voice(World, FVector(Round.Player.Pos.X, Round.Player.Pos.Y, 1.6f) * HI_METERS_TO_UU,
+				(ShoutsMade++ % 2) == 0 ? TEXT("owner_challenge") : TEXT("owner_shout"));
 		}
 		else if (Ev.Type == TEXT("calledPolice"))
 		{
 			Message = TEXT("You called the police. They are on their way.");
 			MessageTime = 3.0f;
+			FHIAudio::Voice(World, FVector(Round.Player.Pos.X, Round.Player.Pos.Y, 1.6f) * HI_METERS_TO_UU,
+				TEXT("owner_police"));
 		}
 		else if (Ev.Type == TEXT("allStolen"))
 		{
@@ -1175,6 +1272,10 @@ void AHIGameMode::Tick(float DeltaSeconds)
 		{
 			Message = TEXT("The police are here.");
 			MessageTime = 3.0f;
+			// From up the drive rather than from the player's own feet: the Godot original
+			// plays its siren from outside, and a siren coming out of your own kitchen reads
+			// as a bug rather than as rescue.
+			FHIAudio::Siren(World, FVector(0.0f, 12.0f, 1.5f) * HI_METERS_TO_UU);
 		}
 	}
 

@@ -51,6 +51,21 @@ struct FHIMaterials
 	 */
 	static UMaterialInstanceDynamic* Tint(UMeshComponent* Mesh, const FLinearColor& Colour, int32 Slot = 0);
 
+	/**
+	 * Give one material slot a REAL TEXTURE, tiled, from `/Game/HIImported/textures`.
+	 *
+	 * Returns nullptr if either the material or the texture is missing, so every caller can
+	 * keep its flat-colour fallback. That matters: a renamed texture would otherwise become a
+	 * black or default-checkerboard surface, which is the failure mode this whole file exists
+	 * to avoid.
+	 *
+	 * `Tiling` is roughly "how many times the image repeats across the object", and the engine
+	 * cube has 0..1 UVs on every face -- so a 16 m wall needs about 8 and a 5 km lawn needs
+	 * hundreds, which is why it is a parameter and not baked into the material.
+	 */
+	static UMaterialInstanceDynamic* Textured(UMeshComponent* Mesh, const TCHAR* TextureName,
+		float Tiling, int32 Slot = 0);
+
 	// The palette, in one place so two things that should match do not drift apart.
 	static const FLinearColor Grass;
 	static const FLinearColor Path;

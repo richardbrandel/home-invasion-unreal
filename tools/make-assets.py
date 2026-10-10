@@ -125,13 +125,65 @@ def make_glass():
 	return full
 
 
+def make_textured():
+	"""A surface material that samples an IMPORTED texture, tiled.
+
+	Nine textures from the Godot repository are imported to /Game/HIImported/textures. Until
+	this material existed there was nothing in the project that could sample one: every surface
+	was `BasicShapeMaterial` with a flat colour, because a .uasset could not be made. Both
+	halves of that are gone now.
+
+	Tiling is a PARAMETER rather than baked UVs, because the same material has to cover a 16 m
+	wall, an 11 m floor and a 5 km lawn -- and the engine's cube has 0..1 UVs on every face, so
+	without a tiling multiplier a brick texture would be stretched once across the whole house.
+	"""
+	mat, full = _fresh("M_HITextured")
+	if mat is None:
+		print("HI_ASSET: FAILED to create M_HITextured")
+		return None
+
+	lib = unreal.MaterialEditingLibrary
+	try:
+		tex = lib.create_material_expression(
+			mat, unreal.MaterialExpressionTextureSampleParameter2D, -600, 0)
+		tex.set_editor_property("parameter_name", "BaseTexture")
+		# A visible default, so a forgotten parameter is obvious rather than black.
+		tex.set_editor_property("texture", unreal.load_asset(
+			"/Game/HIImported/textures/ceiling_plaster.ceiling_plaster"))
+
+		uv = lib.create_material_expression(mat, unreal.MaterialExpressionTextureCoordinate, -1100, 0)
+		tiling = _param(mat, unreal.MaterialExpressionScalarParameter, "UVTiling", 8.0, -1100, 180)
+		mul = lib.create_material_expression(mat, unreal.MaterialExpressionMultiply, -850, 0)
+
+		lib.connect_material_expressions(uv, "", mul, "A")
+		lib.connect_material_expressions(tiling, "", mul, "B")
+		lib.connect_material_expressions(mul, "", tex, "Coordinates")
+		lib.connect_material_property(tex, "RGB", unreal.MaterialProperty.MP_BASE_COLOR)
+
+		# Matte. A wall and a lawn are the two least shiny things in the game, and the default
+		# roughness of a fresh material is 0.5, which makes plaster look like plastic under
+		# the sun. Connected as a constant so it is visible in the material, not just set.
+		rough = _param(mat, unreal.MaterialExpressionScalarParameter, "Roughness", 0.9, -600, 320)
+		lib.connect_material_property(rough, "", unreal.MaterialProperty.MP_ROUGHNESS)
+	except Exception as err:
+		print("HI_ASSET: textured material FAILED while authoring: %s" % err)
+		return None
+
+	_set_usage_flags(mat)
+	lib.recompile_material(mat)
+	unreal.EditorAssetLibrary.save_asset(full, only_if_is_dirty=False)
+	print("HI_ASSET: textured -> %s" % full)
+	return full
+
+
 def main():
 	print("HI_ASSET: generating materials from text")
 	glass = make_glass()
+	textured = make_textured()
 
 	# ---- verify rather than assume: a generated asset that did not save is a nullptr in the
 	# game and a silently grey pane on screen, which looks like the change did nothing.
-	for path in [glass]:
+	for path in [glass, textured]:
 		if path is None:
 			continue
 		ok = unreal.EditorAssetLibrary.does_asset_exist(path)
