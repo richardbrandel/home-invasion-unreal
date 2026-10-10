@@ -195,7 +195,8 @@ public:
 	 * dead: the `Turn` axis is not bound on the controller, so it read 0 and the view never
 	 * moved at all.
 	 */
-	static constexpr float GodotRadiansPerPixel = 0.0022f;
+	static constexpr float GodotYawRadiansPerPixel = 0.0022f;    // game.gd AIM_SENS_X
+	static constexpr float GodotPitchRadiansPerPixel = 0.0018f;  // game.gd AIM_SENS_Y
 
 	/**
 	 * Recoil: `game.gd` kicks the view on every shot and drifts it back at 0.85 rad/s.
@@ -210,6 +211,48 @@ public:
 
 	/** Radians of kick still to be handed back to the view. */
 	float RecoilPending = 0.0f;
+
+	/**
+	 * The mouse-to-view mapping, pure: pixels in, radians out.
+	 *
+	 * Extracted so its SIGN can be asserted. Both axes were inverted in the first version and
+	 * no capture or soak could see it -- a still frame cannot show which way a mouse turns.
+	 */
+	static void LookDelta(float MouseX, float MouseY, float& OutYawDelta, float& OutPitchDelta);
+
+	/** Claim the keyboard and mouse once. See the definition -- omitting it broke both. */
+	void ClaimInput();
+	bool bInputClaimed = false;
+
+	/**
+	 * `-HIPlaytest`: drive the game through the REAL input path and check that it responds.
+	 *
+	 * WHY THIS EXISTS, and it is the most important thing learned from the first play
+	 * sessions: `-HIAuto` calls `ReadInput()` and then THROWS IT AWAY -- `Autopilot(In)`
+	 * overwrites every field. So every soak and every capture this project ever ran exercised
+	 * the simulation and never once executed the code a keyboard goes through. That is how
+	 * "WASD does nothing" and "the mouse does not aim" both shipped: no test could have seen
+	 * them, because no test pressed a key.
+	 *
+	 * This injects real key events with `APlayerController::InputKey`, lets the game read them
+	 * through `ReadInput` exactly as it would from a person, and then ASSERTS on the result --
+	 * did the body move, did the view turn, did the magazine drop. A dumb bot with
+	 * assertions, which for this class of bug beats a clever observer.
+	 */
+	void PlaytestTick(float DeltaSeconds);
+
+	/** Injected-input state for the playtest. */
+	bool bPlaytest = false;
+	float PlaytestTime = 0.0f;
+	int32 PlaytestStep = -1;
+	/** Where the body and view were at the start, so movement can be measured. */
+	FVector2D PlaytestStartPos = FVector2D::ZeroVector;
+	float PlaytestStartYaw = 0.0f;
+	float PlaytestStartPitch = 0.0f;
+	int32 PlaytestStartMag = 0;
+	float PlaytestPosAfterW = 0.0f;
+	float PlaytestYawAfterMouse = 0.0f;
+	int32 PlaytestMagAfterFire = 0;
 
 	/** Which path fed the last look input: "axes", "keys", or "raw mouse". Diagnostics. */
 	FString InputSource = TEXT("none");

@@ -22,6 +22,7 @@
 #include "HIMarks.h"
 #include "HIMaterials.h"
 #include "HIPlayerCharacter.h"
+#include "InputKeyEventArgs.h"
 #include "HIUnits.h"
 #include "Misc/CommandLine.h"
 #include "Misc/Parse.h"
@@ -103,6 +104,7 @@ void AHIGameMode::HandleCommandLine()
 	}
 
 	FParse::Value(Cmd, TEXT("HIShot="), ShotName);
+	bPlaytest = FParse::Param(Cmd, TEXT("HIPlaytest"));
 	FParse::Value(Cmd, TEXT("HIShotAfter="), ShotAfterSeconds);
 	FParse::Value(Cmd, TEXT("HISoak="), SoakSeconds);
 	bHideUIForShot = FParse::Param(Cmd, TEXT("HIShotNoUI"));
@@ -391,6 +393,144 @@ void AHIGameMode::SpawnLoot()
 	}
 }
 
+
+void AHIGameMode::LookDelta(float MouseX, float MouseY, float& OutYawDelta, float& OutPitchDelta)
+{
+	// Pure, so the signs can be asserted without a mouse -- see `HI.Unreal.LookMapping`.
+	//
+	// Straight transcription of `game.gd`'s `_input`, fixed branch:
+	//
+	//     yaw   -= event.relative.x * AIM_SENS_X      # 0.0022
+	//     pitch  = clamp(pitch + event.relative.y * AIM_SENS_Y, ...)   # 0.0018
+	//
+	// MINUS on yaw and PLUS on pitch, and the first version of this had both the wrong way
+	// round. The pitch sign reads backwards until you remember that Godot's mouse `relative.y`
+	// grows downwards and the sim's positive pitch is "looking down", so the two agree.
+	OutYawDelta = -MouseX * GodotYawRadiansPerPixel;
+	OutPitchDelta = MouseY * GodotPitchRadiansPerPixel;
+}
+
+void AHIGameMode::PlaytestTick(float DeltaSeconds)
+{
+	UWorld* World = GetWorld();
+	APlayerController* PC = World != nullptr ? World->GetFirstPlayerController() : nullptr;
+	if (PC == nullptr)
+	{
+		return;
+	}
+
+	const float Dt = FMath::Max(DeltaSeconds, 1.0f / 240.0f);
+	PlaytestTime += Dt;
+
+	// Each step runs for a second of round time, then the next key goes down. Injected with
+	// InputKey so it enters the input stack the same way a keyboard event does.
+	// `CreateSimulated` is the engine's own factory for exactly this -- a synthetic key event
+	// that goes in through the same stack a keyboard uses. `FInputKeyParams`, the obvious
+	// first choice, is deprecated in 5.6 and only forward-declared where it is used.
+	auto Hold = [&](const FKey& Key, bool bDown)
+	{
+		PC->InputKey(FInputKeyEventArgs::CreateSimulated(Key,
+			bDown ? EInputEvent::IE_Pressed : EInputEvent::IE_Released, /*AmountDepressed=*/1.0f));
+	};
+
+	const int32 Step = FMath::FloorToInt(PlaytestTime);
+	if (Step != PlaytestStep)
+	{
+		// Release everything from the previous step before starting the next.
+		for (const FKey& Key : { EKeys::W, EKeys::A, EKeys::S, EKeys::D, EKeys::LeftMouseButton })
+		{
+			Hold(Key, false);
+		}
+		PlaytestStep = Step;
+
+		switch (Step)
+		{
+		case 1:   // baseline, nothing held
+			PlaytestStartPos = Round.Player.Pos;
+			PlaytestStartYaw = Round.Player.Yaw;
+			PlaytestStartPitch = Round.Player.Pitch;
+			PlaytestStartMag = Round.Player.Mag;
+			UE_LOG(LogTemp, Display, TEXT("PLAYTEST step1 baseline pos=(%.2f,%.2f) yaw=%.3f mag=%d"),
+				Round.Player.Pos.X, Round.Player.Pos.Y, Round.Player.Yaw, Round.Player.Mag);
+			break;
+		case 2:
+			UE_LOG(LogTemp, Display, TEXT("PLAYTEST step2 holding W"));
+			Hold(EKeys::W, true);
+			break;
+		case 3:
+			PlaytestPosAfterW = FVector2D::Distance(Round.Player.Pos, PlaytestStartPos);
+			UE_LOG(LogTemp, Display,
+				TEXT("PLAYTEST step3 after 1s of W: moved %.3f m, pos=(%.2f,%.2f) -- forward is %s"),
+				PlaytestPosAfterW, Round.Player.Pos.X, Round.Player.Pos.Y,
+				(Round.Player.Pos.Y > PlaytestStartPos.Y ? TEXT("+Y") : TEXT("-Y")));
+			// Look is NOT injected here: there is no `APlayerController::InputAxis`, and the
+			// view reads the raw mouse delta rather than an axis, so there is nothing honest
+			// to synthesise. The SIGN of that mapping is what was wrong, and a sign is a pure
+			// function of two numbers -- so it is asserted in `HI.Unreal.LookMapping`
+			// instead, which is a better test than a fake mouse could be.
+			break;
+		case 4:
+			PlaytestYawAfterMouse = Round.Player.Yaw - PlaytestStartYaw;
+			UE_LOG(LogTemp, Display,
+				TEXT("PLAYTEST step4 yaw unchanged at %.3f (look is covered by HI.Unreal.LookMapping)"),
+				Round.Player.Yaw);
+			UE_LOG(LogTemp, Display, TEXT("PLAYTEST step4 holding fire"));
+			Hold(EKeys::LeftMouseButton, true);
+			break;
+		case 5:
+			PlaytestMagAfterFire = Round.Player.Mag;
+			UE_LOG(LogTemp, Display,
+				TEXT("PLAYTEST step5 after 1s of fire: mag %d -> %d (spent %d)"),
+				PlaytestStartMag, PlaytestMagAfterFire, PlaytestStartMag - PlaytestMagAfterFire);
+			break;
+		case 6:
+			// The verdict, in one line, and it is the check that could not fail before.
+			UE_LOG(LogTemp, Display, TEXT("PLAYTEST RESULT moved=%.2f m yaw=%.3f rad shots_fired=%d"),
+				PlaytestPosAfterW, PlaytestYawAfterMouse, PlaytestStartMag - PlaytestMagAfterFire);
+			UE_LOG(LogTemp, Display, TEXT("PLAYTEST %s"),
+				(PlaytestPosAfterW > 0.5f && FMath::Abs(PlaytestYawAfterMouse) > 0.001f
+					&& PlaytestMagAfterFire < PlaytestStartMag)
+					? TEXT("PASS -- keys move, look turns, fire spends ammunition")
+					: TEXT("FAIL -- at least one of move/look/fire did nothing through the real input path"));
+			break;
+		default:
+			break;
+		}
+	}
+}
+
+void AHIGameMode::ClaimInput()
+{
+	// THIS WAS THE WHOLE BUG, for both the mouse and the keys.
+	//
+	// The port never told the engine it wanted the keyboard and the mouse. There was no
+	// `SetInputMode` anywhere in the project, no `bShowMouseCursor = false`, no capture --
+	// so the default viewport input mode applied, Slate kept the mouse, and the game saw
+	// nothing: `IsInputKeyDown(W)` false, `GetInputMouseDelta` zero. Both symptoms in one
+	// cause, which is why "WASD does nothing" and "the mouse does not aim" arrived together.
+	//
+	// Godot does the equivalent explicitly -- `_input` only turns the view when
+	// `Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED`, and Escape releases it -- and
+	// this is the Unreal spelling of the same statement.
+	//
+	// Idempotent and cheap, called from Tick because the player controller does not exist
+	// yet in BeginPlay on every path.
+	if (bInputClaimed)
+	{
+		return;
+	}
+	UWorld* World = GetWorld();
+	APlayerController* PC = World != nullptr ? World->GetFirstPlayerController() : nullptr;
+	if (PC == nullptr)
+	{
+		return;
+	}
+	PC->bShowMouseCursor = false;
+	PC->SetInputMode(FInputModeGameOnly());
+	bInputClaimed = true;
+	UE_LOG(LogTemp, Display, TEXT("HI: input claimed -- game-only mode, mouse captured"));
+}
+
 FHISim::FHIInput AHIGameMode::ReadInput()
 {
 	FHISim::FHIInput In;
@@ -422,9 +562,16 @@ FHISim::FHIInput AHIGameMode::ReadInput()
 	//
 	// The sim's plane is (X, Y) with +Y forward, so `MoveRight` is the X component and
 	// `MoveForward` the Y one -- and "+1 forward" is what FHIRound::Step already expects.
+	// AND THE ARROW KEYS, because Godot binds both: `_move_axis` reads
+	// `KEY_W or KEY_UP`, `KEY_S or KEY_DOWN`, `KEY_A or KEY_LEFT`, `KEY_D or KEY_RIGHT`.
+	// The port had only the letters, which is half of what the original accepts.
+	const bool bForward = PC->IsInputKeyDown(EKeys::W) || PC->IsInputKeyDown(EKeys::Up);
+	const bool bBack = PC->IsInputKeyDown(EKeys::S) || PC->IsInputKeyDown(EKeys::Down);
+	const bool bLeft = PC->IsInputKeyDown(EKeys::A) || PC->IsInputKeyDown(EKeys::Left);
+	const bool bRight = PC->IsInputKeyDown(EKeys::D) || PC->IsInputKeyDown(EKeys::Right);
 	In.Axis = FVector2D(
-		(PC->IsInputKeyDown(EKeys::D) ? 1.0f : 0.0f) - (PC->IsInputKeyDown(EKeys::A) ? 1.0f : 0.0f),
-		(PC->IsInputKeyDown(EKeys::W) ? 1.0f : 0.0f) - (PC->IsInputKeyDown(EKeys::S) ? 1.0f : 0.0f));
+		(bRight ? 1.0f : 0.0f) - (bLeft ? 1.0f : 0.0f),
+		(bForward ? 1.0f : 0.0f) - (bBack ? 1.0f : 0.0f));
 	InputSource = TEXT("keys");
 	In.bCrouch = PC->IsInputKeyDown(EKeys::C) || PC->IsInputKeyDown(EKeys::LeftControl);
 	In.bSprint = PC->IsInputKeyDown(EKeys::LeftShift);
@@ -519,23 +666,27 @@ void AHIGameMode::ApplyLook()
 	// whose own sensitivity is 0.07, which is 0.0035 -- about 60% faster than the original.
 	// The axis value is already scaled by that 0.07, so the conversion back to radians per
 	// PIXEL has to divide it out. Both paths below therefore agree with Godot.
-	// RAW MOUSE DELTA, for the same reason as the keys above: the `Turn` and `LookUp` axes are
-	// not bound, so `GetInputAxisValue` returned 0 and the view never moved. `game.gd` reads
-	// the mouse delta directly too, which is why the two now agree on the number as well as
-	// the scheme -- GodotRadiansPerPixel is the original's own AIM_SENS_X.
+	// RAW MOUSE DELTA, and the SIGNS AND THE SPEEDS are Godot's, taken from `_input`:
+	//
+	//     yaw   -= event.relative.x * AIM_SENS_X      (0.0022)
+	//     pitch  = clamp(pitch + event.relative.y * AIM_SENS_Y, PITCH_MIN, PITCH_MAX)   (0.0018)
+	//
+	// The first version of this had BOTH axes the wrong way round -- `yaw +=` and
+	// `pitch -=` -- which makes the mouse feel inverted rather than dead, and a single
+	// sensitivity for both axes when the original uses two. Reported from play: "the mouse
+	// doesn't aim and shoot like in the Godot version".
 	float DeltaX = 0.0f;
 	float DeltaY = 0.0f;
 	PC->GetInputMouseDelta(DeltaX, DeltaY);
-	const float Turn = DeltaX * GodotRadiansPerPixel;
-	// The mouse's +Y is downwards and the sim's negative pitch is "looking up", so the sign
-	// flips once, here.
-	const float LookUp = -DeltaY * GodotRadiansPerPixel;
+	float DeltaYaw = 0.0f;
+	float DeltaPitch = 0.0f;
+	LookDelta(DeltaX, DeltaY, DeltaYaw, DeltaPitch);
 
-	Round.Player.Yaw += Turn;
+	Round.Player.Yaw += DeltaYaw;
 	// The look axis is bound inverted (see DefaultInput.ini), so pushing the mouse up
 	// raises the pitch rather than lowering it.
 	Round.Player.Pitch = FMath::Clamp(
-		Round.Player.Pitch + LookUp,
+		Round.Player.Pitch + DeltaPitch,
 		FHISim::PitchMin, FHISim::PitchMax);
 
 	// RECOIL RECOVERY, and the first version of this was wrong in a way worth writing down:
@@ -559,11 +710,11 @@ void AHIGameMode::ApplyLook()
 	// Logged once a second, and only while something is happening: this is the line that
 	// turns "the controls do not work" into a fact on the next run.
 	InputLogTime += GetWorld()->GetDeltaSeconds();
-	if (InputLogTime >= 1.0f && (!FMath::IsNearlyZero(Turn) || !FMath::IsNearlyZero(LookUp)))
+	if (InputLogTime >= 1.0f && (!FMath::IsNearlyZero(DeltaYaw) || !FMath::IsNearlyZero(DeltaPitch)))
 	{
 		InputLogTime = 0.0f;
 		UE_LOG(LogTemp, Display, TEXT("HI: look src=%s turn=%.3f up=%.3f -> yaw=%.2f pitch=%.2f"),
-			*InputSource, Turn, LookUp, Round.Player.Yaw, Round.Player.Pitch);
+			*InputSource, DeltaYaw, DeltaPitch, Round.Player.Yaw, Round.Player.Pitch);
 	}
 }
 
@@ -1085,7 +1236,16 @@ void AHIGameMode::Tick(float DeltaSeconds)
 	// Look first, then step: FHIRound moves the homeowner relative to Player.Yaw, so a view
 	// applied afterwards would steer him one frame behind where the player is looking.
 	ApplyLook();
+	ClaimInput();
 	FHISim::FHIInput In = ReadInput();
+
+	// -HIPlaytest / -HITour replace what the player does, not how it is read. That
+	// distinction is the entire point: -HIAuto overwrites the input struct, so it can never
+	// test the input path. These two leave ReadInput's result alone.
+	if (bPlaytest)
+	{
+		PlaytestTick(DeltaSeconds);
+	}
 	if (bAuto)
 	{
 		Autopilot(In);

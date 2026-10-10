@@ -827,5 +827,51 @@ bool FHIUnrealWounds::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHIUnrealLookMapping,
+	"HI.Unreal.LookMapping",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+/**
+ * The mouse-to-view signs, against `game.gd`'s own two lines.
+ *
+ * Both axes were inverted in the first version, and nothing could have caught it: a still
+ * frame cannot show which way a mouse turns, the autopilot never reads the mouse, and the
+ * crash hunts were all in the logs. Reported from play as "the mouse doesn't aim and shoot
+ * like in the Godot version", which is exactly what an inverted pair of axes feels like.
+ *
+ * The original:
+ *
+ *     yaw   -= event.relative.x * AIM_SENS_X
+ *     pitch  = clampf(pitch + event.relative.y * AIM_SENS_Y, PITCH_MIN, PITCH_MAX)
+ */
+bool FHIUnrealLookMapping::RunTest(const FString& Parameters)
+{
+	float Yaw = 0.0f;
+	float Pitch = 0.0f;
+
+	// Mouse RIGHT (positive x) must turn the view the way Godot turns it: yaw DOWN.
+	AHIGameMode::LookDelta(100.0f, 0.0f, Yaw, Pitch);
+	TestTrue(*FString::Printf(TEXT("mouse right gives a NEGATIVE yaw delta (got %.4f)"), Yaw), Yaw < 0.0f);
+	TestTrue(TEXT("and does not touch the pitch"), FMath::IsNearlyZero(Pitch));
+
+	// Mouse DOWN (positive y in both engines) must look DOWN, which is positive pitch here.
+	AHIGameMode::LookDelta(0.0f, 100.0f, Yaw, Pitch);
+	TestTrue(*FString::Printf(TEXT("mouse down gives a POSITIVE pitch delta (got %.4f)"), Pitch), Pitch > 0.0f);
+	TestTrue(TEXT("and does not touch the yaw"), FMath::IsNearlyZero(Yaw));
+
+	// The magnitudes are the original's, and they are DIFFERENT per axis: 0.0022 and 0.0018.
+	// A single sensitivity for both was the other half of the first version's mistake.
+	AHIGameMode::LookDelta(1000.0f, 0.0f, Yaw, Pitch);
+	TestEqual(TEXT("1000 px of x is 2.2 rad, as in game.gd"), Yaw, -2.2f, 0.001f);
+	AHIGameMode::LookDelta(0.0f, 1000.0f, Yaw, Pitch);
+	TestEqual(TEXT("1000 px of y is 1.8 rad, as in game.gd"), Pitch, 1.8f, 0.001f);
+
+	// A control that would pass if the function ignored its arguments entirely.
+	AHIGameMode::LookDelta(0.0f, 0.0f, Yaw, Pitch);
+	TestTrue(TEXT("no mouse movement means no view movement"), Yaw == 0.0f && Pitch == 0.0f);
+
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS
 
