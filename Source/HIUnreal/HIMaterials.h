@@ -27,6 +27,22 @@ struct FHIMaterials
 	static UMaterialInterface* ShapeMaterial();
 
 	/**
+	 * A material from `/Game/HIGenerated`, or nullptr if the generator has not been run.
+	 *
+	 * These are REAL .uassets, and until 2026-10-09 the project's own README asserted that a
+	 * .uasset could not exist without a human in an editor -- which is why every surface in
+	 * the game is `BasicShapeMaterial` with a flat colour and why the windows are opaque.
+	 * `tools/make-assets.py` creates them headlessly through the engine's Python plugin, so
+	 * they are derived state like the engine art: reproducible, and `Content/` is gitignored
+	 * for both.
+	 *
+	 * A MISSING asset returns nullptr rather than a default, and every caller must have a
+	 * fallback: a renamed asset would otherwise become a silent white surface on screen --
+	 * which is exactly the class of failure the port keeps having to guard against.
+	 */
+	static UMaterialInterface* Generated(const TCHAR* Name);
+
+	/**
 	 * Give one material slot of one mesh a flat colour.
 	 *
 	 * The instance is outered to the mesh and installed into its material array, which is a
@@ -51,6 +67,15 @@ struct FHIMaterials
 	static const FLinearColor Van;
 	/** Tyres, and van glass reuses `Glass`. Contrast is the only detail this project has. */
 	static const FLinearColor Tyre;
+	/**
+	 * A coat, and the reason it has its own colour is that it did not.
+	 *
+	 * Props shared `Counter` (0.72, 0.73, 0.71) while the wall is (0.74, 0.70, 0.62) -- within
+	 * a few percent -- so the coat hanging by the front door rendered as a pale cabinet
+	 * attached to the wall. Same failure the interior palette was already tuned to avoid:
+	 * two things that should read as different objects landing on the same colour.
+	 */
+	static const FLinearColor Coat;
 	static const FLinearColor PlayerSkin;
 	static const FLinearColor IntruderSkin;
 	static const FLinearColor Gun;

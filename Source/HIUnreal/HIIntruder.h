@@ -78,6 +78,37 @@ public:
 	UPROPERTY(VisibleAnywhere, Category = "Home Invasion")
 	TObjectPtr<class UStaticMeshComponent> Gun;
 
+	/**
+	 * WOUNDS: blood ON the man, not only on the wall behind him.
+	 *
+	 * Fix-list item 19, and its exact wording is *"a hit produces a bullet hole and a stagger.
+	 * Nothing on the person"* -- the hole was on the wall, the stagger was a badge the HUD
+	 * printed, and the man himself was untouched. These are small dark quads PARENTED TO
+	 * BONES, which is the detail that matters: parented to the mesh they would slide across
+	 * the skin as he walks, because a skeletal mesh's component space is not its pose.
+	 *
+	 * The count is derived from health in `SyncFromSim`, not pushed from the damage site, so
+	 * it stays right across a round restart for free.
+	 */
+	static constexpr int32 MaxWounds = 5;
+
+	UPROPERTY(VisibleAnywhere, Category = "Home Invasion")
+	TArray<TObjectPtr<class UStaticMeshComponent>> Wounds;
+
+	/** Show the first `Count` wounds, hide the rest. Cheap enough to call every frame. */
+	void ShowWounds(int32 Count);
+
+	/**
+	 * Where wound number `Index` goes: bone, local offset in cm, and size in cm.
+	 *
+	 * Pure and static so the placement is asserted without a world -- the lesson of every bug
+	 * in this port is that the mapping is where the mistake is, not the rendering.
+	 */
+	static bool WoundPlacement(int32 Index, FName& OutBone, FVector& OutOffset, FVector& OutSize);
+
+	/** How many wounds a man at `Hp` should be showing. Pure, so it can be asserted. */
+	static int32 WoundsForHealth(float Hp);
+
 private:
 	void BuildVisuals();
 

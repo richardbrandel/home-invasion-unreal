@@ -57,6 +57,38 @@ changing it**: the destination paths are dictated by the assets' OWN internal `/
 package references, not chosen, and a copy that lands anywhere else silently loses
 skeletons and textures.
 
+## Assets this project GENERATES — the .uasset wall is gone
+
+`tools/make-assets.py`, driven by `tools/make-assets.sh`, creates materials headlessly.
+Their output is also in `Content/`, and also gitignored, for the same reason: it is derived
+state and the script is the source of truth.
+
+```sh
+ssh ubuntu-dev '/data/projects/HIUnreal/tools/make-assets.sh'
+```
+
+**This section replaces a sentence that was in this file for the life of the port.** It said
+a material *"is a `.uasset`, so a port that has no editor session cannot make one"* — and
+every visual compromise in the project descends from that: every surface is
+`BasicShapeMaterial` with a flat colour, the windows are opaque, and the characters carry the
+engine's own materials because a skin or hair material was unmakeable.
+
+Measured 2026-10-09: it is false. `PythonScriptPlugin` ships with the engine, and
+
+```sh
+UnrealEditor-Cmd <uproject> -unattended -NullRHI -ExecutePythonScript=...
+```
+
+creates a material, authors its expressions, connects them to its properties, sets its
+shading model and blend mode, and **saves it to disk** — with no display and no human. The
+no-Blueprints rule still holds (nothing is hand-authored in a GUI), but *"no editor session"*
+no longer implies *"no assets"*. Two traps found on the way, both recorded in the porting
+hazards below: a generated material needs its **usage flags** set by hand or the engine
+swaps in the checkerboard Default Material, and **Unlit reads its colour from `MP_EMISSIVE_COLOR`,
+not `MP_BASE_COLOR`**.
+
+Current output: `M_HIGlass`, translucent, on the windows and the van's glazing.
+
 ## Build and test
 
 ```sh
@@ -227,6 +259,26 @@ toolchain, which is a separate job from making the game work.
   them by `SCALE` (0.5) at placement. Measuring the raw AABB gives numbers that look like
   furniture and are all half again too big. The port does not need them anyway: the heights
   are in `sim.gd`'s `FURNITURE` literal as `h`, which is what `game.gd` draws with.
+- **A GENERATED material needs its usage flags set, or the engine silently discards it.**
+  Putting a script-authored material on an `InstancedStaticMeshComponent` produced this, as a
+  **Warning** and not an Error, and the pane rendered as the engine's grey-and-black
+  **checkerboard** — which is what a "missing material" looks like, and which looks exactly
+  like a material that was never applied:
+  `LogMaterial: Warning: Material ... missing usage flag InstancedStaticMeshes! Default
+  Material will be used in game.` In an editor those flags are set automatically when the
+  material is assigned; a headless generator gets no such pass. `tools/make-assets.py` sets
+  them explicitly now, and discovers the enum member names rather than hard-coding them.
+- **On an Unlit material the colour goes in `MP_EMISSIVE_COLOR`, not `MP_BASE_COLOR`.** Both
+  compile, and the wrong one is a black surface.
+- **A lit translucent material dithers in a single offscreen frame.** The first working
+  `M_HIGlass` was `DEFAULT_LIT` + `BLEND_TRANSLUCENT` and captured as a checkerboard, because
+  Lumen's translucent lighting resolves over several frames of temporal accumulation and
+  `-HIShot` renders one. It is `MSM_UNLIT` now — a plain alpha blend with nothing to
+  accumulate — which is also what a window pane wants. Worth re-testing as a lit material if
+  the game is ever captured as a running sequence rather than frame by frame.
+- **A local named `Path` shadows `FHIMaterials::Path`** (the driveway colour) and the build
+  fails on `-Wshadow` + `-Werror`. The same class as the `PI`/`I`/`J` macros: a short,
+  ordinary-looking name that already means something in this codebase.
 
 ### The engine has to be built for the game to run at all
 
@@ -263,7 +315,7 @@ flare stay off, which costs nothing.
 
 ## Status
 
-`HI.` passes **35/35** on ubuntu-dev. **All 97 assertions** in the Godot *sim* spec are
+`HI.` passes **36/36** on ubuntu-dev. **All 97 assertions** in the Godot *sim* spec are
 represented; the port adds coverage the Godot project has never had on either side.
 
 | Test | Covers |
@@ -303,6 +355,7 @@ represented; the port adds coverage the Godot project has never had on either si
 | **`HI.Unreal.ThiefAim`** | **the intruder's range falloff, guarding the 0.55 floor that made range meaningless** |
 | **`HI.Unreal.Furniture`** | **the furniture heights against `sim.gd`'s own `h` field, and that a sofa is not a column** |
 | **`HI.Unreal.WallFittings`** | **that every socket, switch and thermostat is flush against a wall -- with a negative control** |
+| **`HI.Unreal.Wounds`** | **blood on the man: the wound count against health, and five distinct bones** |
 
 ## Bugs the test suite could not have caught
 
@@ -402,7 +455,7 @@ column of that list**; the Godot column is unchanged.
 |---|---|---|
 | 2 | Characters are shiny mannequins | **DONE, differently.** The engine's own Mannequin, and **two different meshes** — Manny for the homeowner, Quinn for the intruders — so three men through a door are tellable apart. No MetaHuman: it needs an editor session and a download |
 | 3 | Walls | **DONE from text.** Skirting and picture rail generated from the sim's own wall list; roof, eaves, plinth |
-| 5 | Windows | **DONE.** Frames, sills, mullions and glazing on all four exterior walls. The glazing is still an OPAQUE panel — a translucent material is a `.uasset` — so it is deliberately dark, which is the only thing that reads as glass when it is lit from behind |
+| 5 | Windows | **DONE.** Frames, sills, mullions and glazing on all four exterior walls, and the glazing is now **real translucent glass** (`M_HIGlass`, generated) rather than the pale opaque panel this row used to describe. The pane is in its own component -- `AddWindow` put the pane, the frame, the mullion and the sill in one component with one material, so making the pane glass would have made the frame glass too |
 | 8 | Sockets, switches, thermostats, light fittings | **DONE.** Sockets, switches, a thermostat, a smoke alarm and a ceiling rose under each lamp |
 | 10 / 11 | Valuables and props | **DONE.** TV, laptop and safe modelled from primitives (each with its BASE at floor level so one placement rule serves floor, hand and van), plus a kettle, toaster, bread bin, coat and hook, keys, a phone, a picture and a desk mat |
 | 13 | Animation blending | **DONE, and NOT the way this port's own notes assumed.** "Blending is built in" is true of a normal Unreal project and false of one with no editor session: an AnimBlueprint is a `.uasset`. So it uses `EAnimationMode::AnimationSingleNode` on the engine's 2-D **blend space** over speed and direction — a genuine continuous cross-fade, with the metre-to-centimetre conversion named in the one place it happens |
@@ -411,12 +464,40 @@ column of that list**; the Godot column is unchanged.
 | 16 | Voice / barks | **HOOK ONLY.** The bark system exists and fires at the right moments (a man goes down, you shout), but the cue is a pitched sine and sounds like equipment, not a person. Voices need recordings |
 | 17 | More non-lethal verbs | **Done except barricading.** Shove, reload and weapon switch were already wired; **[Q] shout** frightens every man who hears it without spending a round; **[P] calls the police** without a gunshot; and **[L] kills the lights**, which cuts the intruders' accuracy to 55% — applied in the GAME layer's `ThiefHitChance`, where the port's own design rule puts the shot and not the decision. Barricading is not started: it is a new SOLID, and the sim's rectangle list is this repo's spec and is index-aligned with its spans, so adding one is a world-data change rather than a verb |
 | 18 | The simulation is 2-D | **DONE** — `FHISolidSpan`, `LosBlocked3D` and a `Z` on both entities, with `HI.Sim.Elevation` as the regression harness. The spans are uniform at a full storey **on purpose, because they model SIGHT and Godot's own `los_blocked` is 2-D and ignores height** — so a sofa you can see the top of still blocks your view, in both projects. This paragraph used to justify the uniform spans by saying *"the Godot source carries no furniture heights"*. **That was wrong**: `sim.gd`'s `FURNITURE` literal carries `h` on every row and `game.gd` draws with it. The spans are the sight model and stay as they are; the *geometry* now draws at `h`, which is bug 6 above. The remaining mismatch — tall sight, short furniture — is the original's, not this port's |
-| 19 | Blood / wounds | **PARTLY.** Pooled bullet holes where pellets land, a blood mark where a man falls, a flash on a hit and a red edge when the homeowner is hit. Nothing ON the person |
+| 19 | Blood / wounds | **DONE.** Pooled bullet holes where pellets land, a blood mark where a man falls, a flash on a hit, a red edge when the homeowner is hit -- and now **wounds on the BODY**: five blood marks parented to bones, appearing one per 20 HP lost, so the body says what the HUD number says. Parented to bones rather than to the mesh, because a component-space offset slides across the skin as he walks. `HI.Unreal.Wounds` asserts the count against health and that all five land on distinct bones. The marks are still flat cubes rather than decals, which is the same primitive limitation as everything else |
 | 20 | Audio buses | **DONE for the buses, placeholder content.** Every cue is routed through the engine's `SFX` sound class rather than Master, and carries a submix send to `MasterReverbSubmixDefault` — whose effect chain was inspected before it was relied on — set from whether the cue is inside the house, so a shot in the kitchen rings and a shot on the lawn does not. The gunshots are the engine's template cue; impacts and barks are that cue and a sine at shifted pitch. **Foley needs recordings** |
 | 21 | Reflections / GI | **DONE.** Lumen for GI and reflections, virtual shadow maps off, distance fields on, stated in `DefaultEngine.ini` |
 
-## What is still open, and it is not a green tick
+## SOURCE ASSETS THIS PROJECT NEEDS
 
+**Ask for source formats, never for `.uasset` files.** Since 2026-10-09 the project can both
+AUTHOR and IMPORT assets headlessly (`tools/make-assets.py`, `tools/import-assets.py`), so a
+`.wav`, a `.fbx`, a `.glb` or a `.png` is something a script turns into a game asset. A
+`.uasset` is an engine binary that only an editor can make, and asking for one means asking
+someone to sit in a GUI.
+
+Put files in `/data/projects/HIUnreal/SourceAssets/` on the build machine and run the import
+script. `SourceAssets/` is gitignored.
+
+| # | What | Format | Why, and what it unblocks |
+|---|---|---|---|
+| 1 | **Gunshots**: pistol and shotgun, ideally 3-4 variations each | `.wav`, 48 kHz mono, dry (no reverb) | Item 20. The buses, the indoor/outdoor reverb and the ducking are real; the *content* is the engine's template cue. Dry, because the reverb is applied by the game per room -- a pre-reverbed file cannot be un-reverbed |
+| 2 | **Foley**: footsteps on wood, carpet and grass; a door; a body falling; picking something up; breaking glass | `.wav`, 48 kHz, a few variations each | Items 20 and 11. Same reason. Footsteps are the one a player hears most |
+| 3 | **Voices for the intruders (item 16)**: a challenge, an order to the others, pain, a shout to retreat, a death grunt | `.wav`, 48 kHz mono | The bark SYSTEM works and fires at the right moments; the cue is a pitched sine, so it sounds like equipment. This is the single biggest gap in the game's feel |
+| 4 | **A voice line or two for the homeowner** -- a challenge, a warning | `.wav`, 48 kHz mono | Same item. There is a shout verb (`Q`) with no voice behind it |
+| 5 | **Sirens** for the police arrival | `.wav` | The police clock already runs and drives the intruders off; the sound is synthetic |
+| 6 | **A clothed character mesh** for the homeowner | `.fbx` or `.glb`, rigged to the UE5 skeleton, or a MetaHuman | Item 2's expensive half. The port uses the engine Mannequin, which is why he reads as a mannequin. A MetaHuman needs an editor session to assemble, so an FBX is the more useful thing to receive |
+| 7 | **A shotgun mesh** | `.fbx` or `.glb` | Item 23 in Godot's list. The shotgun is currently the engine's *rifle* standing in for one -- disclosed, but it is a rifle |
+| 8 | **Wall, floor and door textures** | `.png`, 1024 or 2048, tileable | Item 3. Walls, floors and doors are flat colours because there are no textures at all. Tileable matters: it is a whole house from a handful of images |
+| 9 | **An anim graph, or more idle clips** | `.fbx` animation, or someone with an editor | Items 14 and 15's remaining halves. Feet do not plant, and every man idles in the same pose. The engine ships `CR_Mannequin_BasicFootIK` as a `.uasset` and ControlRig is exposed to Python, so an AnimBlueprint may be authorable headlessly -- **not yet attempted** |
+| 10 | **Furniture meshes**, if the flat-box look is to go | `.fbx` or `.glb` | Items 9 and 11. Furniture is a box per sim rectangle, which is why a sofa reads as a slab. The Godot original uses KayKit glTF models, so those exact files would be ideal and are already in the Godot repo |
+
+Two things that are **not** on this list, deliberately: anything that already exists in the
+Godot repository (its audio, its KayKit models and its animations are all committed and can be
+copied across), and anything that is a design decision rather than an asset -- barricading and
+loot scarcity are Richard's calls, not shopping.
+
+## What is still open, and it is not a green tick
 - **The intruders are still lethal, but no longer absurdly so.** The 6.6 s figure above was
   measured while the intruders could not move — they stood at the van with a clear line
   through the front door and shot an idle homeowner at leisure. **Re-measured after the fix:
@@ -467,6 +548,20 @@ column of that list**; the Godot column is unchanged.
 - **The damage flash is four hard-edged rectangles.** It is drawn as four edge bars so it does
   not hide what is shooting you, which is right, but they meet at the corners with no falloff,
   so at high alpha the frame reads as a picture frame rather than as being hurt. Cosmetic.
+- **UNIDENTIFIED: a two-tone object stands against a wall in driven captures.** Reproducible
+  with `-HIAuto -HIThieves=1 -HIShotAfter=0.9 -HIShotNoUI`: roughly 1.2 m wide and 2.06 m
+  tall, dark red above green, sitting on the floor hard against a wall, with the skirting
+  running unbroken in front of it. Its colours match `FHIMaterials::Blood` over
+  `Grass`/`Van` and nothing else in the palette. It does **not** appear in posed captures at
+  the same coordinates, so it is produced by the fight rather than by the house. It was *not*
+  identified -- the session ran out of budget on it -- and it is recorded here rather than
+  guessed at. Start from `HILootProp` and `AHIGameMode::FlashPoint`, which are the two things
+  that appear only once shooting starts.
+- **The captures show the engine's shader-preparation overlay.** "Preparing Shaders ... Sky
+  Light waiting on Shaders for final capture" is drawn into the frame when a capture is
+  requested before shaders finish, and it is visible in `shots/h_in.png`. It pollutes the
+  picture, not the game. A longer `-HIShotAfter`, or suppressing the notification, would
+  clear it.
 - **Mouse-look sensitivity is flagged TUNING** in `HIGameMode.h` and needs eyes.
 - The house's door is an opening, not a leaf; the van's glazing is only on its flanks and
   windscreen; walls have no texture of any kind. All three need art, not code.

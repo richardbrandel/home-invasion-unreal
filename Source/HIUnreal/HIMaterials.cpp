@@ -21,6 +21,7 @@ const FLinearColor FHIMaterials::Trim          = FLinearColor(0.94f, 0.93f, 0.90
 const FLinearColor FHIMaterials::Glass         = FLinearColor(0.16f, 0.21f, 0.26f);
 const FLinearColor FHIMaterials::Van           = FLinearColor(0.22f, 0.36f, 0.24f);
 const FLinearColor FHIMaterials::Tyre          = FLinearColor(0.05f, 0.05f, 0.055f);
+const FLinearColor FHIMaterials::Coat          = FLinearColor(0.14f, 0.13f, 0.18f);
 const FLinearColor FHIMaterials::PlayerSkin    = FLinearColor(0.62f, 0.66f, 0.74f);
 const FLinearColor FHIMaterials::IntruderSkin  = FLinearColor(0.34f, 0.30f, 0.28f);
 const FLinearColor FHIMaterials::Gun           = FLinearColor(0.10f, 0.10f, 0.11f);
@@ -39,6 +40,26 @@ UMaterialInterface* FHIMaterials::ShapeMaterial()
 			nullptr, TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial"));
 	}
 	return Cached;
+}
+
+UMaterialInterface* FHIMaterials::Generated(const TCHAR* Name)
+{
+	// Cached by name, because a LoadObject per component per rebuild is a name lookup the
+	// engine can do once. A miss is remembered as nullptr so a missing asset is not re-searched
+	// every frame either.
+	static TMap<FString, UMaterialInterface*> Cache;
+	const FString Key(Name);
+	if (UMaterialInterface** Found = Cache.Find(Key))
+	{
+		return *Found;
+	}
+	// NOT named `Path`: this struct already has a static `Path` (the driveway colour), and a
+	// local that shadows it is `-Wshadow` + `-Werror` here. The same class of trap as the
+	// `PI`/`I`/`J` macros -- a short, ordinary-looking name that already means something.
+	const FString AssetPath = FString::Printf(TEXT("/Game/HIGenerated/%s.%s"), Name, Name);
+	UMaterialInterface* Loaded = LoadObject<UMaterialInterface>(nullptr, *AssetPath);
+	Cache.Add(Key, Loaded);
+	return Loaded;
 }
 
 UMaterialInstanceDynamic* FHIMaterials::Tint(UMeshComponent* Mesh, const FLinearColor& Colour, int32 Slot)

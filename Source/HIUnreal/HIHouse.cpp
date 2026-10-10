@@ -118,6 +118,8 @@ AHIHouse::AHIHouse()
 	CeilingInstance = MakeDecor(TEXT("Ceiling"), Cube, WallInstances);
 	TrimInstances = MakeDecor(TEXT("Trim"), Cube, WallInstances);
 	WindowInstances = MakeDecor(TEXT("Windows"), Cube, WallInstances);
+	GlassInstances = MakeDecor(TEXT("Glass"), Cube, WallInstances);
+	CoatInstances = MakeDecor(TEXT("Coat"), Cube, WallInstances);
 	FittingInstances = MakeDecor(TEXT("Fittings"), Cube, WallInstances);
 	PropInstances = MakeDecor(TEXT("Props"), Cube, WallInstances);
 	DoorHeadInstances = MakeDecor(TEXT("DoorHead"), Cube, WallInstances);
@@ -164,12 +166,16 @@ void AHIHouse::AddBox(UInstancedStaticMeshComponent* Target, const FVector& Cent
 		SizeMeters), /*bWorldSpace=*/false);
 }
 
-void AHIHouse::AddWindow(bool bAlongX, float Along, float WallCoord, float Facing, float Width){
-	// A window is a hole with a frame round it and something in the hole. The glazing is a
-	// PALE BLUE PANEL rather than real glass, because a translucent material is a .uasset
-	// and this project has none -- which is exactly the compromise the Godot original is
-	// still carrying ("the glazing is still a pale opaque panel from outside"). What is
-	// fixed here is the part that was actually missing: there were no windows at all.
+void AHIHouse::AddWindow(bool bAlongX, float Along, float WallCoord, float Facing, float Width)
+{
+	// A window is a hole with a frame round it and something in the hole.
+	//
+	// The glazing WAS a pale opaque panel, because the port's notes said a translucent
+	// material is a .uasset and a .uasset needs an editor session. That is not true any more
+	// -- see `tools/make-assets.py` -- so the pane is now real glass from
+	// `/Game/HIGenerated/M_HIGlass` in its own component, and the frame, mullion and sill
+	// stay opaque trim. The original's own note ("the glazing is still a pale opaque panel
+	// from outside") applied to Godot; this closes it here.
 	const float Sill = 0.95f;
 	const float Head = 2.15f;
 	const float MidZ = (Sill + Head) * 0.5f;
@@ -179,7 +185,8 @@ void AHIHouse::AddWindow(bool bAlongX, float Along, float WallCoord, float Facin
 	const float Out = WallCoord + Facing * 0.15f;
 	const float FrameT = 0.06f;
 
-	auto Place = [&](float AlongOffset, float HeightOffset, float SizeAlong, float SizeZ)
+	auto Place = [&](UInstancedStaticMeshComponent* Target, float AlongOffset, float HeightOffset,
+		float SizeAlong, float SizeZ)
 	{
 		const FVector Centre = bAlongX
 			? FVector(Along + AlongOffset, Out, MidZ + HeightOffset)
@@ -187,17 +194,19 @@ void AHIHouse::AddWindow(bool bAlongX, float Along, float WallCoord, float Facin
 		const FVector Size = bAlongX
 			? FVector(SizeAlong, 0.08f, SizeZ)
 			: FVector(0.08f, SizeAlong, SizeZ);
-		AddBox(WindowInstances, Centre, Size);
+		AddBox(Target, Centre, Size);
 	};
 
-	// The glazing, then the four sides of the frame around it.
-	Place(0.0f, 0.0f, Width, Height);
-	Place(0.0f, (Height * 0.5f) + (FrameT * 0.5f), Width + FrameT * 2.0f, FrameT);
-	Place(0.0f, -(Height * 0.5f) - (FrameT * 0.5f), Width + FrameT * 2.0f, FrameT);
-	Place(-(Width * 0.5f) - (FrameT * 0.5f), 0.0f, FrameT, Height);
-	Place((Width * 0.5f) + (FrameT * 0.5f), 0.0f, FrameT, Height);
+	// The glazing goes to its OWN component, so that making it translucent cannot drag the
+	// frame, the mullion and the sill along with it -- they share nothing but a position.
+	Place(GlassInstances, 0.0f, 0.0f, Width, Height);
+	// Then the four sides of the frame around it.
+	Place(WindowInstances, 0.0f, (Height * 0.5f) + (FrameT * 0.5f), Width + FrameT * 2.0f, FrameT);
+	Place(WindowInstances, 0.0f, -(Height * 0.5f) - (FrameT * 0.5f), Width + FrameT * 2.0f, FrameT);
+	Place(WindowInstances, -(Width * 0.5f) - (FrameT * 0.5f), 0.0f, FrameT, Height);
+	Place(WindowInstances, (Width * 0.5f) + (FrameT * 0.5f), 0.0f, FrameT, Height);
 	// A central mullion, because one big pane reads as a hole and two reads as a window.
-	Place(0.0f, 0.0f, FrameT * 0.8f, Height);
+	Place(WindowInstances, 0.0f, 0.0f, FrameT * 0.8f, Height);
 	// The sill, standing proud of the wall below the opening.
 	const FVector SillCentre = bAlongX
 		? FVector(Along, Out + Facing * 0.06f, Sill - 0.03f)
@@ -344,8 +353,8 @@ void AHIHouse::BuildDressing()
 	// of it inside the opening -- and a pale slab hanging in the one hole in the house read
 	// as a bug rather than as a coat. Measured on a capture; the wall starts at x = -1, so it
 	// needs to be clear of that edge. See fix-list items 10 and 11.
-	AddBox(PropInstances, FVector(-1.80f, -8.35f, 1.75f), FVector(0.10f, 0.10f, 0.10f));  // coat hook
-	AddBox(PropInstances, FVector(-1.80f, -8.45f, 1.28f), FVector(0.44f, 0.22f, 0.86f));  // coat
+	AddBox(CoatInstances, FVector(-1.80f, -8.35f, 1.75f), FVector(0.10f, 0.10f, 0.10f));  // coat hook
+	AddBox(CoatInstances, FVector(-1.80f, -8.45f, 1.28f), FVector(0.44f, 0.22f, 0.86f));  // coat
 	AddBox(PropInstances, FVector(-6.86f, -13.95f, 0.62f), FVector(0.26f, 0.20f, 0.04f)); // keys on the table
 	AddBox(PropInstances, FVector(-6.62f, -14.10f, 0.62f), FVector(0.09f, 0.16f, 0.02f)); // phone
 	AddBox(PropInstances, FVector(-7.85f, -11.00f, 1.60f), FVector(0.05f, 0.90f, 0.68f)); // a picture
@@ -370,9 +379,9 @@ void AHIHouse::BuildDressing()
 		// The windscreen and the two flank glazing strips, as slightly proud slabs. Routed
 		// into the WINDOW component rather than the body's: glass is glass, and giving it its
 		// own colour is the entire difference between a van and a green box.
-		AddBox(WindowInstances, FVector(CX, CY - 2.16f, 1.30f), FVector(Size.X * 0.78f, 0.06f, 0.60f));
-		AddBox(WindowInstances, FVector(CX - Size.X * 0.5f - 0.02f, CY - 1.55f, 1.30f), FVector(0.06f, 1.00f, 0.50f));
-		AddBox(WindowInstances, FVector(CX + Size.X * 0.5f + 0.02f, CY - 1.55f, 1.30f), FVector(0.06f, 1.00f, 0.50f));
+		AddBox(GlassInstances, FVector(CX, CY - 2.16f, 1.30f), FVector(Size.X * 0.78f, 0.06f, 0.60f));
+		AddBox(GlassInstances, FVector(CX - Size.X * 0.5f - 0.02f, CY - 1.55f, 1.30f), FVector(0.06f, 1.00f, 0.50f));
+		AddBox(GlassInstances, FVector(CX + Size.X * 0.5f + 0.02f, CY - 1.55f, 1.30f), FVector(0.06f, 1.00f, 0.50f));
 		// Four wheels, standing proud of the body on both sides, and DARK. See the header:
 		// green wheels on a green body is a table.
 		for (float SX : { -1.0f, 1.0f })
@@ -396,8 +405,8 @@ void AHIHouse::Build()
 	WallInstances->ClearInstances();
 	FurnitureInstances->ClearInstances();
 	for (UInstancedStaticMeshComponent* Comp : { GroundInstance, FloorInstance, RoofInstance,
-		TrimInstances, WindowInstances, FittingInstances, PropInstances, DoorHeadInstances,
-		VanInstances, VanDetailInstances })
+		TrimInstances, WindowInstances, GlassInstances, FittingInstances, PropInstances,
+		CoatInstances, DoorHeadInstances, VanInstances, VanDetailInstances })
 	{
 		if (Comp != nullptr)
 		{
@@ -496,7 +505,26 @@ void AHIHouse::Build()
 	FHIMaterials::Tint(RoofInstance, FHIMaterials::WallExterior);
 	FHIMaterials::Tint(CeilingInstance, FHIMaterials::Ceiling);
 	FHIMaterials::Tint(TrimInstances, FHIMaterials::Trim);
-	FHIMaterials::Tint(WindowInstances, FHIMaterials::Glass);
+	FHIMaterials::Tint(WindowInstances, FHIMaterials::Trim);
+	// The glazing: a GENERATED material if the generator has been run, and the old opaque
+	// pane if it has not. A missing asset must degrade to the previous look rather than to
+	// a white void -- that is the whole reason `Generated` returns nullptr instead of a
+	// default. Run tools/make-assets.sh to get the real thing.
+	if (UMaterialInterface* GlassMat = FHIMaterials::Generated(TEXT("M_HIGlass")))
+	{
+		if (UMaterialInstanceDynamic* Mid = UMaterialInstanceDynamic::Create(GlassMat, GlassInstances))
+		{
+			Mid->SetScalarParameterValue(TEXT("Opacity"), 0.22f);
+			Mid->SetVectorParameterValue(TEXT("GlassColor"), FLinearColor(0.42f, 0.52f, 0.58f, 1.0f));
+			GlassInstances->SetMaterial(0, Mid);
+		}
+	}
+	else
+	{
+		UE_LOG(LogTemp, Warning, TEXT("HI: M_HIGlass missing -- windows fall back to opaque. Run tools/make-assets.sh"));
+		FHIMaterials::Tint(GlassInstances, FHIMaterials::Glass);
+	}
+	FHIMaterials::Tint(CoatInstances, FHIMaterials::Coat);
 	FHIMaterials::Tint(FittingInstances, FHIMaterials::Trim);
 	FHIMaterials::Tint(PropInstances, FHIMaterials::Counter);
 	// The door head is WALL, not trim: it is a piece of wall that was missing, and a white
@@ -512,13 +540,15 @@ void AHIHouse::Build()
 	// those apart. These counts can: 7 walls, 19 furniture solids, and every decorative
 	// component non-zero, or something in this function silently did not run.
 	UE_LOG(LogTemp, Display,
-		TEXT("HI: house built -- walls=%d furniture=%d ground=%d floor=%d roof=%d ceiling=%d trim=%d glass=%d fittings=%d props=%d door_head=%d van=%d van_detail=%d"),
+		TEXT("HI: house built -- walls=%d furniture=%d ground=%d floor=%d roof=%d ceiling=%d trim=%d frames=%d glass=%d fittings=%d props=%d coat=%d door_head=%d van=%d van_detail=%d"),
 		WallInstances->GetInstanceCount(), FurnitureInstances->GetInstanceCount(),
 		GroundInstance->GetInstanceCount(), FloorInstance->GetInstanceCount(),
 		RoofInstance->GetInstanceCount(), CeilingInstance->GetInstanceCount(),
 		TrimInstances->GetInstanceCount(),
-		WindowInstances->GetInstanceCount(), FittingInstances->GetInstanceCount(),
-		PropInstances->GetInstanceCount(), DoorHeadInstances->GetInstanceCount(),
+		WindowInstances->GetInstanceCount(), GlassInstances->GetInstanceCount(),
+		FittingInstances->GetInstanceCount(),
+		PropInstances->GetInstanceCount(), CoatInstances->GetInstanceCount(),
+		DoorHeadInstances->GetInstanceCount(),
 		VanInstances->GetInstanceCount(),
 		VanDetailInstances->GetInstanceCount());
 	UE_LOG(LogTemp, Display, TEXT("HI: shape material %s"),

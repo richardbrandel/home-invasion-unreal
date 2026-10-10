@@ -102,6 +102,17 @@ public:
 	TObjectPtr<class UInstancedStaticMeshComponent> WindowInstances;
 
 	/**
+	 * The GLAZING alone, split out from the frames so it can be translucent.
+	 *
+	 * `AddWindow` used to put the pane, the four frame sides, the mullion and the sill into
+	 * one component with one material -- so making the pane real glass would have made the
+	 * frame and the sill glass too. The glazing is the one thing that wants
+	 * `/Game/HIGenerated/M_HIGlass`, and everything else wants the flat trim colour.
+	 */
+	UPROPERTY(VisibleAnywhere, Category = "Home Invasion")
+	TObjectPtr<class UInstancedStaticMeshComponent> GlassInstances;
+
+	/**
 	 * Sockets, switches, thermostats, light fittings and a smoke alarm. Fix-list item 8.
 	 *
 	 * Hand-placed rather than generated, and that is honest rather than lazy: "nothing on the
@@ -114,6 +125,17 @@ public:
 	/** Coats, keys, a phone, a kettle: the small stuff. Fix-list items 10 and 11. */
 	UPROPERTY(VisibleAnywhere, Category = "Home Invasion")
 	TObjectPtr<class UInstancedStaticMeshComponent> PropInstances;
+
+	/**
+	 * The coat, and only the coat, because it needs a colour the appliances do not.
+	 *
+	 * Every prop shared one component and one colour, `Counter` (0.72, 0.73, 0.71), against a
+	 * wall of (0.74, 0.70, 0.62) -- so the coat by the front door rendered as a pale cabinet
+	 * on the wall. A kettle and a toaster *should* be pale metal; a coat should not, and an
+	 * instanced component carries one material, so the coat needs its own.
+	 */
+	UPROPERTY(VisibleAnywhere, Category = "Home Invasion")
+	TObjectPtr<class UInstancedStaticMeshComponent> CoatInstances;
 
 	/**
 	 * The head of the front doorway: the wall above the opening.

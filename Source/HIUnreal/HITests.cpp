@@ -736,5 +736,70 @@ bool FHIUnrealWallFittings::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHIUnrealWounds,
+	"HI.Unreal.Wounds",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+/**
+ * Blood on the man: the count and the placement, asserted without a world.
+ *
+ * Fix-list item 19 said *"a hit produces a bullet hole and a stagger. Nothing on the person"*.
+ * The two halves that can be wrong are how many wounds a given health should show, and WHERE
+ * each one goes -- and the second is the mapping kind of mistake this port has made in every
+ * single bug so far, so it is checked here rather than looked at.
+ */
+bool FHIUnrealWounds::RunTest(const FString& Parameters)
+{
+	// Full health is unmarked, and a corpse is not. A "band" is 20 HP, so the first wound
+	// appears once a whole band is gone -- which is the boundary worth pinning, because the
+	// first version of this test asserted 85 HP showed one wound and the code was right.
+	TestEqual(TEXT("full health shows no wounds"), AHIIntruder::WoundsForHealth(100.0f), 0);
+	TestEqual(TEXT("just under a whole band shows nothing"), AHIIntruder::WoundsForHealth(85.0f), 0);
+	TestEqual(TEXT("one whole band lost shows one"), AHIIntruder::WoundsForHealth(80.0f), 1);
+	TestEqual(TEXT("half health shows two"), AHIIntruder::WoundsForHealth(50.0f), 2);
+	TestEqual(TEXT("nearly dead shows most"), AHIIntruder::WoundsForHealth(5.0f), 4);
+	TestEqual(TEXT("dead shows all of them"), AHIIntruder::WoundsForHealth(0.0f), AHIIntruder::MaxWounds);
+
+	// Monotonic: more damage never means fewer wounds. A step that went backwards would make
+	// a man look healthier after being shot, which is the sort of thing only an eye catches.
+	int32 Previous = 0;
+	bool bMonotonic = true;
+	for (int32 Hp = 100; Hp >= 0; --Hp)
+	{
+		const int32 Now = AHIIntruder::WoundsForHealth(static_cast<float>(Hp));
+		if (Now < Previous)
+		{
+			bMonotonic = false;
+		}
+		Previous = Now;
+	}
+	TestTrue(TEXT("wounds never decrease as health falls"), bMonotonic);
+
+	// Every slot must resolve, to a DISTINCT bone, and out of range must be refused.
+	TSet<FName> Bones;
+	for (int32 Idx = 0; Idx < AHIIntruder::MaxWounds; ++Idx)
+	{
+		FName Bone;
+		FVector Offset;
+		FVector Size;
+		TestTrue(*FString::Printf(TEXT("wound %d has a placement"), Idx),
+			AHIIntruder::WoundPlacement(Idx, Bone, Offset, Size));
+		TestTrue(*FString::Printf(TEXT("wound %d names a bone"), Idx), !Bone.IsNone());
+		TestTrue(*FString::Printf(TEXT("wound %d is a sane size (%.1f cm)"), Idx, Size.X),
+			Size.X > 1.0f && Size.X < 20.0f);
+		// Two wounds on one bone would overlap and look like one, which defeats the point of
+		// showing five of them.
+		TestFalse(*FString::Printf(TEXT("wound %d is on its own bone (%s)"), Idx, *Bone.ToString()),
+			Bones.Contains(Bone));
+		Bones.Add(Bone);
+	}
+	FName Dummy; FVector O, S;
+	TestFalse(TEXT("a wound out of range is refused"), AHIIntruder::WoundPlacement(-1, Dummy, O, S));
+	TestFalse(TEXT("a wound past the end is refused"),
+		AHIIntruder::WoundPlacement(AHIIntruder::MaxWounds, Dummy, O, S));
+
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS
 

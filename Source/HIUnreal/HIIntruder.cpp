@@ -6,6 +6,7 @@
 #include "Engine/StaticMesh.h"
 #include "Engine/SkeletalMesh.h"
 #include "HICharAnim.h"
+#include "HIMaterials.h"
 #include "HIUnits.h"
 
 namespace
@@ -16,6 +17,28 @@ namespace
 	// able to tell who is who is its own requirement and this is the cheapest way to meet it.
 	const TCHAR* IntruderMeshPath = TEXT("/Game/Characters/Mannequins/Meshes/SKM_Quinn_Simple.SKM_Quinn_Simple");
 	const TCHAR* DeathPath = TEXT("/Game/Characters/Mannequins/Anims/Death/MM_Death_Back_01.MM_Death_Back_01");
+
+	/**
+	 * The five places a man gets shot, in the order the wounds appear.
+	 *
+	 * UE5's skeletons share these bone names between Manny and Quinn, so the same table
+	 * serves both. The offsets are in the BONE's space, which for these bones runs down the
+	 * limb -- so a wound on `spine_03` is pushed out along the bone's own X/Z rather than
+	 * along world axes, and it stays on the chest as he turns.
+	 */
+	struct FWoundSpot
+	{
+		const TCHAR* Bone;
+		float X, Y, Z;      // cm, relative to the bone
+		float Size;         // cm across
+	};
+	const FWoundSpot WoundSpots[5] = {
+		{ TEXT("spine_03"),     6.0f, -9.0f,  0.0f, 7.0f },   // chest, his left
+		{ TEXT("upperarm_r"),   5.0f,  0.0f, -7.0f, 6.0f },   // right arm
+		{ TEXT("spine_01"),     7.0f,  8.0f,  0.0f, 7.0f },   // abdomen
+		{ TEXT("thigh_l"),      0.0f, -7.0f,  9.0f, 6.0f },   // left thigh
+		{ TEXT("upperarm_l"),   5.0f,  0.0f,  7.0f, 6.0f },   // left arm
+	};
 }
 
 AHIIntruder::AHIIntruder()
@@ -58,6 +81,22 @@ AHIIntruder::AHIIntruder()
 	Gun->SetupAttachment(Body);
 	Gun->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	Gun->SetVisibility(false);
+
+	// ---- the wounds. Built here rather than in BeginPlay because a component created
+	// outside a constructor cannot use CreateDefaultSubobject (it is protected, and only
+	// valid while the CDO is being built) -- see the porting hazards.
+	Wounds.Reserve(MaxWounds);
+	for (int32 Idx = 0; Idx < MaxWounds; ++Idx)
+	{
+		const FName Name(*FString::Printf(TEXT("Wound%d"), Idx));
+		UStaticMeshComponent* Wound = CreateDefaultSubobject<UStaticMeshComponent>(Name);
+		Wound->SetupAttachment(Body);
+		Wound->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		Wound->SetGenerateOverlapEvents(false);
+		Wound->SetCastShadow(false);
+		Wound->SetVisibility(false);
+		Wounds.Add(Wound);
+	}
 }
 
 void AHIIntruder::BeginPlay()
@@ -85,6 +124,77 @@ void AHIIntruder::BuildVisuals()
 		FHICharAnim::AttachPistol(this, Body, Gun);
 		Gun->SetVisibility(true);
 	}
+
+	// The wounds share the engine cube and a blood-coloured material. Loaded here rather
+	// than in the constructor for the same reason as everything else in this function.
+	if (UStaticMesh* Cube = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cube.Cube")))
+	{
+		for (UStaticMeshComponent* Wound : Wounds)
+		{
+			if (Wound == nullptr)
+			{
+				continue;
+			}
+			Wound->SetStaticMesh(Cube);
+			FHIMaterials::Tint(Wound, FHIMaterials::Blood);
+		}
+	}
+}
+
+int32 AHIIntruder::WoundsForHealth(float Hp)
+{
+	// Five bands of 20 HP. At full health he is unmarked; a lethal hit shows all five, which
+	// is the point -- the body should say what the HUD number says.
+	const float Fraction = FMath::Clamp(1.0f - (Hp / static_cast<float>(FHISim::ThiefHealth)), 0.0f, 1.0f);
+	return FMath::Clamp(FMath::FloorToInt(Fraction * MaxWounds + KINDA_SMALL_NUMBER), 0, MaxWounds);
+}
+
+bool AHIIntruder::WoundPlacement(int32 Index, FName& OutBone, FVector& OutOffset, FVector& OutSize)
+{
+	if (Index < 0 || Index >= MaxWounds)
+	{
+		return false;
+	}
+	const FWoundSpot& Spot = WoundSpots[Index];
+	OutBone = FName(Spot.Bone);
+	OutOffset = FVector(Spot.X, Spot.Y, Spot.Z);
+	// A flattened slab, so it lies against the body instead of sinking into it or floating
+	// off it. Two centimetres thick against a limb a hundred across.
+	OutSize = FVector(Spot.Size, Spot.Size, 2.0f);
+	return true;
+}
+
+void AHIIntruder::ShowWounds(int32 Count)
+{
+	for (int32 Idx = 0; Idx < Wounds.Num(); ++Idx)
+	{
+		UStaticMeshComponent* Wound = Wounds[Idx];
+		if (Wound == nullptr)
+		{
+			continue;
+		}
+		if (Idx >= Count)
+		{
+			Wound->SetVisibility(false);
+			continue;
+		}
+
+		FName Bone;
+		FVector Offset;
+		FVector Size;
+		if (!WoundPlacement(Idx, Bone, Offset, Size))
+		{
+			Wound->SetVisibility(false);
+			continue;
+		}
+
+		// Attach to the BONE, which is the whole point: the mesh animates, the bone carries
+		// the mark with it, and a wound on the arm follows the arm.
+		Wound->AttachToComponent(Body, FAttachmentTransformRules::KeepRelativeTransform, Bone);
+		Wound->SetRelativeLocation(Offset);
+		Wound->SetRelativeScale3D(Size);
+		Wound->SetVisibility(true);
+	}
 }
 
 FRotator AHIIntruder::BodyRotation(float SimYaw)
@@ -100,6 +210,10 @@ void AHIIntruder::SyncFromSim(const FHISim::FHIThief& T, float Dt)
 	// times too small for the engine's own assumptions.
 	SetActorLocation(FVector(T.Pos.X, T.Pos.Y, T.Z) * HI_METERS_TO_UU);
 	SetActorRotation(BodyRotation(T.Yaw));
+
+	// Wounds follow health every frame: see the header for why this is derived here rather
+	// than pushed from the damage site.
+	ShowWounds(WoundsForHealth(T.Hp));
 
 	if (!T.bAlive)
 	{

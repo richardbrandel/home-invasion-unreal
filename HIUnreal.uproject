@@ -6,5 +6,11 @@
 	"Modules": [
 		{ "Name": "HISim",    "Type": "Runtime", "LoadingPhase": "Default" },
 		{ "Name": "HIUnreal", "Type": "Runtime", "LoadingPhase": "Default" }
+	],
+	"Plugins": [
+		{
+			"Name": "PythonScriptPlugin",
+			"Enabled": true
+		}
 	]
 }
