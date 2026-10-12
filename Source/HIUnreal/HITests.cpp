@@ -4,6 +4,8 @@
 #include "HIAudio.h"
 #include "HIGameMode.h"
 #include "HIMarks.h"
+#include "Sound/SoundClass.h"
+#include "Sound/SoundSubmix.h"
 #include "HIHouse.h"
 #include "HIHUD.h"
 #include "HIIntruder.h"
@@ -527,6 +529,43 @@ bool FHIUnrealAudio::RunTest(const FString& Parameters)
 			TestEqual(TEXT("with a valid attenuation shape"),
 				static_cast<int32>(Atten->Attenuation.AttenuationShape.GetValue()),
 				static_cast<int32>(EAttenuationShape::Sphere));
+		}
+	}
+
+	// ---- EVERY RUNTIME-LOADED ASSET MUST BE ROOTED, and this loop is the point.
+	//
+	// The first version of this test checked the ATTENUATION ONLY, because that is the object
+	// whose address appeared in the crash. So when the sound class turned out to have the same
+	// defect, nothing failed and a person lost a third play session to it. Checking one
+	// instance of a bug class is not checking the class -- iterate the list instead.
+	//
+	// A raw pointer held in a `static` is invisible to the collector, the audio components are
+	// `bAutoDestroy`, and the failure is a use-after-free somewhere deep in the engine on a
+	// later cue rather than a null here.
+	{
+		USoundClass* Class = FHIAudio::SfxClass();
+		USoundSubmix* Submix = FHIAudio::ReverbSubmix();
+		TestNotNull(TEXT("the sound class loads"), Class);
+		TestNotNull(TEXT("the reverb submix loads"), Submix);
+		if (Class != nullptr)
+		{
+			TestTrue(TEXT("the SOUND CLASS is GC-rooted (this is what crashed the third session)"),
+				Class->IsRooted());
+		}
+		if (Submix != nullptr)
+		{
+			TestTrue(TEXT("the REVERB SUBMIX is GC-rooted"), Submix->IsRooted());
+		}
+
+		// And every cue and voice line, since they are cached the same way.
+		const TCHAR* Cues[] = { TEXT("gunshot_pistol"), TEXT("gunshot_shotgun"), TEXT("impact"),
+			TEXT("siren"), TEXT("footstep"), TEXT("door"), TEXT("van_idle") };
+		for (const TCHAR* Name : Cues)
+		{
+			if (USoundBase* Cue = FHIAudio::Imported(Name))
+			{
+				TestTrue(*FString::Printf(TEXT("the '%s' cue is GC-rooted"), Name), Cue->IsRooted());
+			}
 		}
 	}
 

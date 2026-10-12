@@ -86,12 +86,37 @@ namespace
 	constexpr float OutdoorSend = 0.12f;
 }
 
+/**
+ * The two caches that killed the third play session.
+ *
+ * These are the SAME BUG as `Attenuation` -- a raw `static` pointer is not a reference as far
+ * as the collector is concerned -- and they are the two I missed when the first version of
+ * this fix rooted everything else. That is the whole lesson: the fix was applied where the
+ * crash had been seen, not to the class of mistake.
+ *
+ * What it cost: `FHIAudio::Play` assigns `Comp->SoundClassOverride = SfxClass()`. The audio
+ * component is `bAutoDestroy`, so once it has played, nothing references the sound class, the
+ * GC frees it, and `Cached` becomes a dangling pointer that still passes a null check. The
+ * next cue assigns it, and the engine reads the freed object's modulation settings:
+ *
+ *   FWaveInstance::CalculateInheritedModulationSettingsAndValue   [Audio.cpp:339]
+ *   FSoundModulationDefaultSettings::GetSettingsForDestination
+ *   FSoundModulationDestinationSettings::operator=   <- SIGSEGV at 0x0
+ *
+ * Reported from play as "Unreal editor is not responding", eleven minutes in, with the render
+ * breadcrumbs naming SkyAtmosphere -- which is a red herring: those breadcrumbs are the last
+ * thing the RENDER thread did before shutdown, and the crash is on the audio thread.
+ */
 USoundClass* FHIAudio::SfxClass()
 {
 	static USoundClass* Cached = nullptr;
 	if (Cached == nullptr)
 	{
 		Cached = LoadObject<USoundClass>(nullptr, SfxClassPath);
+		if (Cached != nullptr)
+		{
+			Cached->AddToRoot();
+		}
 	}
 	return Cached;
 }
@@ -102,6 +127,10 @@ USoundSubmix* FHIAudio::ReverbSubmix()
 	if (Cached == nullptr)
 	{
 		Cached = LoadObject<USoundSubmix>(nullptr, ReverbSubmixPath);
+		if (Cached != nullptr)
+		{
+			Cached->AddToRoot();
+		}
 	}
 	return Cached;
 }
