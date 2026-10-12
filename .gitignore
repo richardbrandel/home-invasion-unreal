@@ -15,3 +15,7 @@ Content/
 
 # Verification captures. Reproducible from the harness in README.md, and large.
 shots/
+
+# Listening samples: generated audio kept out of the repo, regenerate with
+# tools/make-voices-neural.sh
+voice-samples/
