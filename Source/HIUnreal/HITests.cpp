@@ -1171,6 +1171,20 @@ bool FHIUnrealWeapons::RunTest(const FString& Parameters)
 			continue;
 		}
 
+		// ---- 1b. ITS BARREL IS ITS +Y, because the grip rotation written for it assumes so.
+		// The fix for "the crosshairs point one way and the defender another" was to stop
+		// rotating the pistol at all -- the hand socket's +Y is the pointing direction, so the
+		// identity rotation aligns the barrel with the aim. That only holds while the mesh's
+		// LONG axis is Y; swap the mesh for one modelled along X or Z and the gun goes sideways
+		// again, silently, which is what this catches.
+		{
+			const FVector Extent = Mesh->GetBounds().BoxExtent;
+			TestTrue(*FString::Printf(
+				TEXT("%s is longest along +Y (%.1f, %.1f, %.1f), which is the barrel the grip assumes"),
+				M.What, Extent.X, Extent.Y, Extent.Z),
+				Extent.Y > Extent.X && Extent.Y > Extent.Z);
+		}
+
 		// ---- 2. ITS MATERIAL IS OPAQUE. An instance on a masked or translucent parent whose
 		// opacity texture did not come across renders as literally nothing, with the mesh
 		// present, visible and in the right place -- indistinguishable from this bug.

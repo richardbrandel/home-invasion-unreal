@@ -178,43 +178,37 @@ UStaticMeshComponent* FHICharAnim::AttachPistol(
 	{
 		Pistol->AttachToComponent(
 			Mesh, FAttachmentTransformRules::SnapToTargetNotIncludingScale, TEXT("hand_r"));
-		// ---- WHERE THE GUN ACTUALLY SITS IN THE HAND, which is the whole bug this fixes.
+		// ---- THE PISTOL'S BARREL IS ITS +Y, AND SO IS THE SOCKET'S.
 		//
-		// Reported from play 2026-10-12: *"I don't see the pistols."* Everything about the
-		// attachment was correct -- the socket resolved, the mesh loaded, the component was
-		// visible, and the gun's world position was EXACTLY the `hand_r` bone's. And no pistol
-		// was on screen, because the placement put it INSIDE the forearm:
+		// Reported from play: *"the crosshairs are pointing one way and the defender another"*.
+		// Measured in the running game, at the aiming pose:
 		//
-		//   * `SM_Pistol` is 26 cm long along its +Y, and its PIVOT IS AT ITS CENTRE -- so at
-		//     zero offset it straddles the wrist, 13 cm into the arm and 13 cm out.
-		//   * the old rotation was `FRotator(-90, 0, 0)`, a PITCH. Pitch rotates about Y, so the
-		//     barrel stayed on the bone's Y -- straight ACROSS the hand -- and the gun lay along
-		//     the forearm rather than in the fist.
+		//     camera forward yaw 90.0 | socket X 14.0 | socket Y 100.5 | socket Z 179.3
 		//
-		// Proven by experiment rather than argued: scaled 3x and lifted 30 cm the pistol sprang
-		// into view instantly, which cleared the mesh, the material and the attach in one shot
-		// (the materials are `BLEND_OPAQUE`, so they cannot be invisible either).
+		// The socket's +Y is the direction the hand points, so mapping the mesh's barrel onto it
+		// is the IDENTITY rotation. An earlier version used a yaw of -90, which maps the barrel
+		// onto the socket's +X -- the sideways axis -- and that is exactly what a player sees: the
+		// pistol held out horizontally to the man's right while the crosshair points down the room.
 		//
-		// The fix is a YAW of -90, which takes the mesh's +Y (the barrel) onto the bone's +X
-		// (wrist to fingers, Unreal's convention), and a small offset along +X to put the grip
-		// in the palm instead of the pivot at the wrist joint. Z is untouched by a yaw, so the
-		// pistol also stays upright in the hand.
-		Pistol->SetRelativeRotation(FRotator(0.0f, -90.0f, 0.0f));
-		Pistol->SetRelativeLocation(FVector(6.0f, 0.0f, 0.0f));
+		// `SM_Pistol` is 26 cm long and its PIVOT IS AT ITS CENTRE, so the offset along the barrel
+		// is half its length: that puts the grip in the palm instead of the pivot at the wrist.
+		Pistol->SetRelativeRotation(FRotator(0.0f, 0.0f, 0.0f));
+		Pistol->SetRelativeLocation(FVector(0.0f, 13.0f, 0.0f));
 		Pistol->SetRelativeScale3D(FVector(1.0f));
 
-		// ---- DEV SWITCHES, because a socket offset is judged by LOOKING at it and nothing
-		// else: rebuild-to-nudge costs two minutes and a capture, four times over.
+		// ---- DEV SWITCHES, for the same reason they exist for the camera: a socket offset is
+		// judged by LOOKING at it.
 		//
 		//     -HIGunLoc=X,Y,Z   -HIGunRot=Pitch,Yaw,Roll   -HIGunScale=S
 		//
-		// Read straight off the command line, the same way the capture switches are, and
-		// applied to every character so one frame shows the player and all three intruders
-		// wearing the same candidate.
+		// `bShouldStopOnSeparator=false` IS LOAD-BEARING. With the default, `FParse::Value` stops
+		// at the comma, so "0,-90,0" parses as "0" and every one of these switches silently did
+		// NOTHING -- which is how a whole sweep of candidate rotations produced identical
+		// measurements and looked like evidence about the rig. It was evidence about the parser.
 		{
 			const TCHAR* Cmd = FCommandLine::Get();
 			FString LocS, RotS, ScaleS;
-			if (FParse::Value(Cmd, TEXT("HIGunLoc="), LocS))
+			if (FParse::Value(Cmd, TEXT("HIGunLoc="), LocS, /*bShouldStopOnSeparator=*/false))
 			{
 				TArray<FString> P;
 				LocS.ParseIntoArray(P, TEXT(","), true);
@@ -224,7 +218,7 @@ UStaticMeshComponent* FHICharAnim::AttachPistol(
 						FCString::Atof(*P[0]), FCString::Atof(*P[1]), FCString::Atof(*P[2])));
 				}
 			}
-			if (FParse::Value(Cmd, TEXT("HIGunRot="), RotS))
+			if (FParse::Value(Cmd, TEXT("HIGunRot="), RotS, /*bShouldStopOnSeparator=*/false))
 			{
 				TArray<FString> P;
 				RotS.ParseIntoArray(P, TEXT(","), true);
@@ -234,12 +228,11 @@ UStaticMeshComponent* FHICharAnim::AttachPistol(
 						FCString::Atof(*P[0]), FCString::Atof(*P[1]), FCString::Atof(*P[2])));
 				}
 			}
-			if (FParse::Value(Cmd, TEXT("HIGunScale="), ScaleS))
+			if (FParse::Value(Cmd, TEXT("HIGunScale="), ScaleS, /*bShouldStopOnSeparator=*/false))
 			{
 				Pistol->SetRelativeScale3D(FVector(FCString::Atof(*ScaleS)));
 			}
 		}
-		Pistol->SetVisibility(true);
 		return Pistol;
 	}
 	// NOT SILENT. When this returned nullptr without a word, the pistol stayed parented to the

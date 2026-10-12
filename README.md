@@ -585,6 +585,33 @@ was reachable from it.
    leaves the camera, so a reticle drawn anywhere else would lie about where the pellets go.
    The framing is tunable without a rebuild: `-HICamBack=`, `-HICamUp=`, `-HICamSide=`.
 
+13. **THE PISTOL WAS HELD SIDEWAYS, SO THE GUN AND THE CROSSHAIR DISAGREED.** Reported from
+   play: *"the crosshairs are pointing one way and the defender another."* Measured in the
+   running game, at the aiming pose:
+
+   ```
+   camera forward yaw 90.0 | hand socket X 14.0 | socket Y 100.5 | socket Z 179.3
+   ```
+
+   The hand socket's **+Y is the pointing direction** and `SM_Pistol`'s barrel is its **+Y**, so
+   the correct grip rotation is the **identity**. The code used a yaw of **-90**, which maps the
+   barrel onto the socket's **+X** -- the sideways axis -- and that is exactly what a player
+   sees: the pistol held out horizontally to the man's right while the crosshair points down the
+   room. The barrel now tracks the aim to within the hand's natural angle (measured 99-106
+   against a camera at 90; it was 60-90 out before). `HI.Unreal.Weapons` also asserts the pistol
+   is **longest along +Y**, because that is the assumption the grip rests on and another mesh
+   would break it silently.
+
+   **The instrument was broken as well, and that cost most of the time.** `-HIGunRot=0,-90,0`
+   parsed as `"0"`, because `FParse::Value` stops at the comma by default -- so four candidate
+   rotations produced four *identical* measurements that looked like evidence about the rig.
+   They were evidence about the parser. All three gun switches now pass
+   `bShouldStopOnSeparator=false`.
+   **This was the third broken instrument of the same day** -- a `strings` check that could never
+   match the engine's wide-character literals, a window measurement taken of a hung splash
+   screen, and now a command line that silently parsed a third of its argument. The rule that
+   keeps earning its place: **when a sweep produces identical results, suspect the sweep.**
+
 Also fixed in the same pass, and smaller: **`-HIShotNoUI` did nothing.** It was read and
 handed to `FScreenshotRequest::RequestScreenshot(bShowUI=...)`, and that flag suppresses
 SLATE, not the canvas the HUD is drawn on — the engine's own `UGameViewportClient::
