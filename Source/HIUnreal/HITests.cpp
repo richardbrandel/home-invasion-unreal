@@ -516,6 +516,34 @@ bool FHIUnrealAudio::RunTest(const FString& Parameters)
 		FHIAudio::Imported(TEXT("impact")));
 	TestNotNull(TEXT("the imported siren loads"), FHIAudio::Imported(TEXT("siren")));
 
+	// ---- AND ALL NINE VOICE LINES RESOLVE. Asserted rather than assumed because a missing one
+	// plays NOTHING and says so once in the log -- indistinguishable from a working game with
+	// the volume down, which is the failure this whole test was built around.
+	//
+	// It has a live reason to exist: the nine lines were re-rendered with a local NEURAL model
+	// (Kokoro, offline, on this Mac) on 2026-10-12 in place of macOS `say`, and re-importing a
+	// whole asset folder is exactly the operation that quietly imports eight of nine.
+	{
+		const TCHAR* Lines[] = {
+			TEXT("thief_spot"), TEXT("thief_order"), TEXT("thief_pain"), TEXT("thief_shoved"),
+			TEXT("thief_flee"), TEXT("thief_down"),
+			TEXT("owner_challenge"), TEXT("owner_shout"), TEXT("owner_police"),
+		};
+		const int32 Expected = static_cast<int32>(UE_ARRAY_COUNT(Lines));
+		int32 Missing = 0;
+		FString MissingList;
+		for (const TCHAR* Line : Lines)
+		{
+			if (FHIAudio::VoiceCue(Line) == nullptr)
+			{
+				++Missing;
+				MissingList += FString::Printf(TEXT(" %s"), Line);
+			}
+		}
+		TestEqual(*FString::Printf(TEXT("all %d voice lines resolve (missing:%s)"),
+			Expected, MissingList.IsEmpty() ? TEXT(" none") : *MissingList), Missing, 0);
+	}
+
 	// ---- AND THE ATTENUATION MUST BE GC-ROOTED. This is the bug that ended the second play
 	// session: a NewObject'd asset held only by a raw static pointer is invisible to the
 	// collector, so it is freed once the auto-destroying audio components are gone, and the

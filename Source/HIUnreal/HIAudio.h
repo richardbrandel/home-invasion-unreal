@@ -122,6 +122,17 @@ struct FHIAudio
 	 */
 	static void Voice(UWorld* World, const FVector& Where, const TCHAR* Line, float Volume = 1.0f);
 
+	/**
+	 * The line's asset, by stem -- the same lookup `Voice` performs, exposed so that "all nine
+	 * lines are actually there" can be ASSERTED instead of assumed.
+	 *
+	 * A missing line is SILENT: it logs once and plays nothing, which is indistinguishable from
+	 * a working game with the volume down. And re-importing a whole asset folder -- which is
+	 * what replacing the voices with the neural renders required -- is exactly the operation
+	 * that can quietly import eight of nine.
+	 */
+	static USoundBase* VoiceCue(const TCHAR* Line);
+
 	/** The police arrive. Fix-list item 17's clock, with the Godot original's siren behind it. */
 	static void Siren(UWorld* World, const FVector& Where);
 };

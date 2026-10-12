@@ -211,7 +211,8 @@ toolchain, which is a separate job from making the game work.
 | `tools/fetch-engine-assets.sh` | copies the engine's own art into `Content/` |
 | `tools/make-assets.py` | AUTHORs materials headlessly — see "Assets this project GENERATES" |
 | `tools/import-assets.py` | IMPORTs source files (wav, png, gltf, fbx) headlessly |
-| `tools/make-voices.sh` | renders the bark lines on the Mac's own speech synthesiser |
+| `tools/make-voices.sh` | renders the bark lines on the Mac's own speech synthesiser (macOS `say`, the OLD take) |
+| `tools/make-voices-neural.sh` | renders the same nine lines with **Kokoro**, an offline neural TTS on this Mac -- **this is what the game ships** |
 | `tools/tour.sh` | the scripted tour: eight known views, one command |
 | `docs/PARITY.md` | **the port measured against the Godot original, divergence by divergence** |
 
@@ -532,7 +533,7 @@ column of that list**; the Godot column is unchanged.
 | 13 | Animation blending | **DONE, and NOT the way this port's own notes assumed.** "Blending is built in" is true of a normal Unreal project and false of one with no editor session: an AnimBlueprint is a `.uasset`. So it uses `EAnimationMode::AnimationSingleNode` on the engine's 2-D **blend space** over speed and direction — a genuine continuous cross-fade, with the metre-to-centimetre conversion named in the one place it happens |
 | 14 | Foot IK | **HALF DONE.** The visible half — the feet skating — is fixed by matching the clip's play rate to the body's actual speed. Foot PLANTING on an edge needs an anim graph, and the engine's `CR_Mannequin_FootIK` is available and unused |
 | 15 | Idle variation | **HALF DONE.** Every body's idle loop starts at a random phase, so three men no longer breathe in unison. Genuinely different IDLE POSES need more recorded clips; the engine ships one |
-| 16 | Voice / barks | **HOOK ONLY.** The bark system exists and fires at the right moments (a man goes down, you shout), but the cue is a pitched sine and sounds like equipment, not a person. Voices need recordings |
+| 16 | Voice / barks | **DONE, with no recordings.** The bark system fires at the right moments (a man goes down, you shout, he spots you, he is shoved, he flees) and all nine lines are real speech: **Kokoro**, an 82M-parameter neural TTS run offline on this Mac by `tools/make-voices-neural.sh`, resampled to 48 kHz mono. The item assumed voices needed a human in a booth; what it actually needed was a speech model that fits on a laptop. Two voices (`bm_george` for the intruders, `am_michael` for the homeowner) so the two sides are audibly different people. `HI.Unreal.Audio` asserts all nine resolve, because a missing line plays NOTHING and that looks exactly like a game with the volume down |
 | 17 | More non-lethal verbs | **Done except barricading.** Shove, reload and weapon switch were already wired; **[Q] shout** frightens every man who hears it without spending a round; **[P] calls the police** without a gunshot; and **[L] kills the lights**, which cuts the intruders' accuracy to 55% — applied in the GAME layer's `ThiefHitChance`, where the port's own design rule puts the shot and not the decision. Barricading is not started: it is a new SOLID, and the sim's rectangle list is this repo's spec and is index-aligned with its spans, so adding one is a world-data change rather than a verb |
 | 18 | The simulation is 2-D | **DONE** — `FHISolidSpan`, `LosBlocked3D` and a `Z` on both entities, with `HI.Sim.Elevation` as the regression harness. The spans are uniform at a full storey **on purpose, because they model SIGHT and Godot's own `los_blocked` is 2-D and ignores height** — so a sofa you can see the top of still blocks your view, in both projects. This paragraph used to justify the uniform spans by saying *"the Godot source carries no furniture heights"*. **That was wrong**: `sim.gd`'s `FURNITURE` literal carries `h` on every row and `game.gd` draws with it. The spans are the sight model and stay as they are; the *geometry* now draws at `h`, which is bug 6 above. The remaining mismatch — tall sight, short furniture — is the original's, not this port's |
 | 19 | Blood / wounds | **DONE.** Pooled bullet holes where pellets land, a blood mark where a man falls, a flash on a hit, a red edge when the homeowner is hit -- and now **wounds on the BODY**: five blood marks parented to bones, appearing one per 20 HP lost, so the body says what the HUD number says. Parented to bones rather than to the mesh, because a component-space offset slides across the skin as he walks. `HI.Unreal.Wounds` asserts the count against health and that all five land on distinct bones. The marks are still flat cubes rather than decals, which is the same primitive limitation as everything else |
@@ -559,19 +560,20 @@ synthesise -- so before asking anyone for anything, check the three places below
 | Gunshots (pistol, shotgun) | `../home-invasion-godot/assets/audio/gunshot_pistol.wav`, `gunshot_shotgun.wav` | **Imported** |
 | Foley: door, footstep, impact, van idle | The same repository's `assets/audio/` -- `door.wav`, `footstep.wav`, `impact.wav`, `van_idle.wav` | **Imported** |
 | Sirens | `assets/audio/siren.wav` | **Imported** |
-| Intruder and homeowner voices | **This Mac.** `say -v '?'` lists 177 offline voices and `tools/make-voices.sh` renders nine lines to 48 kHz mono WAV via `say` + `afconvert`. The README's old claim that "synthesised audio cannot do voices" was wrong -- it had not tried the speech synthesiser that ships with the OS | **Generated and imported** |
+| Intruder and homeowner voices | **This Mac, and the second answer was the right one.** `tools/make-voices.sh` renders nine lines with macOS `say` -- intelligible, and unmistakably a formant synthesiser. `tools/make-voices-neural.sh` renders the same nine with **Kokoro** through `mlx_audio`: free, offline, no API key, a few hundred MB of model. The old claim that "synthesised audio cannot do voices" was wrong twice over -- once for the OS synthesiser, and again for the neural one | **Generated and imported (Kokoro)** |
 | Wall, floor and door textures | `assets/textures/` -- `ceiling_plaster`, `floor_tile`, `floor_wood`, `driveway`, `lawn`, `roof_shingle`, `bullet_hole`, `muzzle_flash`, `smoke_puff` | **Imported.** There is no wall texture in either project, but `ceiling_plaster` is plaster and serves |
 | Furniture meshes | `assets/kaykit/furniture/*.gltf` -- **the exact KayKit models the Godot original places**, 40 of them | **Proven**: `couch.gltf` imported headlessly to `StaticMeshes/couch` with its material and texture. glTF needs no editor |
 | A clothed character mesh | `assets/characters/*.fbx` -- eight rigged Mixamo characters | **Reachable**: `Female_Casual.fbx` imports as a SkeletalMesh. See the open item below |
 | A shotgun mesh | Nowhere -- KayKit has no weapons and the engine ships only a pistol and a rifle | **Build it in code.** Every prop in this port is already composed from primitives, and `HILootProp` is the pattern. A shotgun from three boxes is free; only the last 10% needs an artist |
 
-### The two things still genuinely needed
+### The one thing still genuinely needed
 
-1. **Real voice recordings.** `say` is intelligible, correctly timed and enormously better
-   than the sine tone it replaces -- but it is obviously synthetic. Nine lines would cover the
-   whole game: a challenge, an order, pain, a shove reaction, a retreat, a death, and three
-   homeowner lines. `.wav`, 48 kHz mono.
-2. **A shotgun mesh**, if the primitive one is not good enough. `.fbx` or `.glb`.
+**A shotgun mesh**, if the primitive one is not good enough. `.fbx` or `.glb`.
+
+**Voice recordings came off this list on 2026-10-12.** It asked for a human in a booth; the
+answer was `tools/make-voices-neural.sh` and Kokoro, which Richard listened to and approved
+before the nine lines were re-rendered and imported. Real actors would still be better, and
+they are no longer the difference between a game that talks and one that beeps.
 
 ### Open work items, not assets
 
@@ -603,18 +605,15 @@ receiving one needs no GUI.
   74.2 s**, ending with all three valuables delivered and the homeowner dead. That is a much
   more reasonable "if you do nothing, you lose", and it is reported rather than retuned
   because the numbers are the spec's.
-- **The FOLEY is real now; the VOICES are the remaining weak link.** This item used to say the
-  gunshots were the engine's template cue and everything else a sine at a shifted pitch.
-  **That stopped being true and the line stayed anyway.** `FHIAudio::Imported` loads
-  `/Game/HIImported/audio/` — the Godot original's own `gunshot_pistol`, `gunshot_shotgun`,
-  `impact` and `siren` wavs, imported headlessly — and the template cue is gone, which is
-  asserted rather than assumed (`HITests.cpp:506`). What is still synthetic is the nine VOICE
-  lines: `tools/make-voices.sh` renders them with macOS `say`, a formant synthesiser, and this
-  Mac has 177 voices and **zero** of them Premium or Enhanced, so no setting makes it sound
-  like a person. `tools/make-voices-neural.sh` renders the same lines with **Kokoro**, a local
-  82M-parameter neural TTS, and two samples are waiting for a human ear:
-  `voice-samples/neural_owner_challenge.wav` and `neural_thief_spot.wav`. They are not in the
-  build until someone says they are better than `say`.
+- **The FOLEY and the VOICES are both real now.** This item has been wrong twice in two
+  days, which is why it is kept rather than deleted. It first said the gunshots were the
+  engine's template cue and everything else a sine at a shifted pitch; `FHIAudio::Imported`
+  loads `/Game/HIImported/audio/` -- the Godot original's own gunshot, impact and siren wavs --
+  and the template cue is gone. It then said the nine VOICE lines were still macOS `say`, which
+  was true until 2026-10-12, when all nine were re-rendered with **Kokoro** and imported:
+  `voice-samples/` holds the A/B that decided it, and Richard's verdict was that the new ones
+  are "really good". `HI.Unreal.Audio` asserts all nine resolve. A real actor would still beat
+  either, and that is now a polish item rather than a gap.
 - **The van cannot be walked into, because it cannot be walked INTO.** The sim's world data
   does not make the van solid — it is scenery in both projects — so a body driven by the sim
   passes through it. This cannot be fixed from the actor layer: the player's movement is

@@ -39,42 +39,6 @@ namespace
 	constexpr float AttenuationInnerRadius = 400.0f;
 	constexpr float AttenuationFalloff = 4000.0f;
 
-	/** A voice line from /Game/HIImported/voice, or nullptr. Separate folder from foley. */
-	USoundBase* LoadVoice(const TCHAR* Line)
-	{
-		static TMap<FString, USoundBase*> Cache;
-		const FString Key(Line);
-		if (USoundBase** Found = Cache.Find(Key))
-		{
-			return *Found;
-		}
-		const FString AssetPath =
-			FString::Printf(TEXT("/Game/HIImported/voice/%s.%s"), Line, Line);
-		USoundBase* Loaded = LoadObject<USoundBase>(nullptr, *AssetPath);
-		if (Loaded == nullptr)
-		{
-			UE_LOG(LogTemp, Warning, TEXT("HI: no voice line at %s -- run tools/import-assets.sh"),
-				*AssetPath);
-		}
-		else
-		{
-		// ROOTED, and this is not belt-and-braces -- it is the bug that ended the second play
-		// session. An asset returned by `LoadObject` and held ONLY in a raw static pointer can
-		// be garbage collected: nothing in the object graph references it, and the cache is
-		// invisible to the collector. The pointer survives, still passes a null check, and the
-		// next use is a use-after-free -- which presents as a SIGSEGV inside the engine, at a
-		// frame that has nothing to do with this file.
-		//
-		// It went unnoticed for the life of the port because the only assets loaded this way
-		// were engine content that is always resident, and because a 30-second soak never
-		// outlived the 60-second GC interval. Proven by negative control: a soak with
-		// `gc.CollectGarbageEveryFrame 1` dies in seconds.
-			Loaded->AddToRoot();
-		}
-		Cache.Add(Key, Loaded);
-		return Loaded;
-	}
-
 	/**
 	 * How much of each cue is sent to the reverb.
 	 *
@@ -133,6 +97,44 @@ USoundSubmix* FHIAudio::ReverbSubmix()
 		}
 	}
 	return Cached;
+}
+
+USoundBase* FHIAudio::VoiceCue(const TCHAR* Line)
+{
+	// A voice line from /Game/HIImported/voice -- a separate folder from the foley, because the
+	// two are produced by different tools: the foley came out of the Godot repository, and the
+	// lines are rendered on the Mac by `tools/make-voices-neural.sh`.
+	//
+	// Cached per name, and a miss is cached as nullptr so a missing line is one failed lookup
+	// rather than one per bark. Exposed in the header so `HI.Unreal.Audio` can assert that all
+	// nine resolve; a missing one plays NOTHING and says so once in the log, which otherwise
+	// looks exactly like a game whose volume is down.
+	static TMap<FString, USoundBase*> Cache;
+	const FString Key(Line);
+	if (USoundBase** Found = Cache.Find(Key))
+	{
+		return *Found;
+	}
+	const FString AssetPath =
+		FString::Printf(TEXT("/Game/HIImported/voice/%s.%s"), Line, Line);
+	USoundBase* Loaded = LoadObject<USoundBase>(nullptr, *AssetPath);
+	if (Loaded == nullptr)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("HI: no voice line at %s -- run tools/import-assets.sh"),
+			*AssetPath);
+	}
+	else
+	{
+		// ROOTED, and this is not belt-and-braces -- it is the bug that ended the second play
+		// session. An asset returned by `LoadObject` and held ONLY in a raw static pointer can
+		// be garbage collected: nothing in the object graph references it, and the cache is
+		// invisible to the collector. The pointer survives, still passes a null check, and the
+		// next use is a use-after-free -- which presents as a SIGSEGV inside the engine, at a
+		// frame that has nothing to do with this file.
+		Loaded->AddToRoot();
+	}
+	Cache.Add(Key, Loaded);
+	return Loaded;
 }
 
 USoundBase* FHIAudio::Imported(const TCHAR* Name)
@@ -313,7 +315,7 @@ void FHIAudio::Voice(UWorld* World, const FVector& Where, const TCHAR* Line, flo
 	// No pitch shift and no randomisation: a voice that changes pitch per event sounds like
 	// a synthesiser, which is the thing this replaced. The variety has to come from the
 	// lines, and there are nine of them.
-	Play(World, LoadVoice(Line), Where, Volume, 1.0f, /*bSpatialized=*/true);
+	Play(World, VoiceCue(Line), Where, Volume, 1.0f, /*bSpatialized=*/true);
 }
 
 void FHIAudio::Siren(UWorld* World, const FVector& Where)
