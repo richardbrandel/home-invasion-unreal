@@ -5,6 +5,8 @@
 #include "Components/StaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/SkeletalMesh.h"
+#include "Animation/AnimSingleNodeInstance.h"
+#include "TimerManager.h"
 #include "HICharAnim.h"
 #include "HIMaterials.h"
 #include "HIUnits.h"
@@ -211,6 +213,45 @@ void AHIIntruder::ShowWounds(int32 Count)
 	}
 }
 
+void AHIIntruder::GoLimp()
+{
+	// One-shot. The timer cannot fire twice, but this is the only guard against a second
+	// caller -- and a body handed to physics twice would be re-positioned in mid-fall.
+	if (bRagdolled)
+	{
+		return;
+	}
+	bRagdolled = true;
+
+	// THE FALL IS PHYSICS, BECAUSE NO CLIP IN THE ENGINE PUTS A MAN ON THE FLOOR.
+	//
+	// Measured, not assumed: all six `MM_Death_*` sequences end with the pelvis at about 87 cm
+	// and hold there -- a hunch, which is what a player saw and reported. There is no
+	// full-collapse death clip anywhere in the mannequin content (the 97 sequences under
+	// `Anims/` were listed to check). So the clip gives the moment of impact and physics gives
+	// the fall.
+	//
+	// Both prerequisites exist and BOTH are asserted by `HI.Unreal.DeathFall`, because either
+	// one missing makes this function silently do nothing and leaves the corpse standing:
+	// `PA_Mannequin` is assigned to `SKM_Quinn_Simple`, and the house's lawn, floors, walls and
+	// furniture are InstancedStaticMeshComponents with `QueryAndPhysics` collision to land on.
+	//
+	// The profile is set before simulation is enabled: `Ragdoll` is the engine profile that
+	// makes the mesh a PhysicsBody which blocks the world, and the component was constructed
+	// with collision explicitly OFF (the capsule is the hit volume), so without this the body
+	// would simulate and fall through the lawn for ever.
+	Body->SetCollisionProfileName(TEXT("Ragdoll"));
+	Body->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+	Body->SetAllBodiesSimulatePhysics(true);
+	Body->SetSimulatePhysics(true);
+	Body->WakeAllRigidBodies();
+
+	// Once, at Display rather than Verbose: "the corpse never went limp" and "the corpse went
+	// limp somewhere you cannot see" look identical in a log otherwise.
+	UE_LOG(LogTemp, Display, TEXT("HI: intruder %d went limp -- handed to physics"), ThiefId);
+
+}
+
 FRotator AHIIntruder::BodyRotation(float SimYaw)
 {
 	return FRotator(0.0f, 90.0f - FMath::RadiansToDegrees(SimYaw), 0.0f);
@@ -241,7 +282,15 @@ void AHIIntruder::SyncFromSim(const FHISim::FHIThief& T, float Dt)
 			// keep shooting a corpse the sim has already stopped counting.
 			HitVolume->SetCollisionResponseToChannel(ECC_Visibility, ECR_Ignore);
 			Gun->SetVisibility(false);
+			// THE HANDOVER IS ON A TIMER, and this is not a style choice. Once the round is
+			// decided the game mode stops calling this function at all -- "a decided round is
+			// inert at the sim level too" -- so a handover that counted frames HERE would never
+			// happen for the last man killed, who is exactly the one the player is watching.
+			// A world timer fires whether or not anybody is still syncing the corpse.
+			GetWorldTimerManager().SetTimer(RagdollTimer, this, &AHIIntruder::GoLimp,
+				RagdollAfterDeath, /*bLooping=*/false);
 		}
+
 		return;
 	}
 

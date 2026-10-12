@@ -91,6 +91,10 @@ AHIHouse::AHIHouse()
 	WallInstances->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
 	WallInstances->SetCollisionResponseToAllChannels(ECR_Ignore);
 	WallInstances->SetCollisionResponseToChannel(ECC_Visibility, ECR_Block);
+	// A CORPSE IS A PHYSICS BODY, and nothing else in this game is. Walls have to stop one for
+	// the same reason they have to stop a bullet -- otherwise a man shot next to a wall falls
+	// through it and lands outside the house.
+	WallInstances->SetCollisionResponseToChannel(ECC_PhysicsBody, ECR_Block);
 	WallInstances->SetMobility(EComponentMobility::Static);
 
 	FurnitureInstances = CreateDefaultSubobject<UInstancedStaticMeshComponent>(TEXT("Furniture"));
@@ -105,11 +109,32 @@ AHIHouse::AHIHouse()
 	FurnitureInstances->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
 	FurnitureInstances->SetCollisionResponseToAllChannels(ECR_Ignore);
 	FurnitureInstances->SetCollisionResponseToChannel(ECC_Visibility, ECR_Block);
+	FurnitureInstances->SetCollisionResponseToChannel(ECC_PhysicsBody, ECR_Block);
 	FurnitureInstances->SetMobility(EComponentMobility::Static);
 
 	// ---- everything below is decoration, and none of it collides. See the header.
 	GroundInstance = MakeDecor(TEXT("Ground"), Cube, WallInstances);
 	FloorInstance = MakeDecor(TEXT("InteriorFloor"), Cube, WallInstances);
+
+	// ---- THE FLOOR A CORPSE LANDS ON, and this is NOT an exception to the invariant above.
+	//
+	// The invariant is that decoration must never stop a BULLET. A ragdoll is not a bullet: it
+	// is a physics body, and `ECC_PhysicsBody` is a channel nothing else in this project uses.
+	// So the response is set for that channel ONLY -- every other channel, Visibility included,
+	// still passes straight through, and a shot at the floor behaves exactly as it did.
+	//
+	// Without this the corpse falls through the lawn for ever, and that is measured rather than
+	// feared: component Z went 0 -> -1330 cm in 1.5 s and was still accelerating, because a
+	// component with collision disabled does not exist as far as the physics scene is
+	// concerned. `AHIIntruder::GoLimp` is the other half of this.
+	auto BlockCorpses = [](UInstancedStaticMeshComponent* Comp)
+	{
+		Comp->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+		Comp->SetCollisionResponseToAllChannels(ECR_Ignore);
+		Comp->SetCollisionResponseToChannel(ECC_PhysicsBody, ECR_Block);
+	};
+	BlockCorpses(GroundInstance);
+	BlockCorpses(FloorInstance);
 	RoofInstance = MakeDecor(TEXT("Roof"), Cube, WallInstances);
 	// The roof is the one decorative component that must still cast a shadow: it exists to
 	// keep the sun out of the rooms, and a roof that did not shadow would be a roof that did

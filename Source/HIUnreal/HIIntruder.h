@@ -109,10 +109,39 @@ public:
 	/** How many wounds a man at `Hp` should be showing. Pure, so it can be asserted. */
 	static int32 WoundsForHealth(float Hp);
 
+	/**
+	 * How long after the death clip starts the body is handed to PHYSICS.
+	 *
+	 * The six `MM_Death_*` clips are the only deaths the engine ships, they are all about a
+	 * second long, and they all end with the man hunched and STILL UPRIGHT. Measured in a
+	 * driven soak on 2026-10-12: across `MM_Death_Back_01` the pelvis goes 96.6 cm -> 87.5 cm
+	 * and never lower, and the clip then holds that pose. It is a flinch, not a fall, which is
+	 * exactly the report: *"when the intruders get shot, they slouch over. They should fall to
+	 * the ground."*
+	 *
+	 * So the clip is used for the part it is good at -- the moment of being hit -- and the fall
+	 * itself is physics. This delay is inside every clip's length, so the man is still folding
+	 * when he goes limp and the two halves read as one motion rather than as a cut.
+	 *
+	 * IT IS A TIMER, NOT A COUNT OF FRAMES, and that is the whole reason it works. Once the
+	 * round is decided the game mode stops calling `SyncFromSim` -- "a decided round is inert at
+	 * the sim level too" -- so a handover that depended on being called every frame would never
+	 * happen for the LAST man killed, who is precisely the one the player is looking at. A world
+	 * timer fires whether or not anyone is still syncing the corpse.
+	 */
+	static constexpr float RagdollAfterDeath = 0.85f;
+
 private:
 	void BuildVisuals();
 
 	bool bVisualsBuilt = false;
 	/** Latched so the death clip is started once rather than restarted every frame. */
 	bool bDeathPlayed = false;
+	/** Latched when the body is given to physics, after which the animation must let go of it. */
+	bool bRagdolled = false;
+	/** Fires `GoLimp` a fixed time after the death clip starts, decided round or not. */
+	FTimerHandle RagdollTimer;
+
+	/** Let go: simulate physics, so the man actually falls and settles on the floor. */
+	void GoLimp();
 };

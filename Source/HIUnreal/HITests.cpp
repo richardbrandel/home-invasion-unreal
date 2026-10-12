@@ -1,6 +1,9 @@
 #include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"
 
+#include "Animation/AnimSequence.h"
+#include "Components/InstancedStaticMeshComponent.h"
+#include "Engine/SkeletalMesh.h"
 #include "HIAudio.h"
 #include "HIGameMode.h"
 #include "HIMarks.h"
@@ -990,6 +993,119 @@ bool FHIUnrealMarkOrientation::RunTest(const FString& Parameters)
 	// A degenerate normal must not produce a NaN rotation.
 	const FRotator ZeroRot = AHIMark::SlabRotation(FVector::ZeroVector);
 	TestFalse(TEXT("a zero normal does not yield a NaN rotation"), ZeroRot.ContainsNaN());
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHIUnrealDeathFall,
+	"HI.Unreal.DeathFall",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FHIUnrealDeathFall::RunTest(const FString& Parameters)
+{
+	// "When the intruders get shot, they slouch over. They should fall to the ground."
+	//
+	// FOUR things have to be true for a man to end up on the floor, and three of them were
+	// false on 2026-10-12. None of them needs a rendered frame, and that is the point: this
+	// took far too long because the only instrument being used was a running game, and a
+	// running game cannot be asked a question this precise. The whole route is: the clip plays,
+	// the body can go limp, it has a floor to land on, and the handover does not depend on a
+	// frame loop that stops the moment the round is decided.
+
+	// ---- 1. THE CLIP CAN BE PLAYED AT ALL. A montage cannot play in single-node mode -- it
+	// needs a slot in an AnimGraph -- and it would fail SILENTLY.
+	const TCHAR* Death =
+		TEXT("/Game/Characters/Mannequins/Anims/Death/MM_Death_Back_01.MM_Death_Back_01");
+	UAnimationAsset* Clip = LoadObject<UAnimationAsset>(nullptr, Death);
+	TestNotNull(TEXT("the death clip the game plays loads"), Clip);
+	if (Clip != nullptr)
+	{
+		TestTrue(TEXT("and is an AnimSequence, because single node cannot play a montage"),
+			Clip->IsA<UAnimSequence>());
+		// Recorded rather than asserted, because it is the REASON the ragdoll exists. Measured
+		// in a driven soak: across this clip the pelvis travels 96.6 cm -> 87.5 cm and then
+		// holds. It is a flinch, not a fall. If a future engine version ships a clip that really
+		// does put a man down, this line is the note that says the ragdoll is now redundant.
+		AddInfo(FString::Printf(
+			TEXT("MM_Death_Back_01 is %.2f s long, and its own pose ends with the pelvis at 87 cm"),
+			Clip->GetPlayLength()));
+	}
+
+	// ---- 2. THE BODY CAN GO LIMP. `GoLimp` calls SetSimulatePhysics, which does NOTHING AT
+	// ALL without a physics asset -- it would leave the corpse standing exactly as before,
+	// which is the bug being fixed.
+	USkeletalMesh* Quinn = LoadObject<USkeletalMesh>(nullptr,
+		TEXT("/Game/Characters/Mannequins/Meshes/SKM_Quinn_Simple.SKM_Quinn_Simple"));
+	TestNotNull(TEXT("the intruder's mesh loads"), Quinn);
+	if (Quinn != nullptr)
+	{
+		TestNotNull(TEXT("and carries a physics asset, or going limp is a silent no-op"),
+			Quinn->GetPhysicsAsset());
+	}
+
+	// ---- 3. IT HAS SOMETHING TO LAND ON. This is the half that took longest to find. The
+	// house blocks ONLY the Visibility channel -- `SetCollisionResponseToAllChannels(
+	// ECR_Ignore)` -- and the lawn and the interior floor are decoration with collision
+	// switched off entirely, because the file's governing invariant is that decoration must
+	// never stop a bullet. So the corpse fell straight through the world: measured, component
+	// Z 0 -> -1330 cm in 1.5 s and still accelerating.
+	//
+	// A corpse is a PHYSICS BODY, and `ECC_PhysicsBody` is a channel nothing else in this
+	// project uses, so the fix costs the invariant nothing. Both halves are asserted here --
+	// that physics is stopped, AND that bullets still are not.
+	const AHIHouse* House = GetDefault<AHIHouse>();
+	TestNotNull(TEXT("the house's default object"), House);
+	if (House != nullptr)
+	{
+		struct FNeed
+		{
+			UInstancedStaticMeshComponent* Comp;
+			const TCHAR* What;
+		};
+		const FNeed Needs[] = {
+			{ House->WallInstances,      TEXT("the walls") },
+			{ House->FurnitureInstances, TEXT("the furniture") },
+			{ House->GroundInstance,     TEXT("the lawn") },
+			{ House->FloorInstance,      TEXT("the interior floor") },
+		};
+		for (const FNeed& Need : Needs)
+		{
+			TestNotNull(*FString::Printf(TEXT("%s exists as a component"), Need.What), Need.Comp);
+			if (Need.Comp == nullptr)
+			{
+				continue;
+			}
+			TestTrue(*FString::Printf(TEXT("%s BLOCKS a physics body, so a corpse lands on it"),
+				Need.What), Need.Comp->GetCollisionResponseToChannel(ECC_PhysicsBody) == ECR_Block);
+		}
+
+		// THE INVARIANT, both ways: the floor must still NOT stop a bullet -- the pellet trace
+		// is cast on Visibility and a floor that stopped it would change hit resolution -- while
+		// the walls must still stop one.
+		TestTrue(TEXT("the lawn still does NOT block a bullet, which is why decoration has no collision"),
+			House->GroundInstance != nullptr
+			&& House->GroundInstance->GetCollisionResponseToChannel(ECC_Visibility) != ECR_Block);
+		TestTrue(TEXT("and neither does the interior floor"),
+			House->FloorInstance != nullptr
+			&& House->FloorInstance->GetCollisionResponseToChannel(ECC_Visibility) != ECR_Block);
+		TestTrue(TEXT("while the walls and furniture still stop a bullet"),
+			House->WallInstances != nullptr && House->FurnitureInstances != nullptr
+			&& House->WallInstances->GetCollisionResponseToChannel(ECC_Visibility) == ECR_Block
+			&& House->FurnitureInstances->GetCollisionResponseToChannel(ECC_Visibility) == ECR_Block);
+	}
+
+	// ---- 4. THE HANDOVER IS NOT ON THE FRAME LOOP. Once the round is decided the game mode
+	// stops calling `SyncFromSim` -- "a decided round is inert at the sim level too" -- so the
+	// LAST man killed, who is the one the player is watching, would never have gone limp. It is
+	// a world timer for that reason, and the delay is asserted to be a real wait inside the clip
+	// so the flinch and the fall read as one motion.
+	TestTrue(FString::Printf(TEXT("the handover waits %.2f s -- after the hit, before the pose holds"),
+		AHIIntruder::RagdollAfterDeath), AHIIntruder::RagdollAfterDeath > 0.2f);
+	if (Clip != nullptr)
+	{
+		TestTrue(FString::Printf(TEXT("and lands inside the clip (%.2f s) so the two are one motion"),
+			Clip->GetPlayLength()), AHIIntruder::RagdollAfterDeath < Clip->GetPlayLength());
+	}
 
 	return true;
 }

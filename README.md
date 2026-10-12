@@ -325,7 +325,7 @@ flare stay off, which costs nothing.
 
 ## Status
 
-`HI.` passes **38/38** on ubuntu-dev. **All 97 assertions** in the Godot *sim* spec are
+`HI.` passes **39/39** on ubuntu-dev. **All 97 assertions** in the Godot *sim* spec are
 represented; the port adds coverage the Godot project has never had on either side.
 
 | Test | Covers |
@@ -366,6 +366,7 @@ represented; the port adds coverage the Godot project has never had on either si
 | **`HI.Unreal.Furniture`** | **the furniture heights against `sim.gd`'s own `h` field, and that a sofa is not a column** |
 | **`HI.Unreal.WallFittings`** | **that every socket, switch and thermostat is flush against a wall -- with a negative control** |
 | **`HI.Unreal.Wounds`** | **blood on the man: the wound count against health, five distinct bones, and a wound's SIZE in metres -- the assertion that used to be written in centimetres and so blessed a 7 m box** |
+| **`HI.Unreal.DeathFall`** | **everything a corpse needs in order to reach the floor: the clip is a playable AnimSequence, the mesh carries a physics asset, the lawn/floor/walls block `ECC_PhysicsBody` -- and bullets still pass through the floor while the walls still stop them** |
 
 ## Bugs the test suite could not have caught
 
@@ -466,6 +467,45 @@ was reachable from it.
    `wound 0 is a sane size (7.000 m across, not 7.0)`, and 38/38 with it in place. Every other
    scale assignment in the project was swept for the same fault -- `HILootProp` and `HIMarks`
    both pass metres and `StampLine` already divides -- so the wound was the only one.
+
+10. **THE DEAD DID NOT FALL. THEY HUNCHED, THEN THEY FROZE -- and it was three faults, not
+   one.** Reported from play 2026-10-12: *"when the intruders get shot, they slouch over. They
+   should fall to the ground."* Every part of that is a measurement now.
+
+   (a) **The clip is a flinch, not a fall.** All six `MM_Death_*` sequences -- the only deaths
+   the engine ships -- are about 1.1 s long and end with the man still upright. Measured in a
+   driven soak: across `MM_Death_Back_01` the pelvis travels **96.6 cm -> 87.5 cm and then
+   holds**. There is no full-collapse death clip anywhere in the mannequin content; all 97
+   sequences under `Anims/` were listed to establish that. So the clip is used for what it is
+   good at -- the moment of being hit -- and **the fall is physics**: `AHIIntruder::GoLimp`
+   hands the body to the simulation 0.85 s in, which is inside every clip's length, so the two
+   read as one motion. `SKM_Quinn_Simple` already carries `PA_Mannequin`, so no new asset was
+   needed for this.
+
+   (b) **There was nothing to land on.** The house blocks ONLY the Visibility channel
+   (`SetCollisionResponseToAllChannels(ECR_Ignore)`, so that a picture frame can never stop a
+   bullet) and the lawn and interior floor are decoration with collision switched off entirely.
+   So the corpse fell through the world: measured, component Z **0 -> -1330 cm in 1.5 s and
+   still accelerating**. Walls, furniture, lawn and floor now also block `ECC_PhysicsBody` --
+   a channel nothing else in this project uses, which is why the fix costs the no-collision
+   invariant exactly nothing. The test asserts that both ways: physics is stopped, and bullets
+   still are not.
+
+   (c) **The handover could not be on the frame loop.** Once the round is decided the game mode
+   stops calling `SyncFromSim` at all -- *"a decided round is inert at the sim level too"* -- so
+   a handover that counted frames would never fire for the **last man killed, who is precisely
+   the one the player is watching.** It is a world timer instead.
+
+   Verified end-to-end in the running game: all three corpses `sim=1`, pelvis at **16.4 cm**,
+   against 96.6 cm standing.
+
+   **And the first hypothesis, kept because it is the more useful half of the story.** The play
+   RATE looked like the culprit -- single-node playback inherits the rate stride matching leaves
+   behind, clamped to a 0.35 floor, so a man shot while standing would fall at a third of speed
+   -- and a test was written for it. **The negative control killed it**: with the "fix" removed
+   the test still passed, because `UAnimSingleNodeInstance::SetAnimation` already resets both
+   the rate and the position. A fix that cannot be shown to matter is not a fix, and that test
+   is gone rather than kept as decoration.
 
 Also fixed in the same pass, and smaller: **`-HIShotNoUI` did nothing.** It was read and
 handed to `FScreenshotRequest::RequestScreenshot(bShowUI=...)`, and that flag suppresses
