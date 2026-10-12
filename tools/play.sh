@@ -25,6 +25,22 @@
 #     tools/play.sh -HIThieves=1
 set -u
 
+# ---- ON THE MAC, FORWARD TO THE BUILD MACHINE. The game runs on `ubuntu-dev`, but the project
+# is edited on the Mac and that is where Richard usually is, so the SAME script has to work from
+# either side. Running the Mac's copy used to fail on `[ ! -x "$UE" ]` with
+# "play: no editor at /home/richard/UnrealEngine/..." -- which is true, and useless: it does not
+# say that the game lives on the other machine or how to start it there.
+case "$(uname -s)" in
+Darwin)
+	ARGS=""
+	for a in "$@"; do
+		ARGS="$ARGS $a"
+	done
+	echo "play: Mac copy -- the game runs on ubuntu-dev, forwarding there"
+	exec ssh ubuntu-dev "/data/projects/HIUnreal/tools/play.sh$ARGS"
+	;;
+esac
+
 UE=/home/richard/UnrealEngine/Engine/Binaries/Linux/UnrealEditor
 PROJ=/data/projects/HIUnreal/HIUnreal.uproject
 RUNTIME=/run/user/$(id -u)

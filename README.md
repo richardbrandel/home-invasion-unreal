@@ -179,10 +179,21 @@ exist to catch.
 Everything above is a capture harness, and a capture harness is not a game you can hold. To
 play it, the binary needs a display and no `-RenderOffscreen`:
 
-```sh
-ssh ubuntu-dev '/data/projects/HIUnreal/tools/play.sh'
-# extra Unreal arguments pass through:  tools/play.sh -HIThieves=1
-```
+**Four ways in, and they are all the same script.** `tools/play.sh` works from EITHER machine:
+on the Mac it forwards to `ubuntu-dev` over ssh, and on the build box it launches directly. Extra
+Unreal arguments pass through, so `-HIThieves=1` gives a round with one intruder.
+
+| Where you are | Do this |
+|---|---|
+| Mac | double-click **`Play Home Invasion.command`** in the project folder |
+| Mac | or, in Terminal: `./tools/play.sh` |
+| At the Linux box | double-click the **Home Invasion** icon on the desktop, or find it in Activities |
+| At the Linux box | or, in a terminal: `/data/projects/HIUnreal/tools/play.sh` |
+
+The Mac copy used to FAIL with *"play: no editor at /home/richard/UnrealEngine/..."* -- true, and
+useless, because it never said the game lives on the other machine. Now it says so and forwards.
+The `.command` holds its Terminal window open afterwards, because the first desktop launcher
+opened a terminal, printed, and closed before anyone could read it.
 
 ### Two ways this machine will waste your evening, both measured
 
