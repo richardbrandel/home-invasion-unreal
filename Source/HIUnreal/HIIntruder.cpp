@@ -297,7 +297,9 @@ void AHIIntruder::SyncFromSim(const FHISim::FHIThief& T, float Dt)
 	// Measured from the sim's own previous position rather than read from a speed field:
 	// see the header. Guarded against a zero step so a paused frame cannot divide by zero.
 	const float Speed = (Dt > 1e-5f) ? (T.Pos - T.Prev).Size() / Dt : 0.0f;
-	FHICharAnim::DriveLocomotion(Body, Speed, true);
+	// ARMED ONLY WITH HIS HANDS FREE, which is the same condition the gun's visibility uses --
+	// a man carrying a television is not in a shooting stance, and the pistol is put away.
+	FHICharAnim::DriveLocomotion(Body, Speed, true, /*bArmed=*/T.Carry.IsEmpty());
 
 	// He carries a visible pistol ONLY while his hands are free, which is the same condition
 	// the sim uses to decide he may fire. Drawing it otherwise would show a gun in the hands

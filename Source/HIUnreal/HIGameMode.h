@@ -369,6 +369,9 @@ private:
 	void TickHarness(float DeltaSeconds);
 
 	/** Print how the round actually went. The point of `-HISoak`. */
+	/** `-HIWeapon=<key>`: start the round holding it. Dev switch for captures. */
+	void ApplyStartWeapon();
+
 	void ReportSoak() const;
 
 	/** The nearest standing intruder's position, or false when nobody is up. */

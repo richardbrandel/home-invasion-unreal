@@ -209,7 +209,7 @@ void AHIPlayerCharacter::SyncFromSim(const FHISim::FHIPlayer& P)
 	// `Vel` is already in metres per second, and it is what makes him lean into a walk
 	// instead of skating: the blend space is driven by MEASURED speed, so a man who is
 	// accelerating from a standing start animates as one who is accelerating.
-	FHICharAnim::DriveLocomotion(Body, P.Vel.Size(), P.bAlive);
+	FHICharAnim::DriveLocomotion(Body, P.Vel.Size(), P.bAlive, /*bArmed=*/true);
 
 	// Dying puts the gun away, so a man on the floor is not still aiming at you.
 	Gun->SetVisibility(P.bAlive && Body->IsVisible() && Gun->GetStaticMesh() != nullptr);

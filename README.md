@@ -128,6 +128,10 @@ ssh ubuntu-dev 'cd /data/projects/HIUnreal && \
 | `-HIShotPos=X,Y` | stand the homeowner at a sim coordinate. Also turns the autopilot OFF, so a posed frame stays posed |
 | `-HIShotYaw=DEG`, `-HIShotPitch=DEG` | aim it |
 | `-HIShotNoUI` | capture without the HUD |
+| `-HIWeapon=shotgun` | start the round holding it, through the same `SwitchWeapon` the [2] key uses -- a capture cannot press a key |
+| `-HIGunLoc=X,Y,Z` | nudge the weapon in the hand, in cm and in the **bone's** frame. See bug 11 |
+| `-HIGunRot=P,Y,R` | turn the weapon in the hand |
+| `-HIGunScale=S` | scale it -- `-HIGunScale=3` is how "is this even rendering" was settled in one frame |
 | `-HIAuto` | drive the homeowner from the autopilot |
 | `-HINoAuto` | force the autopilot off |
 | `-HINoThiefDamage` | **diagnostic**: withhold the intruders' damage (see below) |
@@ -326,7 +330,7 @@ flare stay off, which costs nothing.
 
 ## Status
 
-`HI.` passes **39/39** on ubuntu-dev. **All 97 assertions** in the Godot *sim* spec are
+`HI.` passes **40/40** on ubuntu-dev. **All 97 assertions** in the Godot *sim* spec are
 represented; the port adds coverage the Godot project has never had on either side.
 
 | Test | Covers |
@@ -367,6 +371,7 @@ represented; the port adds coverage the Godot project has never had on either si
 | **`HI.Unreal.Furniture`** | **the furniture heights against `sim.gd`'s own `h` field, and that a sofa is not a column** |
 | **`HI.Unreal.WallFittings`** | **that every socket, switch and thermostat is flush against a wall -- with a negative control** |
 | **`HI.Unreal.Wounds`** | **blood on the man: the wound count against health, five distinct bones, and a wound's SIZE in metres -- the assertion that used to be written in centimetres and so blessed a 7 m box** |
+| **`HI.Unreal.Weapons`** | **both weapon meshes load, their materials are OPAQUE (a masked instance with a missing texture renders as nothing), the character mesh carries the `hand_r` grip bone, and the three pistol-pose clips resolve** |
 | **`HI.Unreal.DeathFall`** | **everything a corpse needs in order to reach the floor: the clip is a playable AnimSequence, the mesh carries a physics asset, the lawn/floor/walls block `ECC_PhysicsBody` -- and bullets still pass through the floor while the walls still stop them** |
 
 ## Bugs the test suite could not have caught
@@ -507,6 +512,46 @@ was reachable from it.
    the test still passed, because `UAnimSingleNodeInstance::SetAnimation` already resets both
    the rate and the position. A fix that cannot be shown to matter is not a fix, and that test
    is gone rather than kept as decoration.
+
+11. **THE PISTOLS WERE IN THE MEN'S HANDS AND NOBODY COULD SEE THEM.** Reported from play
+   2026-10-12: *"I don't see the pistols."* Everything about the attachment was correct -- the
+   `hand_r` socket resolved, `SM_Pistol` loaded, the component was visible, and its world
+   position was **exactly** the hand bone's, to the centimetre. And there was no pistol on
+   screen at any range, for anybody. Two faults stacked.
+
+   (a) **THE POSE WAS THE UNARMED ONE, and that is the half that matters.** The engine's
+   mannequin content contains exactly **one blend space**, `BS_Idle_Walk_Run`, and it is
+   unarmed -- so every armed man walked with empty hands swinging, and a pistol attached to an
+   empty hand is buried against the arm or the hip *wherever you put it*. There is no pistol
+   blend space to switch to, so `DriveLocomotion` now picks the pistol-pose clip by hand:
+   `MF_Pistol_Idle_ADS`, `_Walk_Fwd`, `_Jog_Fwd`. The `MF_` set because the `MM_` set has
+   equip, fire, reload and dry-fire but no locomotion at all; both are authored on
+   `SK_Mannequin`, which Quinn and Manny share. **The Godot original hit this same wall and
+   answered it the same way** -- its own notes say the homeowner "now plays AIM, which holds
+   it out".
+
+   (b) **The grip was wrong even once the pose was right.** `SM_Pistol` is 26 cm long and its
+   **pivot is at its centre**, so at zero offset it straddles the wrist, and the placement
+   rotation was `FRotator(-90, 0, 0)` -- a **pitch**. Pitch rotates about Y, so the barrel
+   stayed on the bone's Y, straight *across* the hand, and the gun lay along the forearm. It
+   is now a **yaw** of -90, which takes the mesh's +Y (the barrel) onto the bone's +X (wrist to
+   fingers), with a 6 cm offset along it to put the grip in the palm rather than the pivot at
+   the joint.
+
+   **How it was found, because the method is the reusable part.** Pose, axes and placement are
+   all invisible to the test suite, so it took a measurement in the RUNNING game: a temporary
+   log of the socket's world basis against the gun's, which showed `gunY == gripX` -- proving
+   the rotation was doing exactly what was intended and that the *pose* was the problem, not
+   the maths. And once the pose was suspected, scaling the pistol 3x and lifting it 30 cm
+   sprang it into view instantly, clearing the mesh, the material and the attach in one frame.
+   `-HIGunLoc=` / `-HIGunRot=` / `-HIGunScale=` exist because a socket offset is judged by
+   LOOKING at it: rebuild-to-nudge was costing two minutes and a capture, four times over.
+   `HI.Unreal.Weapons` asserts the four things that can break it silently -- both meshes load,
+   their materials are OPAQUE, the `hand_r` bone is on the character mesh, and the three
+   pistol-pose clips resolve. **And the long gun was checked in a frame too**, because it uses
+   the same grip rule with a 78.6 cm mesh: `-HIWeapon=shotgun` starts a round holding it, and
+   the rifle reads correctly in both hands. It is the dark one -- which is how the pistol's
+   pale material was pinned down as a texture that is not reaching the shader.
 
 Also fixed in the same pass, and smaller: **`-HIShotNoUI` did nothing.** It was read and
 handed to `FScreenshotRequest::RequestScreenshot(bShowUI=...)`, and that flag suppresses
@@ -652,6 +697,11 @@ receiving one needs no GUI.
   door reads as a small pale cabinet rather than as a coat. The palette already has an unused
   `Sofa` colour. It is one component and one line, and it wants a person's eye rather than a
   measurement.
+- **The pistols render LIGHT GREY rather than dark metal.** The material is opaque and lights
+  correctly -- it is simply pale, and against the mannequins' own grey it reads as a toy. The
+  imported texture does not show, and which of the four `T_Pistol_*` maps it wants is a
+  question for an eye rather than a measurement. Cosmetic, and now that the guns are visible it
+  is the next thing a player notices.
 - **The damage flash is four hard-edged rectangles.** It is drawn as four edge bars so it does
   not hide what is shooting you, which is right, but they meet at the corners with no falloff,
   so at high alpha the frame reads as a picture frame rather than as being hurt. Cosmetic.

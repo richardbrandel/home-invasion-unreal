@@ -56,7 +56,26 @@ struct FHICharAnim
 	 * backwards or briefly sprinting past the top of the blend does not strobe. Foot
 	 * PLANTING on an edge, which is the other half of item 14, does need one.
 	 */
-	static void DriveLocomotion(USkeletalMeshComponent* Mesh, float SpeedMps, bool bAlive);
+	static void DriveLocomotion(USkeletalMeshComponent* Mesh, float SpeedMps, bool bAlive,
+		bool bArmed = false);
+
+	/**
+	 * One pistol-pose clip, by speed. THE ENGINE SHIPS NO PISTOL BLEND SPACE.
+	 *
+	 * There is exactly one blend space in the whole mannequin content -- `BS_Idle_Walk_Run`,
+	 * UNARMED -- and a set of pistol SEQUENCES beside it. So a man carrying a pistol was
+	 * walking in the empty-handed pose, arms swinging, and a pistol attached to that hand is
+	 * buried against the arm or the hip wherever you put it. Reported from play: *"I don't see
+	 * the pistols."* The Godot original solved the same problem the same way -- its notes say
+	 * the homeowner "now plays AIM, which holds it out".
+	 *
+	 * These are the `MF_` (female-authored) clips because the `MM_` set has equip, fire, reload
+	 * and dry-fire but no locomotion at all. Both are authored on `SK_Mannequin`, which is the
+	 * skeleton Quinn and Manny both use, so they play on either.
+	 */
+	static const TCHAR* PistolIdlePath();
+	static const TCHAR* PistolWalkPath();
+	static const TCHAR* PistolJogPath();
 
 	/**
 	 * Hard-switch to a one-shot clip and hold its last pose (a death), or back to the blend

@@ -163,6 +163,7 @@ void AHIGameMode::BeginPlay()
 	HandleCommandLine();
 
 	Round = FHISim::FHIRound::Start(IntruderCount);
+	ApplyStartWeapon();
 
 	UWorld* World = GetWorld();
 	if (World == nullptr)
@@ -1116,6 +1117,7 @@ void AHIGameMode::ResolveThiefShot(const FHISim::FHIEvent& Shot)
 void AHIGameMode::RestartRound()
 {
 	Round = FHISim::FHIRound::Start(IntruderCount);
+	ApplyStartWeapon();
 	RoundSeconds = 0.0f;
 	SimAccumulator = 0.0f;
 	SimSteps = 0;
@@ -1633,6 +1635,20 @@ void AHIGameMode::TickHarness(float DeltaSeconds)
 	// The screenshot is written by the viewport on a later frame, so quitting immediately
 	// would produce no file -- and a missing file looks exactly like a rendering failure.
 	QuitCountdownFrames = 10;
+}
+
+void AHIGameMode::ApplyStartWeapon()
+{
+	// `-HIWeapon=shotgun` starts the round holding the long gun. A capture cannot press [2], and
+	// "does the shotgun read in the hand" is otherwise unobservable without a person.
+	//
+	// It goes through the SAME `SwitchWeapon` the key does, so this is not a private path that
+	// can be right while the player's is wrong -- and `HI.Sim.Verbs` already asserts that path.
+	FString Want;
+	if (FParse::Value(FCommandLine::Get(), TEXT("HIWeapon="), Want) && !Want.IsEmpty())
+	{
+		Round.SwitchWeapon(Want);
+	}
 }
 
 void AHIGameMode::ReportSoak() const

@@ -5,6 +5,8 @@
 #include "Components/InstancedStaticMeshComponent.h"
 #include "Engine/SkeletalMesh.h"
 #include "HIAudio.h"
+#include "MaterialShared.h"
+#include "HICharAnim.h"
 #include "HIGameMode.h"
 #include "HIMarks.h"
 #include "Sound/SoundClass.h"
@@ -1133,6 +1135,89 @@ bool FHIUnrealDeathFall::RunTest(const FString& Parameters)
 	{
 		TestTrue(FString::Printf(TEXT("and lands inside the clip (%.2f s) so the two are one motion"),
 			Clip->GetPlayLength()), AHIIntruder::RagdollAfterDeath < Clip->GetPlayLength());
+	}
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHIUnrealWeapons,
+	"HI.Unreal.Weapons",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FHIUnrealWeapons::RunTest(const FString& Parameters)
+{
+	// "I don't see the pistols." Four separate things have to be true for a gun to be visible
+	// in a hand, and the FIRST one was the only one that was broken -- which is why this test
+	// asserts all four rather than the one that failed. The rest are the ways it can break
+	// again silently, and silence is what this whole class of bug looks like.
+
+	// ---- 1. THE MESHES LOAD. A `LoadObject` by string that misses returns null, and the
+	// component then simply has no mesh -- which renders as nothing at all, with no error.
+	struct FMesh
+	{
+		const TCHAR* Path;
+		const TCHAR* What;
+	};
+	const FMesh Meshes[] = {
+		{ TEXT("/Game/Weapons/Pistol/Meshes/SM_Pistol.SM_Pistol"), TEXT("the pistol") },
+		{ TEXT("/Game/Weapons/Rifle/Meshes/SM_Rifle.SM_Rifle"), TEXT("the shotgun's stand-in (the engine rifle)") },
+	};
+	for (const FMesh& M : Meshes)
+	{
+		UStaticMesh* Mesh = LoadObject<UStaticMesh>(nullptr, M.Path);
+		TestNotNull(*FString::Printf(TEXT("%s loads"), M.What), Mesh);
+		if (Mesh == nullptr)
+		{
+			continue;
+		}
+
+		// ---- 2. ITS MATERIAL IS OPAQUE. An instance on a masked or translucent parent whose
+		// opacity texture did not come across renders as literally nothing, with the mesh
+		// present, visible and in the right place -- indistinguishable from this bug.
+		UMaterialInterface* MI = Mesh->GetMaterial(0);
+		TestNotNull(*FString::Printf(TEXT("%s has a material"), M.What), MI);
+		if (MI != nullptr)
+		{
+			UMaterial* Base = MI->GetMaterial();
+			TestNotNull(*FString::Printf(TEXT("%s resolves to a base material"), M.What), Base);
+			if (Base != nullptr)
+			{
+				TestTrue(*FString::Printf(TEXT("%s is opaque, so it cannot render as nothing"), M.What),
+					Base->GetBlendMode() == EBlendMode::BLEND_Opaque);
+			}
+		}
+	}
+
+	// ---- 3. THE GRIP EXISTS. The attachment is by the `hand_r` socket, which is resolved
+	// against the mesh and its skeleton; the BONE is the thing that must be there, because a
+	// swap to a mesh without one leaves the weapon at the man's feet with only a log line.
+	USkeletalMesh* Body = LoadObject<USkeletalMesh>(nullptr,
+		TEXT("/Game/Characters/Mannequins/Meshes/SKM_Quinn_Simple.SKM_Quinn_Simple"));
+	TestNotNull(TEXT("the intruder's mesh loads"), Body);
+	if (Body != nullptr && Body->GetSkeleton() != nullptr)
+	{
+		const FReferenceSkeleton& Ref = Body->GetSkeleton()->GetReferenceSkeleton();
+		TestTrue(TEXT("and it has the 'hand_r' bone the weapon is gripped with"),
+			Ref.FindBoneIndex(TEXT("hand_r")) != INDEX_NONE);
+	}
+	else
+	{
+		AddError(TEXT("the intruder's mesh has no skeleton, so no grip can be resolved"));
+	}
+
+	// ---- 4. THE PISTOL-POSE CLIPS LOAD, and this is the half that actually made the guns
+	// visible. There is no pistol BLEND SPACE in the engine's mannequin content -- one unarmed
+	// blend space and a set of pistol sequences -- so an armed man's locomotion is chosen by
+	// hand in `DriveLocomotion`. A missing clip there logs and falls back to the empty-handed
+	// pose, and a pistol in an empty hand is what the bug looked like.
+	const TCHAR* PoseClips[] = {
+		FHICharAnim::PistolIdlePath(), FHICharAnim::PistolWalkPath(), FHICharAnim::PistolJogPath(),
+	};
+	for (const TCHAR* Path : PoseClips)
+	{
+		UAnimationAsset* Clip = LoadObject<UAnimationAsset>(nullptr, Path);
+		TestNotNull(*FString::Printf(TEXT("the pistol pose clip %s loads"),
+			*FPaths::GetBaseFilename(Path)), Clip);
 	}
 
 	return true;
