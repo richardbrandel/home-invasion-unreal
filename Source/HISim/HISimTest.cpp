@@ -1777,15 +1777,22 @@ bool FHISimView::RunTest(const FString& Parameters)
 		TestTrue(TEXT("AimDir is unit length across the whole cone"), bUnit);
 	}
 
-	// ---- the camera sits BEHIND the view, over the shoulder, and above
+	// ---- the camera sits BEHIND the view and above, and NOT off to one side.
+	//
+	// The lateral term is the one that matters, and it is a deliberate divergence from
+	// `game.gd`'s 0.42: the reticle is the aim direction projected into the CAMERA's basis, so
+	// a side offset moves the man on screen while the crosshair stays in the middle -- "the
+	// crosshair is at the side of the defender; it should be in front". Zero is the value that
+	// puts the homeowner under his own crosshair, so zero is what is asserted.
 	{
 		const FVector View = FHISim::AimDir(0.0f, 0.0f);
 		const FVector Offset = FHISim::CameraOffset(0.0f, 0.0f);
-		TestTrue(FString::Printf(TEXT("at yaw 0 the camera is behind (-Y), to the right (-X) and above (%.2f, %.2f, %.2f)"),
+		TestTrue(FString::Printf(TEXT("at yaw 0 the camera is behind (-Y) and above (%.2f, %.2f, %.2f)"),
 			Offset.X, Offset.Y, Offset.Z),
-			FMath::IsNearlyEqual(Offset.X, -FHISim::CamSide, 1e-5f)
-			&& FMath::IsNearlyEqual(Offset.Y, -FHISim::CamBack, 1e-5f)
+			FMath::IsNearlyEqual(Offset.Y, -FHISim::CamBack, 1e-5f)
 			&& FMath::IsNearlyEqual(Offset.Z, FHISim::CamUp, 1e-5f));
+		TestTrue(FString::Printf(TEXT("and has NO lateral offset, so he stands under the crosshair (X=%.3f)"),
+			Offset.X), FMath::IsNearlyZero(Offset.X, 1e-5f));
 		TestTrue(FString::Printf(TEXT("and it stays behind him as he turns (dot=%.2f)"), FVector::DotProduct(Offset, View)),
 			FVector::DotProduct(Offset, View) < 0.0f);
 	}

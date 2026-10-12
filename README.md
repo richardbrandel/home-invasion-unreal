@@ -128,6 +128,7 @@ ssh ubuntu-dev 'cd /data/projects/HIUnreal && \
 | `-HIShotPos=X,Y` | stand the homeowner at a sim coordinate. Also turns the autopilot OFF, so a posed frame stays posed |
 | `-HIShotYaw=DEG`, `-HIShotPitch=DEG` | aim it |
 | `-HIShotNoUI` | capture without the HUD |
+| `-HICamBack=M` `-HICamUp=M` `-HICamSide=M` | move the chase camera, in metres. `-HICamSide=0.42` restores the Godot over-the-shoulder framing |
 | `-HIWeapon=shotgun` | start the round holding it, through the same `SwitchWeapon` the [2] key uses -- a capture cannot press a key |
 | `-HIGunLoc=X,Y,Z` | nudge the weapon in the hand, in cm and in the **bone's** frame. See bug 11 |
 | `-HIGunRot=P,Y,R` | turn the weapon in the hand |
@@ -552,6 +553,20 @@ was reachable from it.
    the same grip rule with a 78.6 cm mesh: `-HIWeapon=shotgun` starts a round holding it, and
    the rifle reads correctly in both hands. It is the dark one -- which is how the pistol's
    pale material was pinned down as a texture that is not reaching the shader.
+
+12. **THE CROSSHAIR STOOD BESIDE THE DEFENDER INSTEAD OF IN FRONT OF HIM.** Reported from
+   play 2026-10-12: *"in the middle of the screen there is a crosshair, but it is at the side of
+   the defender; it should be in front."* Nothing was miscomputed -- the two halves were each
+   doing what they were written to do, and they disagreed about where the middle of the screen
+   is. The reticle is the AIM DIRECTION projected into the CAMERA's basis (`ReticleFraction`),
+   and the shot is cast from the camera along its forward, so with the camera 0.42 m off to one
+   side **the crosshair stayed at the centre and the MAN moved off it.** `FHISim::CamSide` is
+   now **0**, which puts the camera on the defender's own line so he stands under his own
+   crosshair. It is a deliberate divergence from `game.gd`'s 0.42, and the sim test now asserts
+   the invariant that matters -- *no lateral offset* -- rather than the old one.
+   The alternative was to move the RETICLE onto the defender's line, and it is wrong: the shot
+   leaves the camera, so a reticle drawn anywhere else would lie about where the pellets go.
+   The framing is tunable without a rebuild: `-HICamBack=`, `-HICamUp=`, `-HICamSide=`.
 
 Also fixed in the same pass, and smaller: **`-HIShotNoUI` did nothing.** It was read and
 handed to `FScreenshotRequest::RequestScreenshot(bShowUI=...)`, and that flag suppresses

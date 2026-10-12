@@ -132,8 +132,25 @@ FVector AHIPlayerCharacter::EyePivot(const FHISim::FHIPlayer& P)
 
 void AHIPlayerCharacter::ViewTransform(const FHISim::FHIPlayer& P, FVector& OutLocation, FVector& OutDirection)
 {
+	// DEV SWITCHES, for the same reason the gun offsets have them: framing is judged by looking
+	// at it. `-HICamBack=` / `-HICamUp=` / `-HICamSide=`, in metres, the same three the Godot
+	// original exposed as `--cam-back` / `--cam-up` / `--cam-side`.
+	static bool bCamParsed = false;
+	static float CamBack = FHISim::CamBack;
+	static float CamUp = FHISim::CamUp;
+	static float CamSide = FHISim::CamSide;
+	if (!bCamParsed)
+	{
+		bCamParsed = true;
+		const TCHAR* Cmd = FCommandLine::Get();
+		FString Value;
+		if (FParse::Value(Cmd, TEXT("HICamBack="), Value)) { CamBack = FCString::Atof(*Value); }
+		if (FParse::Value(Cmd, TEXT("HICamUp="), Value)) { CamUp = FCString::Atof(*Value); }
+		if (FParse::Value(Cmd, TEXT("HICamSide="), Value)) { CamSide = FCString::Atof(*Value); }
+	}
+
 	// The offset is scaled with the pivot; the direction is a unit vector and must NOT be.
-	OutLocation = EyePivot(P) + FHISim::CameraOffset(P.Yaw, P.Pitch) * HI_METERS_TO_UU;
+	OutLocation = EyePivot(P) + FHISim::CameraOffset(P.Yaw, P.Pitch, CamBack, CamUp, CamSide) * HI_METERS_TO_UU;
 	OutDirection = FHISim::AimDir(P.Yaw, P.Pitch);
 }
 

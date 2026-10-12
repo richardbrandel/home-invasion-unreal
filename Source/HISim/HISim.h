@@ -77,7 +77,22 @@ struct HISIM_API FHISim
 	static constexpr float PitchMax = 0.85f;    // looking down
 	static constexpr float CamBack = 0.90f;
 	static constexpr float CamUp = 0.22f;
-	static constexpr float CamSide = 0.42f;
+
+	/**
+	 * ZERO, AND THIS IS A DELIBERATE DIVERGENCE FROM `game.gd`, which uses 0.42.
+	 *
+	 * The shoulder offset put the homeowner to one side of the screen while the reticle stayed
+	 * at the middle of it, because the reticle is the AIM DIRECTION projected into the camera's
+	 * basis -- so a lateral camera offset moves the MAN, not the crosshair. Reported from play
+	 * 2026-10-12: *"in the middle of the screen there is a crosshair, but it is at the side of
+	 * the defender; it should be in front."*
+	 *
+	 * The shot is cast from the camera along its forward (`ResolvePlayerShot`), so the crosshair
+	 * at the centre is honest and moving the RETICLE instead would make it lie. The fix is to
+	 * put the camera on the defender's own line: with no lateral offset he sits centred under
+	 * the crosshair, which is where a player expects his own man to be.
+	 */
+	static constexpr float CamSide = 0.0f;
 
 	/**
 	 * Where the player is looking, as a unit vector in the port's world space: X and Y are
