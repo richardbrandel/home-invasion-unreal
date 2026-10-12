@@ -563,9 +563,18 @@ receiving one needs no GUI.
   74.2 s**, ending with all three valuables delivered and the homeowner dead. That is a much
   more reasonable "if you do nothing, you lose", and it is reported rather than retuned
   because the numbers are the spec's.
-- **The sound is placeholder.** Gunshots are the engine's template cue and everything else is
-  that cue or a sine tone at a shifted pitch. The mixing and the timing are real; the foley is
-  not, and barks in particular sound like equipment rather than men.
+- **The FOLEY is real now; the VOICES are the remaining weak link.** This item used to say the
+  gunshots were the engine's template cue and everything else a sine at a shifted pitch.
+  **That stopped being true and the line stayed anyway.** `FHIAudio::Imported` loads
+  `/Game/HIImported/audio/` — the Godot original's own `gunshot_pistol`, `gunshot_shotgun`,
+  `impact` and `siren` wavs, imported headlessly — and the template cue is gone, which is
+  asserted rather than assumed (`HITests.cpp:506`). What is still synthetic is the nine VOICE
+  lines: `tools/make-voices.sh` renders them with macOS `say`, a formant synthesiser, and this
+  Mac has 177 voices and **zero** of them Premium or Enhanced, so no setting makes it sound
+  like a person. `tools/make-voices-neural.sh` renders the same lines with **Kokoro**, a local
+  82M-parameter neural TTS, and two samples are waiting for a human ear:
+  `voice-samples/neural_owner_challenge.wav` and `neural_thief_spot.wav`. They are not in the
+  build until someone says they are better than `say`.
 - **The van cannot be walked into, because it cannot be walked INTO.** The sim's world data
   does not make the van solid — it is scenery in both projects — so a body driven by the sim
   passes through it. This cannot be fixed from the actor layer: the player's movement is
@@ -584,15 +593,15 @@ receiving one needs no GUI.
   behind. That is the same open decision, and the same one a person has to make.
 - **Nothing has been played by a person.** Everything above is compile, test, and captured
   frames looked at by an agent. No human has held the controls.
-- **A RUG LIES ON THE FRONT LAWN, and it is the Godot source's bug, not the port's.**
-  `sim.gd`'s living-room rug is `Rect2(-7.60, -8.60, 4.40, 1.80)` and the house is
-  `Rect2(-8, -19, 16, 11)` — so the rug runs from y -8.6 to -6.8 and **straddles the front
-  wall**, with about 1.2 m of it out on the drive. Nothing in either project ever noticed,
-  because a rug is `flat`, so it is excluded from `Solids()` and was never *drawn* — until
-  this pass started drawing rugs, which is why it is now visible. Verified in a capture from
-  the drive. The fix is one y value in **both** projects; guessing the intended one is a
-  design decision, so it is reported instead. A plausible value is -10.60, which puts it in
-  front of the sofa.
+- ~~**A RUG LIES ON THE FRONT LAWN**~~ — **FIXED 2026-10-09, in both projects.** The
+  living-room rug was `Rect2(-7.60, -8.60, 4.40, 1.80)` against a house of `Rect2(-8, -19, 16,
+  11)`, so 1.2 m of it lay on the drive. It went unnoticed for the life of both projects
+  because a rug is `flat`, so `Solids()` excludes it and nothing ever *drew* it; the port only
+  found it by starting to draw rugs. The intended value was not a guess after all — `-10.60`
+  puts it in front of the sofa, and that is what both projects now carry
+  (`Source/HISim/HISim.cpp:927`, Godot commit `fd14d77`). `HI.Unreal.Furniture` asserts every
+  furniture rect is inside the house, **with the old bad rectangle kept as a negative
+  control**, so the bug cannot return quietly.
 - **`sim.gd`'s `DECOR` list was never ported.** The original has a second, separate list of
   drawn-but-not-solid items — picture frames on specific walls, two cacti, two book sets, a
   stove, a pot and a table lamp — added precisely because a picture frame must never block a
