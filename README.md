@@ -180,10 +180,26 @@ Everything above is a capture harness, and a capture harness is not a game you c
 play it, the binary needs a display and no `-RenderOffscreen`:
 
 ```sh
-ssh -X ubuntu-dev            # only if the box has no monitor attached
-ssh ubuntu-dev '/home/richard/UnrealEngine/Engine/Binaries/Linux/UnrealEditor \
-  /data/projects/HIUnreal/HIUnreal.uproject -game'
+ssh ubuntu-dev '/data/projects/HIUnreal/tools/play.sh'
+# extra Unreal arguments pass through:  tools/play.sh -HIThieves=1
 ```
+
+### Two ways this machine will waste your evening, both measured
+
+**1. A game launched from a bare ssh session cannot see the screen.** SDL3 reports *"could not
+initialize SDL: No available video device"* and the engine exits before drawing anything, because
+the session variables are missing. `tools/play.sh` sets them (`XDG_RUNTIME_DIR`,
+`WAYLAND_DISPLAY`, `DISPLAY`, and the Xwayland cookie -- whose FILENAME CHANGES ON EVERY BOOT, so
+the script discovers it). The same binary that runs perfectly with them fails without them.
+
+**2. A driver update without a reboot leaves the GPU unusable, and it looks like a game bug.**
+On 2026-10-12 the NVIDIA userspace libraries were upgraded to 615.71.09 while the loaded kernel
+module stayed at 610.57.04. UnrealEditor then HUNG inside RHI initialisation -- the log stopped at
+`LogRHI: Skipping SF_VULKAN_SM5...` and never created a game window -- and what is left on screen
+is the **splash**, a small window in the middle of the display. Reported from play as *"it
+minimizes into something that looks like a mouse or a phone, just a small icon"*, and it is not
+the game minimising at all. `nvidia-smi` answers *"Driver/library version mismatch"*, and the fix
+is a reboot. `tools/play.sh` checks this and says so instead of launching into a hang.
 
 | Key | |
 |---|---|
@@ -218,6 +234,7 @@ toolchain, which is a separate job from making the game work.
 | `tools/import-assets.py` | IMPORTs source files (wav, png, gltf, fbx) headlessly |
 | `tools/make-voices.sh` | renders the bark lines on the Mac's own speech synthesiser (macOS `say`, the OLD take) |
 | `tools/make-voices-neural.sh` | renders the same nine lines with **Kokoro**, an offline neural TTS on this Mac -- **this is what the game ships** |
+| `tools/play.sh` | **launch the game for a person**, with the session environment and a driver check. See the hazards below |
 | `tools/tour.sh` | the scripted tour: eight known views, one command |
 | `docs/PARITY.md` | **the port measured against the Godot original, divergence by divergence** |
 
