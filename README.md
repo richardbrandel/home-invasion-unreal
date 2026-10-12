@@ -632,6 +632,27 @@ was reachable from it.
    screen, and now a command line that silently parsed a third of its argument. The rule that
    keeps earning its place: **when a sweep produces identical results, suspect the sweep.**
 
+14. **W WALKED BACKWARDS, S WALKED FORWARDS, AND EVERY TEST AGREED IT WAS FINE.** Reported from
+   play: *"switch the W and S button, right now they work counter intuitive."* The port's axis is
+   **"+1 is forward"** -- the game layer builds `(W?1:0) - (S?1:0)`, and the sim's own comment
+   says *"+1 forward is what `Step` already expects"* -- but the movement line still carried
+   `game.gd`'s negation:
+
+   ```cpp
+   Wish = (Fwd * -Input.Axis.Y + Right * Input.Axis.X) ...
+   ```
+
+   Godot's `_move_axis` gives W `v.y -= 1`, **minus** one, and then negates it here. The port
+   flipped the input to +1 and kept the negation, so two flips that used to cancel became a
+   double negative. It is now `Fwd * Input.Axis.Y`.
+
+   **The suite could not see it, and the reason is the useful part.** `HI.Sim.Momentum` drove
+   `Axis = (0, 1)` labelled *"walk forward"* and asserted how FAR he moved, and that he reached
+   full pace a second later -- and every one of those numbers is identical whichever way he
+   walks. It now asserts **which way**: at yaw 0 a step on `(0, 1)` must increase Y and leave X
+   alone. Negative-controlled: with the old negation restored it fails with
+   `and he walks FORWARD, not backwards (dY=-0.0056, dX=0.0000)`.
+
 Also fixed in the same pass, and smaller: **`-HIShotNoUI` did nothing.** It was read and
 handed to `FScreenshotRequest::RequestScreenshot(bShowUI=...)`, and that flag suppresses
 SLATE, not the canvas the HUD is drawn on — the engine's own `UGameViewportClient::

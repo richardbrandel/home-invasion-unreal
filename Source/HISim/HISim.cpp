@@ -758,9 +758,17 @@ void FHISim::FHIRound::Step(const FHIInput& Input, float Dt)
 		// Camera-relative: forward is the yaw direction in XZ, and camera-RIGHT is computed
 		// rather than guessed. At yaw 0 he looks toward +Z, so his right is -X; the mirrored
 		// (cos, -sin) is exactly what made A strafe right and D left.
+		//
+		// `+Input.Axis.Y`, NOT `-`: this port's axis is "+1 is forward", which is what the game
+		// layer builds and what every caller and test assumes. `game.gd`'s `_move_axis` gives W
+		// `v.y -= 1` -- MINUS one -- and then negates it here, so carrying that negation across
+		// while flipping the input to +1 turned it into a double negative: **W walked
+		// backwards.** Reported from play as *"switch the W and S button, right now they work
+		// counter intuitive"*, which is a precise description of two sign flips that no longer
+		// cancel.
 		const FVector2D Fwd(FMath::Sin(Player.Yaw), FMath::Cos(Player.Yaw));
 		const FVector2D Right(-FMath::Cos(Player.Yaw), FMath::Sin(Player.Yaw));
-		Wish = (Fwd * -Input.Axis.Y + Right * Input.Axis.X).GetSafeNormal() * Speed;
+		Wish = (Fwd * Input.Axis.Y + Right * Input.Axis.X).GetSafeNormal() * Speed;
 	}
 
 	// He carries momentum between frames instead of being assigned a velocity. This is the

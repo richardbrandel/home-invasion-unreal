@@ -1506,6 +1506,13 @@ bool FHISimRound::RunTest(const FString& Parameters)
 		const FVector2D StartPos = M.Player.Pos;
 		M.Step(In, Dt);
 		const float FirstFrame = FVector2D::Distance(M.Player.Pos, StartPos);
+		// WHICH WAY, not just how far. The distance assertions below passed while the axis was
+		// INVERTED -- W walked backwards and every number here was identical -- because nothing
+		// in this test ever looked at the direction. At yaw 0 forward is +Y, so a step on
+		// `Axis = (0, 1)` must increase Y and leave X alone.
+		TestTrue(FString::Printf(TEXT("and he walks FORWARD, not backwards (dY=%.4f, dX=%.4f)"),
+			M.Player.Pos.Y - StartPos.Y, M.Player.Pos.X - StartPos.X),
+			M.Player.Pos.Y > StartPos.Y && FMath::IsNearlyEqual(M.Player.Pos.X, StartPos.X, 1e-4f));
 		TestTrue(FString::Printf(TEXT("he does not cross the room on the first frame (%.4f m)"), FirstFrame),
 			FirstFrame > 0.0f && FirstFrame < FHISim::PlayerSpeed * Dt * 0.5f);
 
