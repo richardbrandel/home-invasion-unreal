@@ -1690,9 +1690,24 @@ bool FHISim::StepThief(FHIThief& Thief, FHIPlayer& Player, TArray<FHILootItem>& 
 		}
 	}
 
-	// At arm's length he grabs rather than shoots, and that check comes before the fear
-	// branch: a man already close enough to touch you does not first decide whether to
-	// run. NOT YET PORTED (banner "the intruder's hands"), so no grab happens here yet.
+	// At arm's length he puts his hands on you, and this check comes BEFORE the fear branch:
+	// a man already close enough to touch you does not first decide whether to run.
+	//
+	// THIS CALL WAS MISSING, and it is the most dangerous shape a bug takes in this port. The
+	// function was ported, the four constants were ported, and `HI.Sim.Hands` asserted its
+	// reach, its stagger, its push and its cooldown -- all by calling `ThiefShove` DIRECTLY.
+	// So the tests passed while the game never ran it, and the intruder was harmless at
+	// contact range: no stagger, no knock-back, no `thiefShove` event, in a house where a man
+	// at arm's length is supposed to be the most dangerous thing in it.
+	//
+	// The comment that used to sit here read "NOT YET PORTED (banner 'the intruder's hands'),
+	// so no grab happens here yet", which was wrong twice over: the grab of LOOT is ported
+	// elsewhere, and what Godot calls at this line (`sim.gd:897`) is the shove. A stale note
+	// explaining an absence is how the absence survived.
+	//
+	// `ThiefShove` is self-gating -- alive, not escaped, empty-handed, off cooldown, within
+	// range -- so calling it every frame is what Godot does and what this does now.
+	ThiefShove(Thief, Player, Events);
 
 	// ---- decide
 	if (Thief.Mode == TEXT("flee") || Thief.Fear >= FearFlee)

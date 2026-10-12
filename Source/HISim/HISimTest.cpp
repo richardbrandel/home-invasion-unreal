@@ -657,6 +657,43 @@ bool FHISimHands::RunTest(const FString& Parameters)
 	TestFalse(FString::Printf(TEXT("a laden intruder has no hands free to grab you (carrying the %s)"), *Thief.Carry),
 		FHISim::ThiefShove(Thief, Player, Events));
 
+	// ---- AND THE SAME THING THROUGH THE GROUP PATH, which is the part that was missing.
+	//
+	// Everything above calls `ThiefShove` DIRECTLY. That is why it all passed while the game
+	// never shoved anybody: `StepThief` had no call to it, and `StepIntruders` is the only
+	// path the game uses. This project has now had this exact failure three times -- the
+	// reload and weapon switch, `CrouchEyeHeight`, and now this -- so the assertion that
+	// matters is not "is the function right" but "is the function REACHED".
+	//
+	// One man at 0.8 m, inside the 1.5 m reach, stepped through `StepIntruders`.
+	{
+		FHISim::FHIPlayer GroupPlayer = FHISim::CreatePlayer();
+		GroupPlayer.Pos = FVector2D(0.0f, -11.0f);
+		TArray<FHISim::FHIThief> Group = FHISim::CreateIntruders(1);
+		TArray<FHISim::FHILootItem> GroupLoot = FHISim::CreateLoot();
+		Group[0].Pos = FVector2D(0.0f, -10.2f);
+		Group[0].Mode = TEXT("hunt");
+
+		const float Before = GroupPlayer.Pos.Y;
+		TArray<FHISim::FHIEvent> GroupEvents;
+		FHISim::StepIntruders(Group, GroupPlayer, GroupLoot, GroupEvents, 1.0f / 60.0f);
+
+		bool bShoved = false;
+		for (const FHISim::FHIEvent& Ev : GroupEvents)
+		{
+			if (Ev.Type == TEXT("thiefShove"))
+			{
+				bShoved = true;
+			}
+		}
+		TestTrue(TEXT("a man at arm's length SHOVES YOU through the group path the game calls"),
+			bShoved);
+		TestTrue(FString::Printf(TEXT("and you are staggered (%.2f s)"), GroupPlayer.Stagger),
+			GroupPlayer.Stagger >= FHISim::ThiefShoveStagger);
+		TestTrue(FString::Printf(TEXT("and driven back (%.2f m -> %.2f m)"), Before, GroupPlayer.Pos.Y),
+			GroupPlayer.Pos.Y < Before);
+	}
+
 	return true;
 }
 

@@ -816,6 +816,20 @@ void AHIGameMode::ResolvePlayerShot(const FHISim::FHIEvent& Shot)
 	// shotgun pellets are one bang.
 	const bool bShotgun = Round.Player.Weapon == TEXT("shotgun");
 	FHIAudio::PlayerGunshot(World, Origin, bShotgun);
+
+	// THE MUZZLE, and the flash and tracers come from it rather than from the camera.
+	//
+	// Neither existed on the player's own weapon, and it was the most visible thing missing
+	// from firing: `game.gd:1485` calls `_add_flash(muzzle)` on EVERY trigger pull and
+	// `game.gd:1537` draws a tracer per pellet, both from `player_actor.muzzle()`. The port
+	// had `FlashPoint` and `FlashLine` -- used only for the intruders' fire.
+	//
+	// From the GUN, not the camera, and that is the whole reason Godot uses a muzzle marker:
+	// the camera is where the ray starts, and a tracer that begins inside your own head is
+	// invisible. The gun component stands in for the marker.
+	const FVector Muzzle = (Pawn->Gun != nullptr) ? Pawn->Gun->GetComponentLocation() : Origin;
+	// Godot's flash quad is 0.34 m and its colour is the original's own warm white.
+	FlashPoint(Muzzle, 0.34f, FLinearColor(1.0f, 0.92f, 0.55f));
 	// `game.gd`'s recoil: the kick lands on THIS frame, and ApplyLook hands it back over the
 	// next fraction of a second. Kicking the body pitch rather than a separate aim pitch,
 	// because with the cone off there is only one pitch.
@@ -839,7 +853,14 @@ void AHIGameMode::ResolvePlayerShot(const FHISim::FHIEvent& Shot)
 
 		FHitResult Hit;
 		const FVector End = Origin + (Dir + Scatter).GetSafeNormal() * ShotRangeMeters * HI_METERS_TO_UU;
-		if (World->LineTraceSingleByChannel(Hit, Origin, End, ECC_Visibility, Params))
+		const bool bHit = World->LineTraceSingleByChannel(Hit, Origin, End, ECC_Visibility, Params);
+
+		// One tracer PER PELLET, from the muzzle -- `game.gd:1545-1566`. 24 mm across in the
+		// original (a 0.012 m cylinder radius) against the intruders' 20 mm, and the same warm
+		// colour, so a shotgun's nine pellets are nine visible lines rather than one.
+		FlashLine(Muzzle, bHit ? Hit.ImpactPoint : End, 0.024f, FLinearColor(1.0f, 0.92f, 0.66f));
+
+		if (bHit)
 		{
 			if (AHIIntruder* HitIntruder = Cast<AHIIntruder>(Hit.GetActor()))
 			{

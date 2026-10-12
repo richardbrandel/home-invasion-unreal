@@ -38,6 +38,16 @@ public:
 	void Stamp(const FVector& Where, const FVector& Normal, float SizeMeters, const FLinearColor& Colour);
 
 	/**
+	 * The rotation that lays the slab in the plane a normal implies: its thin Z along the
+	 * normal.
+	 *
+	 * Pure and static so the orientation is ASSERTED rather than looked at -- a still frame of
+	 * a wall with holes in it did not reveal that they were all standing out of it for two
+	 * sessions. See the definition for what the obvious `Normal.Rotation()` gets wrong.
+	 */
+	static FRotator SlabRotation(const FVector& Normal);
+
+	/**
 	 * Become a LENGTH of something between two points: a tracer, or a muzzle flash's streak.
 	 *
 	 * The same primitive as `Stamp`, stretched along its own X and aimed down the segment.

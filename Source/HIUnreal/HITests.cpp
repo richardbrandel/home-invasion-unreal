@@ -3,6 +3,7 @@
 
 #include "HIAudio.h"
 #include "HIGameMode.h"
+#include "HIMarks.h"
 #include "HIHouse.h"
 #include "HIHUD.h"
 #include "HIIntruder.h"
@@ -869,6 +870,78 @@ bool FHIUnrealLookMapping::RunTest(const FString& Parameters)
 	// A control that would pass if the function ignored its arguments entirely.
 	AHIGameMode::LookDelta(0.0f, 0.0f, Yaw, Pitch);
 	TestTrue(TEXT("no mouse movement means no view movement"), Yaw == 0.0f && Pitch == 0.0f);
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHIUnrealMarkOrientation,
+	"HI.Unreal.MarkOrientation",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+/**
+ * A bullet hole lies IN the wall, and a corpse mark lies FLAT on the floor.
+ *
+ * Both were wrong, in the same way and for two sessions, and no still frame showed it: the
+ * slab is thin in Z and SizeMeters across X and Y, and `Normal.Rotation()` builds a rotation
+ * whose **X** points along the normal. So every wall hole stood OUT of the wall as a 10 cm
+ * blade, and the 0.9 m blood mark stood UP off the floor as a red sheet -- which is very
+ * probably the "unidentified two-tone object, dark red above green, 1.2 m wide and 2.06 m
+ * tall" that this project had recorded in the README and could not name. A red 0.9 m plate
+ * standing vertically, seen through the doorway against the lawn, is exactly that.
+ *
+ * The assertion is the one that was missing: after the rotation, is the slab's THIN axis
+ * along the normal?
+ */
+bool FHIUnrealMarkOrientation::RunTest(const FString& Parameters)
+{
+	// The slab's THIN axis is its local Z; its SizeMeters face is X by Y. `FRotator::Vector()`
+	// returns the X axis, which is the one we must NOT be testing -- the first version of this
+	// test did exactly that and failed for the wrong reason. Ask for Z explicitly.
+	auto ThinAxis = [](const FRotator& R)
+	{
+		return R.RotateVector(FVector::UpVector);
+	};
+
+	// A wall facing the player: the normal is horizontal.
+	const FVector WallNormal(0.0f, -1.0f, 0.0f);
+	const FRotator WallRot = AHIMark::SlabRotation(WallNormal);
+	TestTrue(*FString::Printf(TEXT("a wall hole's THIN axis points along the wall normal (got %s)"),
+		*ThinAxis(WallRot).ToCompactString()),
+		FVector::DotProduct(ThinAxis(WallRot), WallNormal) > 0.99f);
+
+	// The SizeMeters face must lie IN the wall, i.e. the local X must be perpendicular to the
+	// normal. This is the assertion that actually distinguishes the fix from the bug.
+	TestTrue(*FString::Printf(TEXT("and its FACE lies in the wall (local X %s)"),
+		*WallRot.Vector().ToCompactString()),
+		FMath::Abs(FVector::DotProduct(WallRot.Vector(), WallNormal)) < 0.01f);
+
+	// The wrong answer, asserted against directly, because it is the one that was shipped:
+	// `Normal.Rotation()` puts the local X -- the size extent -- along the normal.
+	const FRotator OldRot = WallNormal.Rotation();
+	TestTrue(TEXT("the OLD rotation really did stand the size extent out of the wall"),
+		FMath::Abs(FVector::DotProduct(OldRot.Vector(), WallNormal)) > 0.99f);
+	TestTrue(TEXT("and the old rotation left the thin axis in the wall plane, which is the bug"),
+		FMath::Abs(FVector::DotProduct(ThinAxis(OldRot), WallNormal)) < 0.01f);
+
+	// A floor mark: an upward normal needs no rotation at all. Identity already has its Z up,
+	// so this is exactly where the first version of this test was wrong as well -- it expected
+	// -90 degrees.
+	const FRotator FloorRot = AHIMark::SlabRotation(FVector::UpVector);
+	TestTrue(FString::Printf(TEXT("a floor mark lies flat, thin axis up (got %s)"),
+		*ThinAxis(FloorRot).ToCompactString()),
+		FVector::DotProduct(ThinAxis(FloorRot), FVector::UpVector) > 0.99f);
+	TestTrue(FString::Printf(TEXT("which is the identity rotation (pitch %.1f)"), FloorRot.Pitch),
+		FMath::IsNearlyZero(FloorRot.Pitch, 0.01f));
+
+	// A downward normal (a ceiling) is the one case that must flip, and it must not produce a
+	// degenerate or NaN basis.
+	const FRotator DownRot = AHIMark::SlabRotation(FVector(0.0f, 0.0f, -1.0f));
+	TestTrue(TEXT("a mark on a ceiling points its thin axis down"),
+		FVector::DotProduct(ThinAxis(DownRot), FVector(0.0f, 0.0f, -1.0f)) > 0.99f);
+
+	// A degenerate normal must not produce a NaN rotation.
+	const FRotator ZeroRot = AHIMark::SlabRotation(FVector::ZeroVector);
+	TestFalse(TEXT("a zero normal does not yield a NaN rotation"), ZeroRot.ContainsNaN());
 
 	return true;
 }

@@ -209,9 +209,19 @@ toolchain, which is a separate job from making the game work.
 | `Source/*.Target.cs` | editor and game build targets |
 | `Config/` | `DefaultEngine.ini`, `DefaultInput.ini` |
 | `tools/fetch-engine-assets.sh` | copies the engine's own art into `Content/` |
+| `tools/make-assets.py` | AUTHORs materials headlessly — see "Assets this project GENERATES" |
+| `tools/import-assets.py` | IMPORTs source files (wav, png, gltf, fbx) headlessly |
+| `tools/make-voices.sh` | renders the bark lines on the Mac's own speech synthesiser |
+| `tools/tour.sh` | the scripted tour: eight known views, one command |
+| `docs/PARITY.md` | **the port measured against the Godot original, divergence by divergence** |
 
 `HISim` is the game model, so it is a `Runtime` module with its tests guarded by
 `#if WITH_DEV_AUTOMATION_TESTS` (zero in Shipping).
+
+**`docs/PARITY.md` is the work list, and the Godot project is the design document.** Where
+this port differs from `../home-invasion-godot/`, the port is wrong unless a reason is
+recorded. Read it before deciding anything is "good enough" — the visual and behavioural
+answers are almost always already written in the other repository.
 
 ## Porting hazards — read before editing
 
