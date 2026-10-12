@@ -609,9 +609,18 @@ was reachable from it.
    barrel onto the socket's **+X** -- the sideways axis -- and that is exactly what a player
    sees: the pistol held out horizontally to the man's right while the crosshair points down the
    room. The barrel now tracks the aim to within the hand's natural angle (measured 99-106
-   against a camera at 90; it was 60-90 out before). `HI.Unreal.Weapons` also asserts the pistol
-   is **longest along +Y**, because that is the assumption the grip rests on and another mesh
-   would break it silently.
+   against a camera at 90; it was 60-90 out before, and in the standing aiming pose it is
+   `barrel=(-0.06, 1.00, 0.00)` against a camera at `(0.00, 1.00, -0.03)`).
+   `HI.Unreal.Weapons` also asserts the pistol is **longest along +Y**, because that is the
+   assumption the grip rests on and another mesh would break it silently.
+
+   **Then the OFFSET was wrong, and only a screenshot showed it.** The pistol is 26 cm long with
+   its pivot at the centre, so the grip is 13 cm behind the pivot -- offsetting the pivot by 13 cm
+   puts the grip at the WRIST and the whole gun out past the fingertips, floating in front of the
+   fist. Reported as *"the defender has no pistol in his hand"*, which is a fair description of a
+   pistol hovering 13 cm beyond his knuckles. The palm is about 11 cm along the socket from the
+   wrist, so the answer is 13 - 11 = **2 cm**, chosen by looking at three offsets:
+   `-HIGunLoc=0,13,0` floats it, `0,6,0` hangs it above the knuckles, `0,2,0` grips it.
 
    **The instrument was broken as well, and that cost most of the time.** `-HIGunRot=0,-90,0`
    parsed as `"0"`, because `FParse::Value` stops at the comma by default -- so four candidate

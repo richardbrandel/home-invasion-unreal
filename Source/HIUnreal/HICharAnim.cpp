@@ -190,10 +190,19 @@ UStaticMeshComponent* FHICharAnim::AttachPistol(
 		// onto the socket's +X -- the sideways axis -- and that is exactly what a player sees: the
 		// pistol held out horizontally to the man's right while the crosshair points down the room.
 		//
-		// `SM_Pistol` is 26 cm long and its PIVOT IS AT ITS CENTRE, so the offset along the barrel
-		// is half its length: that puts the grip in the palm instead of the pivot at the wrist.
+		// ---- THE OFFSET IS 2 cm, NOT HALF THE GUN, and getting that wrong is what "the defender
+		// has no pistol in his hand" looked like.
+		//
+		// `SM_Pistol` is 26 cm long with its PIVOT AT ITS CENTRE, so the grip sits 13 cm BEHIND
+		// the pivot. Offsetting the pivot 13 cm along the barrel therefore puts the GRIP at the
+		// wrist and the whole pistol out past the fingertips, floating in front of the fist --
+		// which is exactly what it looked like. The palm is about 11 cm along the socket from
+		// the wrist, so the offset that actually seats the grip in the hand is 13 - 11 = 2 cm.
+		//
+		// Tuned by looking, at three offsets, and it is the sort of number that only an eye can
+		// settle: -HIGunLoc=0,13,0 floats it, 0,6,0 hangs it above the knuckles, 0,2,0 grips it.
 		Pistol->SetRelativeRotation(FRotator(0.0f, 0.0f, 0.0f));
-		Pistol->SetRelativeLocation(FVector(0.0f, 13.0f, 0.0f));
+		Pistol->SetRelativeLocation(FVector(0.0f, 2.0f, 0.0f));
 		Pistol->SetRelativeScale3D(FVector(1.0f));
 
 		// ---- DEV SWITCHES, for the same reason they exist for the camera: a socket offset is
