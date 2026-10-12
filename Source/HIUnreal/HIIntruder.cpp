@@ -158,9 +158,23 @@ bool AHIIntruder::WoundPlacement(int32 Index, FName& OutBone, FVector& OutOffset
 	const FWoundSpot& Spot = WoundSpots[Index];
 	OutBone = FName(Spot.Bone);
 	OutOffset = FVector(Spot.X, Spot.Y, Spot.Z);
+
 	// A flattened slab, so it lies against the body instead of sinking into it or floating
 	// off it. Two centimetres thick against a limb a hundred across.
-	OutSize = FVector(Spot.Size, Spot.Size, 2.0f);
+	//
+	// THE SCALE IS IN METRES, AND THESE NUMBERS ARE CENTIMETRES. The engine's cube is ONE
+	// METRE across at unit scale, so `SetRelativeScale3D(7.0)` is a seven-metre cube -- and
+	// that is exactly what was shipped: every wound was a 7 m x 7 m x 2 m dark red box.
+	//
+	// Reported from play as "when I fire my gun a giant dark red rectangular box appears. It
+	// kind of fills up the room." It appeared on the FIRST hit and not before, because a
+	// full-health intruder shows no wounds and the first hit takes him below full.
+	//
+	// Note what is NOT converted here: `OutOffset` above is in centimetres, and should be,
+	// because `SetRelativeLocation` is centimetre-denominated. Only the scale is in metres.
+	// That asymmetry is the whole trap, and it is why `HI.Unreal.Wounds` now asserts the
+	// SIZE of a shown wound and not merely that it is shown.
+	OutSize = FVector(Spot.Size, Spot.Size, 2.0f) / HI_METERS_TO_UU;
 	return true;
 }
 

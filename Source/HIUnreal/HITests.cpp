@@ -851,8 +851,17 @@ bool FHIUnrealWounds::RunTest(const FString& Parameters)
 		TestTrue(*FString::Printf(TEXT("wound %d has a placement"), Idx),
 			AHIIntruder::WoundPlacement(Idx, Bone, Offset, Size));
 		TestTrue(*FString::Printf(TEXT("wound %d names a bone"), Idx), !Bone.IsNone());
-		TestTrue(*FString::Printf(TEXT("wound %d is a sane size (%.1f cm)"), Idx, Size.X),
-			Size.X > 1.0f && Size.X < 20.0f);
+		// THE UNIT IS METRES, and getting that wrong is the whole reason a seven-metre red box
+		// shipped. The first version of this line said "cm" and checked `1.0 < Size.X < 20.0`
+		// -- the same numbers, in the wrong unit -- so it PASSED for a value that
+		// `SetRelativeScale3D` turns into a seven-metre cube. An assertion in the wrong unit
+		// is worse than a weak one: it actively confirms the bug, and this one did, in a
+		// green test run, for as long as the wound code existed.
+		//
+		// 1 cm to 20 cm, expressed in metres, because metres is what the caller consumes.
+		TestTrue(*FString::Printf(TEXT("wound %d is a sane size (%.3f m across, not %.1f)"),
+			Idx, Size.X, Size.X),
+			Size.X > 0.01f && Size.X < 0.20f);
 		// Two wounds on one bone would overlap and look like one, which defeats the point of
 		// showing five of them.
 		TestFalse(*FString::Printf(TEXT("wound %d is on its own bone (%s)"), Idx, *Bone.ToString()),

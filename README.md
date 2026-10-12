@@ -325,7 +325,7 @@ flare stay off, which costs nothing.
 
 ## Status
 
-`HI.` passes **36/36** on ubuntu-dev. **All 97 assertions** in the Godot *sim* spec are
+`HI.` passes **38/38** on ubuntu-dev. **All 97 assertions** in the Godot *sim* spec are
 represented; the port adds coverage the Godot project has never had on either side.
 
 | Test | Covers |
@@ -365,7 +365,7 @@ represented; the port adds coverage the Godot project has never had on either si
 | **`HI.Unreal.ThiefAim`** | **the intruder's range falloff, guarding the 0.55 floor that made range meaningless** |
 | **`HI.Unreal.Furniture`** | **the furniture heights against `sim.gd`'s own `h` field, and that a sofa is not a column** |
 | **`HI.Unreal.WallFittings`** | **that every socket, switch and thermostat is flush against a wall -- with a negative control** |
-| **`HI.Unreal.Wounds`** | **blood on the man: the wound count against health, and five distinct bones** |
+| **`HI.Unreal.Wounds`** | **blood on the man: the wound count against health, five distinct bones, and a wound's SIZE in metres -- the assertion that used to be written in centimetres and so blessed a 7 m box** |
 
 ## Bugs the test suite could not have caught
 
@@ -445,6 +445,27 @@ was reachable from it.
    `HI.Unreal.WallFittings` asserts each is within a centimetre of a wall face — **with a
    negative control**, because a check that cannot fail is not a check. The coat by the door
    had the same fault and is moved clear of the opening.
+
+9. **EVERY WOUND WAS A SEVEN-METRE RED BOX, AND THE ASSERTION THAT GUARDED IT ASSERTED THE
+   BUG.** Reported from play, 2026-10-12: *"when I fire my gun a giant dark red rectangular box
+   appears. It kind of fills up the room."* `AHIIntruder::WoundPlacement` returned
+   `FVector(Spot.Size, Spot.Size, 2.0f)` -- centimetres, straight out of the wound table -- and
+   the caller handed it to `SetRelativeScale3D`, where **the unit is metres**, because the
+   engine's cube is one metre across at unit scale. A 7 cm wound therefore rendered as a
+   **7 m x 7 m x 2 m slab**, dark red. It appeared on the **first hit** and not before, because
+   a full-health intruder shows no wounds at all, which is what made it look like a firing bug.
+   The asymmetry is the whole trap: `SetRelativeLocation` on the same component *is*
+   centimetre-denominated, so the offset above it is correctly in centimetres and only the
+   scale was wrong.
+   It survived a green suite because the assertion read
+   `TEXT("wound %d is a sane size (%.1f cm)")` and then checked `1.0 < Size.X < 20.0` -- **the
+   same numbers, in the wrong unit** -- so it accepted 7.0 with a clear conscience. An
+   assertion in the wrong unit is worse than a weak one: it actively confirms the bug. It now
+   asserts `0.01 < Size.X < 0.20` and labels the value in metres, and **the check was checked**:
+   with the `/ HI_METERS_TO_UU` removed it fails, at
+   `wound 0 is a sane size (7.000 m across, not 7.0)`, and 38/38 with it in place. Every other
+   scale assignment in the project was swept for the same fault -- `HILootProp` and `HIMarks`
+   both pass metres and `StampLine` already divides -- so the wound was the only one.
 
 Also fixed in the same pass, and smaller: **`-HIShotNoUI` did nothing.** It was read and
 handed to `FScreenshotRequest::RequestScreenshot(bShowUI=...)`, and that flag suppresses
