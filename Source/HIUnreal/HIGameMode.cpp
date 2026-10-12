@@ -23,6 +23,7 @@
 #include "HIMaterials.h"
 #include "HIPlayerCharacter.h"
 #include "InputKeyEventArgs.h"
+#include "GameFramework/PlayerInput.h"
 #include "HIUnits.h"
 #include "Misc/CommandLine.h"
 #include "Misc/Parse.h"
@@ -628,7 +629,7 @@ void AHIGameMode::PollRestart()
 	{
 		return;
 	}
-	const APlayerController* PC = World->GetFirstPlayerController();
+	APlayerController* PC = World->GetFirstPlayerController();
 	if (PC == nullptr)
 	{
 		return;
@@ -678,9 +679,29 @@ void AHIGameMode::ApplyLook()
 	float DeltaX = 0.0f;
 	float DeltaY = 0.0f;
 	PC->GetInputMouseDelta(DeltaX, DeltaY);
+
+	// UNREAL'S "MOUSE DELTA" IS NOT IN PIXELS, and that is the whole of "you have to move the
+	// mouse a lot for the screen to respond".
+	//
+	// `APlayerController::GetInputMouseDelta` is `PlayerInput->GetKeyValue(EKeys::MouseX)` --
+	// the AXIS VALUE, not the raw hardware delta. The axis value has already been scaled by
+	// the MouseX/MouseY sensitivity from DefaultInput.ini, which is 0.07. Godot's number is
+	// radians per PIXEL (`event.relative.x`, raw), so multiplying an axis value by 0.0022 gave
+	// a view 1/0.07 = **14x too slow**. Nothing about the sign or the scheme was wrong any
+	// more; there was simply a missing division.
+	//
+	// Dividing by the configured sensitivity rather than hardcoding 1/0.07 keeps this correct
+	// if the config changes, and it is read from the same object the value came from. Note the
+	// port reads the axis VALUE deliberately -- it is not using the `Turn`/`LookUp` mappings,
+	// which are not bound to the input component at all.
+	const float SensitivityX = PC->PlayerInput != nullptr ? PC->PlayerInput->GetMouseSensitivityX() : 1.0f;
+	const float SensitivityY = PC->PlayerInput != nullptr ? PC->PlayerInput->GetMouseSensitivityY() : 1.0f;
+	const float PixelsX = (SensitivityX != 0.0f && SensitivityX != 1.0f) ? DeltaX / SensitivityX : DeltaX;
+	const float PixelsY = (SensitivityY != 0.0f && SensitivityY != 1.0f) ? DeltaY / SensitivityY : DeltaY;
+
 	float DeltaYaw = 0.0f;
 	float DeltaPitch = 0.0f;
-	LookDelta(DeltaX, DeltaY, DeltaYaw, DeltaPitch);
+	LookDelta(PixelsX, PixelsY, DeltaYaw, DeltaPitch);
 
 	Round.Player.Yaw += DeltaYaw;
 	// The look axis is bound inverted (see DefaultInput.ini), so pushing the mouse up
@@ -1487,20 +1508,41 @@ void AHIGameMode::Tick(float DeltaSeconds)
 		bool bCarried = false;
 		FVector2D CarrierPos = FVector2D::ZeroVector;
 		float CarrierYaw = 0.0f;
+		FVector HandCm = FVector::ZeroVector;
+		bool bHaveHand = false;
 		if (Item.bTaken && !Item.bDelivered)
 		{
-			for (const FHISim::FHIThief& T : Round.Intruders)
+			for (int32 Man = 0; Man < Round.Intruders.Num(); ++Man)
 			{
-				if (T.Carry == Item.Label)
+				const FHISim::FHIThief& T = Round.Intruders[Man];
+				if (T.Carry != Item.Label)
 				{
-					bCarried = true;
-					CarrierPos = T.Pos;
-					CarrierYaw = T.Yaw;
-					break;
+					continue;
 				}
+				bCarried = true;
+				CarrierPos = T.Pos;
+				CarrierYaw = T.Yaw;
+				// The HAND, because the original takes the carried item's position from the
+				// hand bone and says why: "the hand bone moves with the animation, so taking
+				// the position from it is what makes the object look carried rather than glued
+				// to his middle". The port held it at a FIXED 1.05 m chest height instead,
+				// which puts a 1.1 m television at the eye line -- reported from play as the
+				// carried item taking up most of the screen. A hand rides at hip height, so
+				// the load stops blocking the sight line.
+				if (IntruderActors.IsValidIndex(Man) && IntruderActors[Man] != nullptr
+					&& IntruderActors[Man]->Body != nullptr)
+				{
+					const FVector Hand = IntruderActors[Man]->Body->GetSocketLocation(TEXT("hand_r"));
+					if (!Hand.IsNearlyZero())
+					{
+						HandCm = Hand;
+						bHaveHand = true;
+					}
+				}
+				break;
 			}
 		}
-		Prop->SyncFromSim(Item, bCarried, CarrierPos, CarrierYaw);
+		Prop->SyncFromSim(Item, bCarried, CarrierPos, CarrierYaw, HandCm, bHaveHand);
 	}
 
 	TickHarness(DeltaSeconds);

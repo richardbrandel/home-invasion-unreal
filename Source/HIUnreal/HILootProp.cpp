@@ -53,6 +53,10 @@ UStaticMeshComponent* AHILootProp::AddPart(const TCHAR* Name, const TCHAR* MeshP
 	Part->SetMobility(EComponentMobility::Movable);
 
 	// The engine's cube is one metre across at unit scale, so a size in metres IS the scale.
+	//
+	// EVERY SIZE BELOW IS THE ORIGINAL'S. `game.gd:673-708` builds the same three props from
+	// the same primitives, and its numbers are the design document -- the port's were 10-15%
+	// larger all round (a 1.10 m television against Godot's 0.98 m) for no recorded reason.
 	// Rotating first and then offsetting keeps a tipped part on its hinge instead of
 	// swinging its centre around.
 	const FVector Offset = Rotation.RotateVector(Centre * HI_METERS_TO_UU);
@@ -82,15 +86,15 @@ void AHILootProp::Init(int32 InIndex, const FString& InLabel)
 
 	if (InLabel == TEXT("TV"))
 	{
-		AddPart(TEXT("Stand"), CubePath, FVector(0.0f, 0.0f, 0.02f), FVector(0.42f, 0.28f, 0.04f),
+		AddPart(TEXT("Stand"), CubePath, FVector(0.0f, 0.0f, 0.015f), FVector(0.48f, 0.22f, 0.03f),
 			TVPanel);
-		AddPart(TEXT("Neck"), CubePath, FVector(0.0f, 0.0f, 0.11f), FVector(0.12f, 0.08f, 0.14f),
+		AddPart(TEXT("Neck"), CubePath, FVector(0.0f, 0.0f, 0.12f), FVector(0.10f, 0.06f, 0.18f),
 			TVPanel);
-		AddPart(TEXT("Panel"), CubePath, FVector(0.0f, 0.0f, 0.50f), FVector(1.10f, 0.07f, 0.64f),
+		AddPart(TEXT("Panel"), CubePath, FVector(0.0f, 0.0f, 0.50f), FVector(0.98f, 0.05f, 0.58f),
 			TVPanel);
 		// The screen sits a few millimetres proud of the panel's front face, on -Y, which is
 		// the side the camera sees when the set is facing the room.
-		AddPart(TEXT("Screen"), CubePath, FVector(0.0f, -0.04f, 0.50f), FVector(1.02f, 0.012f, 0.56f),
+		AddPart(TEXT("Screen"), CubePath, FVector(0.0f, -0.036f, 0.50f), FVector(0.90f, 0.02f, 0.50f),
 			TVScreen);
 	}
 	else if (InLabel == TEXT("Laptop"))
@@ -110,9 +114,9 @@ void AHILootProp::Init(int32 InIndex, const FString& InLabel)
 	}
 	else if (InLabel == TEXT("Safe"))
 	{
-		AddPart(TEXT("Body"), CubePath, FVector(0.0f, 0.0f, 0.28f), FVector(0.52f, 0.46f, 0.56f),
+		AddPart(TEXT("Body"), CubePath, FVector(0.0f, 0.0f, 0.23f), FVector(0.46f, 0.40f, 0.46f),
 			SafeBody);
-		AddPart(TEXT("Door"), CubePath, FVector(0.0f, -0.235f, 0.28f), FVector(0.42f, 0.03f, 0.46f),
+		AddPart(TEXT("Door"), CubePath, FVector(0.0f, -0.205f, 0.23f), FVector(0.38f, 0.03f, 0.38f),
 			SafeDoor);
 		// The cylinder is 1 m tall along its own Z, so tipping it 90 degrees about X stands
 		// its flat face toward -Y where the dial belongs.
@@ -129,7 +133,7 @@ void AHILootProp::Init(int32 InIndex, const FString& InLabel)
 }
 
 void AHILootProp::SyncFromSim(const FHISim::FHILootItem& Item, bool bCarried,
-	const FVector2D& CarrierPos, float CarrierYaw)
+	const FVector2D& CarrierPos, float CarrierYaw, const FVector& HandCm, bool bHaveHand)
 {
 	if (!bBuilt)
 	{
@@ -139,6 +143,10 @@ void AHILootProp::SyncFromSim(const FHISim::FHILootItem& Item, bool bCarried,
 	FVector2D Where = Item.Pos;
 	float Height = 0.0f;
 	FRotator Facing = FRotator::ZeroRotator;
+	// Set when a world-space position has been computed directly (the carried case, which
+	// follows a bone) rather than from the sim's ground-plane position plus a height.
+	FVector WorldCm = FVector::ZeroVector;
+	bool bWorldSet = false;
 
 	if (Item.bDelivered)
 	{
@@ -149,16 +157,47 @@ void AHILootProp::SyncFromSim(const FHISim::FHILootItem& Item, bool bCarried,
 	}
 	else if (bCarried)
 	{
-		// In his hands, at chest height and just in front of him. `AimDir` is not used
-		// because a man carrying a safe does not hold it out at arm's length; a fixed
-		// chest offset is the honest read of "carrying".
-		const FVector2D Forward(FMath::Sin(CarrierYaw), FMath::Cos(CarrierYaw));
-		Where = CarrierPos + Forward * 0.42f;
-		Height = 1.05f;
 		Facing = FRotator(0.0f, 90.0f - FMath::RadiansToDegrees(CarrierYaw), 0.0f);
+		if (bHaveHand)
+		{
+			// THE HAND BONE, as `game.gd:730-734` does it, and this is the fix for "whatever
+			// the intruder carried out was so big it took up most of the screen".
+			//
+			// The port used to hold the load at a FIXED 1.05 m in front of the carrier. A
+			// television is 0.98 m wide and 0.58 m tall, so at eye level and half a metre from
+			// his chest it covers most of a defender's view as he walks past -- and it reads as
+			// held out in front of his face rather than carried.
+			//
+			// The original's comment is the specification: "the hand bone moves with the
+			// animation, so taking the position from it is what makes the object look carried
+			// rather than glued to his middle". A hand rides at HIP height while walking, so
+			// the load drops below the sight line.
+			//
+			// The offsets are the original's ARRANGEMENT, not its numbers: Godot's own comment
+			// says its values were tuned to Mixamo bone positions ("his right hand is at
+			// x -0.22"), and this model is the UE mannequin, so its literals would be wrong
+			// here. What transfers is: from the right hand, toward the middle of the body, a
+			// little forward. THESE THREE NUMBERS WANT ONE VISUAL CHECK.
+			const FVector Right(FMath::Cos(CarrierYaw), -FMath::Sin(CarrierYaw), 0.0f);
+			const FVector Forward(FMath::Sin(CarrierYaw), FMath::Cos(CarrierYaw), 0.0f);
+			WorldCm = HandCm
+				- Right * (0.18f * HI_METERS_TO_UU)
+				+ Forward * (0.10f * HI_METERS_TO_UU)
+				+ FVector::UpVector * (-0.02f * HI_METERS_TO_UU);
+			bWorldSet = true;
+		}
+		else
+		{
+			// No body to hang it from (a headless run, or a pawn that has not spawned): fall
+			// back to the chest offset, pulled in from the 0.42 m and lowered from 1.05 m so
+			// the fallback is not the thing that blocks the view either.
+			const FVector2D Forward(FMath::Sin(CarrierYaw), FMath::Cos(CarrierYaw));
+			Where = CarrierPos + Forward * 0.26f;
+			Height = 0.88f;
+		}
 	}
 
-	SetActorLocation(FVector(Where.X, Where.Y, Height) * HI_METERS_TO_UU);
+	SetActorLocation(bWorldSet ? WorldCm : FVector(Where.X, Where.Y, Height) * HI_METERS_TO_UU);
 	SetActorRotation(Facing);
 
 	// A taken item that nobody is carrying is a state the sim reaches for exactly one frame

@@ -41,7 +41,7 @@ public:
 	 * `CarrierYaw` is only read while carried.
 	 */
 	void SyncFromSim(const FHISim::FHILootItem& Item, bool bCarried, const FVector2D& CarrierPos,
-		float CarrierYaw);
+		float CarrierYaw, const FVector& HandCm = FVector::ZeroVector, bool bHaveHand = false);
 
 	/** The sim's index into FHIRound::Loot, so state and prop can be paired. */
 	UPROPERTY(VisibleAnywhere, Category = "Home Invasion")
