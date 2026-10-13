@@ -1045,6 +1045,57 @@ they are no longer the difference between a game that talks and one that beeps.
   apply to them. That is the one part of the old item that survives — and it is a non-issue while
   every character in the game is a Mixamo character carrying its own Mixamo clips.
 
+### The cast, and how a character gets in — 2026-10-13
+
+**Casting, chosen by Richard:** **Louise** is the homeowner (the woman the Godot version used —
+`mixamo-fetch.py`'s preset records `"homeowner": ("Louise", "player")`), and the intruders are
+**James**, **Brute** and **Martha**. Note that the old intruder was **Romero**, who in Mixamo's
+catalogue is a *mummy*, so three humans is a change of kind rather than of taste.
+
+**Getting one in is now three commands and no GUI:**
+
+```sh
+python3 tools/mixamo-fetch.py fetchchar <outdir> <Character Name> <tag>   # needs a live token
+# copy <outdir>/<tag>/ into <box>:/data/projects/HIUnreal/SourceAssets/characters/<tag>/
+ssh ubuntu-dev '/data/projects/HIUnreal/tools/import-assets.sh'
+```
+
+The last step reports `N imported, 0 failed` and `done`. Measured at time of writing:
+**102 imported, 0 failed**, which is four characters at nine clips each plus the textures.
+
+**Where the assets land**, and this is the part the wiring depends on:
+
+| what | path |
+|---|---|
+| skeletal mesh | `/Game/HIImported/characters_<tag>/idle` |
+| skeleton | `/Game/HIImported/characters_<tag>/idle_Skeleton` |
+| clips | `/Game/HIImported/characters_<tag>/{aim,crouch_idle,crouch_walk,death,idle,reload,run,shoot,walk}` |
+
+**EACH CHARACTER HAS ITS OWN SKELETON.** They are all the same Mixamo rig, but they are four
+separate `USkeleton` assets, so a clip from `characters_james` binds to James and not to Louise.
+Anything that plays clips must therefore resolve them **per character**, not from one global
+prefix — which is the main change the current `FHICharAnim` needs, since it holds fixed
+`/Game/Characters/Mannequins/Anims/...` paths.
+
+**Still to do, in order:**
+
+1. `FHICharAnim`: take a per-character clip base path instead of the hardcoded Mannequin paths.
+   The mapping is standing → `aim` (Mixamo's "Aiming Gun", which is also the pose improvement
+   item 2 wanted), walking → `walk`, running → `run`, crouching → `crouch_idle`/`crouch_walk`,
+   firing → `shoot`, reloading → `reload`, death → `death`.
+2. Point `AHIPlayerCharacter` at Louise and `AHIIntruder` at one of the three, one mesh per
+   intruder.
+3. **Bone names.** The rig is `mixamorig:*`. Do NOT guess the prefix — Mixamo exports vary on
+   whether it survives import. Get the truth from C++ in one line that needs no editor:
+   `Body->GetSkeletalMeshAsset()->GetRefSkeleton()` and walk `GetBoneName(i)`. The gun attaches to
+   `hand_r` today and the code already logs a clear warning when that socket is missing.
+4. **Re-measure the facing.** `BodyRotation`'s `t = -a` was measured for the UE Mannequin, whose
+   mesh faces its own +Y. A Mixamo rig lands facing differently. The instrument for this already
+   exists in `-HIProbe` (the clavicle line, which needs the Mixamo shoulder bone names).
+5. **Re-check the camera.** `CamBack 1.30` / `CamUp 0.44` were tuned against the Mannequin's
+   helmeted head. A human head is smaller and occludes less, so the camera can probably come back
+   in toward the framing Richard originally preferred.
+
 ### How to add a source file
 
 ```sh

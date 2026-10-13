@@ -102,7 +102,17 @@ def main():
 	failed = 0
 	for root, dirs, files in os.walk(SRC):
 		dirs.sort()
-		for name in sorted(files):
+		# THE MESH-CARRYING EXPORT MUST BE IMPORTED FIRST, or that folder's own clips cannot
+		# bind to anything. Measured 2026-10-13, importing three new characters in name order:
+		# `aim`, `crouch_idle`, `crouch_walk` and `death` all sort BEFORE `idle.fbx`, and an
+		# animation-only clip whose skeleton does not exist yet imports to nothing -- reported
+		# as "FAILED (no objects)". Exactly four failures per character, exactly the four that
+		# sort before idle, and `idle` plus the four after it succeeded.
+		#
+		# Running the script a second time makes them all appear, which is the worst kind of
+		# fix: it would have been written down as "run it twice" instead of as an ordering bug
+		# that the script can simply not have.
+		for name in sorted(files, key=lambda n: (0 if n.lower() == MESH_CARRYING else 1, n)):
 			if name.startswith(".") or name.lower().endswith(SKIP_EXT):
 				continue
 			rel = os.path.relpath(os.path.join(root, name), SRC)
