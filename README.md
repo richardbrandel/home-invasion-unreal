@@ -254,8 +254,10 @@ toolchain, which is a separate job from making the game work.
 | `tools/iterate.sh` | **sync + build + test in ONE command**, with the build's own timing and a non-zero exit on failure. `--filter HI.Unreal.Weapons` for a focused check, `--no-test` to build only |
 | `tools/contact-sheet.py` | tile a capture series into ONE image, so a whole sweep is judged in one look instead of sampled three frames at a time |
 | `tools/launch-game.sh` | **what the desktop icon runs.** Refuses to restart a game that is already up, and reports a failure through a notification and zenity, because this box has no terminal to print into |
-| `tools/home-invasion.desktop` | the icon itself, with `Terminal=false`. **Do not set it back to `true`** -- there is no terminal emulator installed here |
-| `tools/install-desktop-icon.sh` | installs that icon to `~/Desktop` and to the app grid, executable and `metadata::trusted`. Idempotent; re-run it after a fresh clone |
+| `tools/home-invasion.desktop` | the launch icon, with `Terminal=false` -- kept as a choice, not as a workaround; see bug 17 |
+| `tools/stop-game.sh` | **the click path for STOPPING the game.** Its window has no title bar, so there is no X; this asks politely, waits, then escalates, because Unreal ignores SIGTERM mid-round |
+| `tools/stop-home-invasion.desktop` | the stop icon, `Icon=process-stop` so it cannot be confused with the gamepad next to it |
+| `tools/install-desktop-icon.sh` | installs both icons to `~/Desktop` and to the app grid, executable and `metadata::trusted`. Idempotent; re-run it after a fresh clone |
 | `tools/tour.sh` | the scripted tour: eight known views, one command |
 | `docs/PARITY.md` | **the port measured against the Godot original, divergence by divergence** |
 
@@ -816,11 +818,14 @@ was reachable from it.
    DING desktop-icons extension enabled -- so every check anyone would run said the icon was
    fine. Two things were wrong, and the second one is the interesting one.
 
-   **1. `Terminal=true` asks for a terminal emulator, and this box has none.** `gnome-terminal`,
-   `kgx` and `xterm` are all absent; GNOME's configured launcher is `xdg-terminal-exec --`, which
-   has nothing to hand off to, so the click had nothing to open. It was never needed either: the
-   game's own window is the feedback a player wants, and a failure can be a notification and a
-   zenity window, both of which ARE installed here.
+   **1. `Terminal=true` was NOT the cause, and the first version of this note said it was.** It
+   claimed this box has no terminal emulator, on the strength of `gnome-terminal`, `kgx` and
+   `xterm` all being absent -- a check that could not see the answer, because **Ptyxis IS
+   installed** (`/usr/bin/ptyxis`; it is Ubuntu's default terminal, and it is what
+   `xdg-terminal-exec --` resolves to). The click had a terminal available all along.
+   `Terminal=false` is kept as a CHOICE rather than a fix: the game's window is the feedback a
+   player wants, a terminal that opens and closes itself after twenty seconds is noise, and a
+   failure can be a notification and a zenity window instead.
 
    **2. `play.sh` KILLS AND RESTARTS ANY RUNNING GAME, WHICH TURNS A DOUBLE-CLICK INTO A TRAP.**
    The game takes about twenty seconds from launch to `input claimed`, and the launcher gives no
@@ -837,6 +842,16 @@ was reachable from it.
    desktop entry returns 0, and a second launch returns the **same pid** -- no restart.
    `tools/install-desktop-icon.sh` installs it to `~/Desktop` and to the Activities app grid and
    re-applies trust, which is per-file metadata and is lost on every copy.
+
+   **3. And the window has NO TITLE BAR, so there is no X to close it with.** Reported the same
+   day: *"Where is the X, the game doesn't have a title bar."* Correct -- and it is why the first
+   answer to "how do I stop it" had to be a command. The window manager's own bindings still work,
+   and they were read off this box rather than assumed:
+   `gsettings get org.gnome.desktop.wm.keybindings close` is `['<Alt>F4']`, and
+   `activate-window-menu` is `['<Alt>space']`. But a person working by clicking should not need
+   either, so `tools/stop-game.sh` plus `Stop Home Invasion.desktop` is the click path -- the icon
+   is a red octagon (`process-stop`) precisely so it cannot be confused with the gamepad sitting
+   beside it.
 
 Also fixed in the same pass, and smaller: **`-HIShotNoUI` did nothing.** It was read and
 handed to `FScreenshotRequest::RequestScreenshot(bShowUI=...)`, and that flag suppresses

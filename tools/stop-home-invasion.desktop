@@ -1,0 +1,21 @@
+# The click path for STOPPING the game, which otherwise has no X to click.
+#
+# The game's window carries no decorations, so there is no title bar and no close button. The
+# window manager's bindings still work (GNOME: Alt+F4 closes, Alt+Space opens the window menu),
+# and so does `pkill` -- but a person working by clicking should not need either.
+#
+# `Icon=process-stop` is deliberate: a red octagon reads as stop at a glance and cannot be
+# confused with the gamepad the launch icon uses, which matters when the two sit next to each
+# other on the same desktop.
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Stop Home Invasion
+GenericName=Stop the game
+Comment=Stop the running Home Invasion game (Unreal Engine port)
+Exec=/data/projects/HIUnreal/tools/stop-game.sh
+Icon=process-stop
+Terminal=false
+StartupNotify=false
+Categories=Game;ActionGame;
+Keywords=stop;quit;exit;kill;game;home;invasion;

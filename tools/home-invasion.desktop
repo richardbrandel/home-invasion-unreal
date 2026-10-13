@@ -2,16 +2,19 @@
 #   ~/Desktop/Home Invasion.desktop          (for double-clicking)
 #   ~/.local/share/applications/home-invasion.desktop   (so Activities search finds it)
 #
-# WHY `Terminal=false`, given this is a game that prints a startup log:
+# WHY `Terminal=false`:
 #
-#   `Terminal=true` asks the desktop to run Exec inside a terminal emulator, and THIS BOX HAS NO
-#   TERMINAL EMULATOR INSTALLED -- `gnome-terminal`, `kgx` and `xterm` are all absent, and GNOME's
-#   configured launcher is `xdg-terminal-exec --`, which has nothing to hand off to. A click then
-#   does nothing at all and says nothing about why.
+#   CORRECTED 2026-10-12, because the first version of this comment asserted something FALSE. It
+#   said this box has no terminal emulator so `Terminal=true` had nothing to open. It checked
+#   `gnome-terminal`, `kgx` and `xterm` and missed the one Ubuntu actually ships: **Ptyxis IS
+#   installed** at /usr/bin/ptyxis, and GNOME's `xdg-terminal-exec --` resolves to it. So the
+#   terminal was never the problem, and the icon's failure is fully explained by the restart trap
+#   that `tools/launch-game.sh` exists to prevent.
 #
-#   It is also unnecessary: the game's own window is the feedback a player wants, and
-#   `tools/launch-game.sh` reports a failure through a notification and a zenity window, which
-#   exist here. Nothing is lost by not having the terminal.
+#   `Terminal=false` is therefore kept as a CHOICE and not as a fix: the game's window is the
+#   feedback a player wants, a terminal that opens and closes itself after twenty seconds is
+#   noise, and `launch-game.sh` reports a failure through a notification and a zenity window --
+#   both of which do exist here -- instead.
 [Desktop Entry]
 Type=Application
 Version=1.0
