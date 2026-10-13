@@ -110,6 +110,13 @@ else
 	echo "capture: windowed on the build box's screen; it opens and closes itself"
 fi
 
+# CLEAR THIS NAME'S PREVIOUS FRAMES FIRST, and this is not tidiness. The screenshot directory
+# accumulates across runs, so re-using a name silently mixes an OLD sweep into the NEW sheet --
+# measured: a three-frame series reported four frames copied, because `walk_04.png` was still
+# lying there from the run before. That is the same stale-artifact failure that once made a
+# FIXED collision bug look unfixed, and it would have been invisible on the sheet.
+rm -f "$SHOTDIR/${NAME}_"*.png "$SHOTDIR/${NAME}.png"
+
 # shellcheck disable=SC2086
 setsid nohup "$UE" "$PROJ" -game $VIDEO -ResX=1600 -ResY=900 -unattended -nopause -nosplash \
 	-HIThieves="$THIEVES" -HIShot="$NAME" -HIShotSeries="$TIMES" \
@@ -135,9 +142,15 @@ fi
 
 mkdir -p "$PROJDIR/shots"
 COPIED=0
+FRAMES=""
 for f in "$SHOTDIR"/${NAME}_*.png "$SHOTDIR"/${NAME}.png; do
 	[ -f "$f" ] || continue
 	cp -f "$f" "$PROJDIR/shots/" && COPIED=$((COPIED + 1))
+	# The list is built from what was ACTUALLY COPIED, not from a glob over the destination.
+	# `shots/` accumulates too, so a glob there re-tiles an older run's frames into this sheet --
+	# measured: a three-frame series produced a four-tile sheet, one tile of it from the run
+	# before. A sheet that silently contains last week's frames is worse than no sheet.
+	FRAMES="$FRAMES $PROJDIR/shots/$(basename "$f")"
 done
 
 echo "--- what the game said ---"
@@ -150,5 +163,21 @@ if [ "$COPIED" = "0" ]; then
 	exit 1
 fi
 echo "capture: $COPIED frame(s) copied into $PROJDIR/shots/"
-ls -1 "$PROJDIR/shots/${NAME}"_*.png "$PROJDIR/shots/${NAME}.png" 2>/dev/null
+
+# ONE IMAGE FOR THE WHOLE SWEEP. A series that is only ever looked at a few frames at a time is
+# a series that gets SAMPLED, and sampling the convenient poses is exactly how bug 15 survived
+# two rounds of "verified" fixes. The sheet is built on the BUILD BOX, where the frames already
+# are and where Pillow is installed, so only the sheet crosses the network.
+#
+# THE NAME USES A HYPHEN, NOT AN UNDERSCORE, and that is load-bearing: the frames are
+# `NAME_01.png`, so a sheet called `NAME_sheet.png` matches the frame glob and the NEXT run tiles
+# the previous sheet into the new one. It did, once, which is how this comment got here.
+SHEET="$PROJDIR/shots/${NAME}-sheet.png"
+rm -f "$SHEET"
+# shellcheck disable=SC2086
+if python3 "$(dirname "$0")/contact-sheet.py" "$SHEET" $FRAMES 2>&1; then
+	echo "capture: sheet is ${NAME}-sheet.png"
+else
+	echo "capture: no contact sheet (see above) -- the individual frames are still there" >&2
+fi
 exit 0

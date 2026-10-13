@@ -131,6 +131,7 @@ ssh ubuntu-dev 'cd /data/projects/HIUnreal && \
 | `-HIShotNoUI` | capture without the HUD |
 | `-HICamBack=M` `-HICamUp=M` `-HICamSide=M` | move the chase camera, in metres. `-HICamSide=0.42` restores the Godot over-the-shoulder framing |
 | `-HIWeapon=shotgun` | start the round holding it, through the same `SwitchWeapon` the [2] key uses -- a capture cannot press a key |
+| `-HIWeaponAt=t:key,t:key` | **switch weapons at chosen SIM seconds inside ONE run** — `-HIWeaponAt=1.5:shotgun,3.5:pistol` covers both guns in one launch instead of two. Goes through the same `SwitchWeapon` the keys use |
 | `-HIGunLoc=X,Y,Z` | nudge the weapon in the hand, in cm and in the **bone's** frame. See bug 11 |
 | `-HIGunRot=P,Y,R` | turn the weapon in the hand |
 | `-HIGunScale=S` | scale it -- `-HIGunScale=3` is how "is this even rendering" was settled in one frame |
@@ -250,6 +251,8 @@ toolchain, which is a separate job from making the game work.
 | `tools/play.sh` | **launch the game for a person**, with the session environment and a driver check. See the hazards below |
 | `tools/capture.sh` | **several frames from ONE launch, and it always ends**: `tools/capture.sh walk 1,2,3,4,5`. See bug 16 |
 | `tools/session-env.sh` | the session environment, the editor path and the one-editor rule, **sourced by both scripts above** so they cannot drift |
+| `tools/iterate.sh` | **sync + build + test in ONE command**, with the build's own timing and a non-zero exit on failure. `--filter HI.Unreal.Weapons` for a focused check, `--no-test` to build only |
+| `tools/contact-sheet.py` | tile a capture series into ONE image, so a whole sweep is judged in one look instead of sampled three frames at a time |
 | `tools/tour.sh` | the scripted tour: eight known views, one command |
 | `docs/PARITY.md` | **the port measured against the Godot original, divergence by divergence** |
 
@@ -771,6 +774,38 @@ was reachable from it.
    `tools/session-env.sh` holds the editor path, the session environment and the one-editor rule
    that `play.sh` and `capture.sh` both need, so the cookie discovery and the driver check exist
    once instead of twice.
+
+   **Then the sweep itself got the same treatment, and the same class of bug twice more.**
+
+   * `-HIWeaponAt=t:key,...` switches weapons at chosen SIM seconds inside one run, so a
+     pistol+shotgun sweep is ONE launch instead of two and does not pay ~18 s of engine startup
+     twice. Verified in one 5-frame series: `PISTOL 7/36` -> `SHOTGUN 5/18` -> `SHOTGUN 2/18` ->
+     `PISTOL 4/36`, with the long gun visibly in hand in the middle frames.
+   * `tools/capture.sh` now emits `NAME-sheet.png`, an image of the whole series, and
+     `tools/iterate.sh` makes sync+build+test one command with one verdict.
+
+   **It did not work the first time, and both failures are worth keeping because they are the
+   same failure this file keeps recording — a signal that fired while the thing it described
+   did NOT happen.**
+
+   1. **The cue was written into the input struct, which is rebuilt every frame.** `ReadInput()`
+      returns a fresh `FHIInput` each Tick, so a cue arriving on a frame where the accumulator did
+      not reach a whole sim step was dropped — about one frame in six here. It was SILENT,
+      because the cue's own log line (`-HIWeaponAt fired 'shotgun'`) had already printed. The fix
+      is a latch: the cue sits in `PendingWeaponCue` until the step loop actually delivers it.
+      **The first version reported success over a sweep that covered one weapon**, which is
+      precisely the shape of bug 15 and of the `-HIGunRot` sweep before it.
+   2. **Two directories accumulate frames, and the sheet read the wrong one.** A three-frame
+      series reported four frames copied (the build box's screenshot directory still held
+      `walk_04.png` from the run before), and then the sheet — globbing the *destination*
+      directory — tiled that older run in as a fourth tile. Both are the stale-artifact failure
+      that once made a fixed collision bug look unfixed. The box's directory is now cleared for
+      the name before the run, and the sheet is built from the list of files actually copied
+      rather than from a glob.
+   3. And a keeper: a switch the sim REFUSES now logs `the weapon switch to 'x' was REFUSED`,
+      because `FHIRound::SwitchWeapon` declines an empty key, a repeated key and an unknown
+      weapon — all silently, which is right for a keypress and wrong for a scripted sweep that
+      then reports success over frames it never covered.
 
 Also fixed in the same pass, and smaller: **`-HIShotNoUI` did nothing.** It was read and
 handed to `FScreenshotRequest::RequestScreenshot(bShowUI=...)`, and that flag suppresses

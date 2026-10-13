@@ -372,6 +372,18 @@ private:
 	/** `-HIWeapon=<key>`: start the round holding it. Dev switch for captures. */
 	void ApplyStartWeapon();
 
+	/**
+	 * `-HIWeaponAt=t:key,...`: switch weapons at chosen SIM seconds inside ONE run.
+	 *
+	 * A pistol+shotgun sweep used to be two launches and pay ~18 s of engine startup twice.
+	 *
+	 * This only LATCHES the cue into `PendingWeaponCue`; the step loop delivers it. It cannot
+	 * write into `In` directly, because `ReadInput()` rebuilds that struct every frame -- a cue
+	 * that came due on a frame where the accumulator did not reach a whole sim step was dropped
+	 * silently, which is exactly what the first version of this did.
+	 */
+	void ApplyScheduledWeapon();
+
 	void ReportSoak() const;
 
 	/** The nearest standing intruder's position, or false when nobody is up. */
@@ -399,6 +411,24 @@ private:
 	int32 ShotSeriesNext = 0;
 	/** How many scheduled frames the round ended too early for, so the log can say so. */
 	int32 ShotSeriesMissed = 0;
+
+	/** One `-HIWeaponAt=t:key` cue. */
+	struct FHIWeaponCue
+	{
+		float Time = 0.0f;
+		FString Key;
+	};
+	TArray<FHIWeaponCue> WeaponSchedule;
+	/** One flag per cue, so a cue is an EDGE and not a per-frame re-assignment. */
+	TArray<bool> WeaponScheduleFired;
+	/**
+	 * A cue that is due but has not yet reached a sim step.
+	 *
+	 * It has to survive across frames: `ReadInput()` rebuilds the input struct every Tick, so a
+	 * cue written into it is lost on any frame where the accumulator does not reach a whole sim
+	 * step -- one frame in six, at the rates this box runs at.
+	 */
+	FString PendingWeaponCue;
 	/** Guards against reporting a soak twice, now that two paths can end one. */
 	bool bSoakReported = false;
 	/** `-HIRounds=N`: play N rounds back to back. 0 or 1 means one. */

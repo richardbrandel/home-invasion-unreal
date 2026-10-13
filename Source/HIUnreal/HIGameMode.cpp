@@ -147,6 +147,51 @@ void AHIGameMode::HandleCommandLine()
 			ShotSeries.Num());
 		ShotSeries.Reset();
 	}
+
+	// `-HIWeaponAt=t:key,t:key,...`: switch weapons at chosen SIM seconds WITHIN one run.
+	//
+	// The point is the launch cost. A pistol+shotgun sweep used to be two runs, and each run
+	// pays about eighteen seconds of engine startup for the privilege; this folds them into one.
+	//
+	// `bShouldStopOnSeparator=false` AGAIN -- the fourth site in this file. Without it
+	// `-HIWeaponAt=2:shotgun,4:pistol` parses as `2:shotgun`, the second switch silently never
+	// happens, and the sweep covers half of what it claims while reporting success.
+	{
+		FString ScheduleArg;
+		if (FParse::Value(Cmd, TEXT("HIWeaponAt="), ScheduleArg, /*bShouldStopOnSeparator=*/false))
+		{
+			TArray<FString> Cues;
+			ScheduleArg.ParseIntoArray(Cues, TEXT(","), /*bCullEmpty=*/true);
+			for (const FString& Cue : Cues)
+			{
+				FString TimePart;
+				FString KeyPart;
+				if (!Cue.Split(TEXT(":"), &TimePart, &KeyPart))
+				{
+					UE_LOG(LogTemp, Warning, TEXT("HI: -HIWeaponAt entry '%s' is not 'seconds:weapon' -- ignored"), *Cue);
+					continue;
+				}
+				FHIWeaponCue Entry;
+				Entry.Time = FCString::Atof(*TimePart);
+				Entry.Key = KeyPart.TrimStartAndEnd();
+				// Validated HERE as well as in the sim, so a typo is loud at startup rather than
+				// silently doing nothing at the exact moment the sweep needed it.
+				if (Entry.Key.IsEmpty() || Entry.Time < 0.0f || FHISim::Weapon(Entry.Key).Mag <= 0)
+				{
+					UE_LOG(LogTemp, Warning,
+						TEXT("HI: -HIWeaponAt entry '%s' is not 'seconds:pistol|shotgun' -- ignored"), *Cue);
+					continue;
+				}
+				WeaponSchedule.Add(Entry);
+			}
+			WeaponScheduleFired.Init(false, WeaponSchedule.Num());
+			if (WeaponSchedule.Num() > 0)
+			{
+				UE_LOG(LogTemp, Display, TEXT("HI: -HIWeaponAt scheduled %d weapon switch(es) inside this run"),
+					WeaponSchedule.Num());
+			}
+		}
+	}
 	FParse::Value(Cmd, TEXT("HISoak="), SoakSeconds);
 	bHideUIForShot = FParse::Param(Cmd, TEXT("HIShotNoUI"));
 	const bool bAutoAsked = FParse::Param(Cmd, TEXT("HIAuto"));
@@ -1335,6 +1380,10 @@ void AHIGameMode::Tick(float DeltaSeconds)
 		Autopilot(In);
 	}
 
+	// `-HIWeaponAt`: LATCHES a cue; the step loop below delivers it, because `In` is rebuilt
+	// every frame and a cue written straight into it is lost on a frame with no sim step.
+	ApplyScheduledWeapon();
+
 	// ---- THE FIXED TIMESTEP, and this is not polish. It is what makes the port playable on
 	// anything slower than the machine it was written on.
 	//
@@ -1358,12 +1407,35 @@ void AHIGameMode::Tick(float DeltaSeconds)
 	SimAccumulator = FMath::Min(SimAccumulator + DeltaSeconds, SimFixedDt * SimMaxStepsPerFrame);
 
 	int32 StepsThisFrame = 0;
+	FString SwitchDelivered;
 	while (SimAccumulator >= SimFixedDt && StepsThisFrame < SimMaxStepsPerFrame)
 	{
+		// THE CUE IS DELIVERED HERE, NOT INTO `In` EARLIER, and that is the whole fix. `In` is
+		// rebuilt by `ReadInput()` every Tick, so a cue that came due on a frame where the
+		// accumulator did not reach a whole sim step simply vanished -- and it vanished SILENTLY,
+		// because the cue's own log line had already fired. The first version of `-HIWeaponAt`
+		// did exactly that and reported success over a sweep that covered one weapon.
+		if (!PendingWeaponCue.IsEmpty())
+		{
+			In.SwitchWeapon = PendingWeaponCue;
+			SwitchDelivered = PendingWeaponCue;
+			PendingWeaponCue.Empty();
+		}
 		Round.Step(In, SimFixedDt);
 		SimAccumulator -= SimFixedDt;
 		++StepsThisFrame;
 		++SimSteps;
+	}
+
+	// A REQUESTED SWITCH THAT DID NOT HAPPEN IS A FACT, NOT A NO-OP. `FHIRound::SwitchWeapon`
+	// refuses an empty key, a key he is already holding, and an unknown weapon -- all three
+	// silently, which is right for a keypress and wrong for a scripted sweep that then reports
+	// success over half the frames it claimed to cover. This says so.
+	if (!SwitchDelivered.IsEmpty() && Round.Player.Weapon != SwitchDelivered)
+	{
+		UE_LOG(LogTemp, Warning,
+			TEXT("HI: the weapon switch to '%s' was REFUSED -- still holding '%s' with %d round(s)"),
+			*SwitchDelivered, *Round.Player.Weapon, Round.Player.Mag);
 	}
 
 	// THE ROUND CLOCK IS SIM TIME, not wall time, and the difference is not academic. Every
@@ -1746,6 +1818,35 @@ void AHIGameMode::TickHarness(float DeltaSeconds)
 	else
 	{
 		UE_LOG(LogTemp, Display, TEXT("HI: %d more frame(s) scheduled; the run continues"), TotalShots - ShotSeriesNext);
+	}
+}
+
+void AHIGameMode::ApplyScheduledWeapon()
+{
+	for (int32 Idx = 0; Idx < WeaponSchedule.Num(); ++Idx)
+	{
+		// Every cue is checked every frame rather than a cursor being advanced, so the list does
+		// not have to be sorted and a late cue cannot be skipped by a long frame.
+		if (!WeaponScheduleFired.IsValidIndex(Idx) || WeaponScheduleFired[Idx])
+		{
+			continue;
+		}
+		if (RoundSeconds < WeaponSchedule[Idx].Time)
+		{
+			continue;
+		}
+		if (!PendingWeaponCue.IsEmpty())
+		{
+			// One at a time. The latched cue has not reached a sim step yet, and overwriting it
+			// would lose a switch as surely as the bug this latch exists to fix.
+			break;
+		}
+		WeaponScheduleFired[Idx] = true;
+		// The SAME field the [1]/[2] keys write, delivered by the step loop, so this cannot
+		// become a private path that moves the sim's weapon without the visual following it.
+		PendingWeaponCue = WeaponSchedule[Idx].Key;
+		UE_LOG(LogTemp, Display, TEXT("HI: -HIWeaponAt due '%s' at %.2f s of round"),
+			*WeaponSchedule[Idx].Key, RoundSeconds);
 	}
 }
 
