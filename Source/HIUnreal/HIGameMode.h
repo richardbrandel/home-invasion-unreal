@@ -384,6 +384,24 @@ private:
 	 */
 	void ApplyScheduledWeapon();
 
+	/**
+	 * `[ESC]` gives the mouse back, and `[ESC]` again takes it.
+	 *
+	 * THE GODOT ORIGINAL HAS THIS AND THE PORT DID NOT. `game.gd` captures the mouse at start and
+	 * then, on `KEY_ESCAPE`, calls `Input.set_mouse_mode(MOUSE_MODE_VISIBLE)`. This port captured
+	 * the cursor (`bShowMouseCursor = false` + `FInputModeGameOnly()`) and offered NO WAY BACK AT
+	 * ALL, with `DefaultViewportMouseCaptureMode=CapturePermanently_...` and no escape binding in
+	 * `DefaultInput.ini` -- and the window has no title bar, so there is not even a close button to
+	 * reach for. A player whose cursor is gone has nothing to click anywhere.
+	 *
+	 * Polled in EVERY round state, not just while playing: being unable to free the cursor must not
+	 * depend on the round still being live.
+	 */
+	void PollMouseRelease();
+
+	/** True while `[ESC]` is holding the mouse released. */
+	bool bMouseReleased = false;
+
 	void ReportSoak() const;
 
 	/** The nearest standing intruder's position, or false when nobody is up. */

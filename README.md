@@ -853,7 +853,52 @@ was reachable from it.
    is a red octagon (`process-stop`) precisely so it cannot be confused with the gamepad sitting
    beside it.
 
-Also fixed in the same pass, and smaller: **`-HIShotNoUI` did nothing.** It was read and
+18. **THE PORT CAPTURED THE MOUSE AND GAVE NO WAY BACK — THE ORIGINAL HAD ONE.** Reported
+   2026-10-12: *"seems like that until you start the game, the mouse doesn't work."* The port
+   hides the cursor and locks it (`ClaimInput` sets `bShowMouseCursor = false` and
+   `FInputModeGameOnly()`), `DefaultInput.ini` carries
+   `DefaultViewportMouseCaptureMode=CapturePermanently_IncludingInitialMouseDown`, and **Escape is
+   bound to nothing at all** — `grep -i escape DefaultInput.ini` has no match. Add a window with
+   no title bar and the result is a game that can take your cursor and offers nothing, anywhere, to
+   give it back.
+
+   **`game.gd` has had the hatch all along.** It captures the mouse at start and then:
+
+   ```gdscript
+   elif event is InputEventKey and event.pressed and not event.echo:
+       if event.keycode == KEY_ESCAPE:
+           Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
+   ```
+
+   `[ESC]` now does the same, polled in EVERY round state rather than only while playing —
+   being unable to free the cursor must not depend on the round still being live. It uses
+   `GameAndUI`, not `UIOnly`, so `[ENTER]` still restarts and `[ESC]` still takes the cursor back.
+
+   **One deliberate divergence:** the original only ever RELEASES, because it captures once at
+   start and never again, so escaping there is a one-way door until the round resets. This toggles.
+   A door that opens one way, in a game with no title bar, is not a hatch.
+
+   **Verified through the REAL input path**, by extending `-HIPlaytest` with two steps rather than
+   calling the function directly:
+
+   ```
+   PLAYTEST step7 pressing ESC -- the mouse must come back
+   HI: [ESC] -- mouse RELEASED, the cursor is yours (showCursor=1)
+   PLAYTEST PASS -- [ESC] gives the mouse back and shows the cursor
+   ```
+
+   **And a side finding that matters more than it looks.** In that same run, steps 1-5 report
+   `moved 0.000 m` and `mag 12 -> 12 (spent 0)` — a **FAIL** verdict on move and fire, while the
+   edge-based ESC step passes in the same run. Movement and firing demonstrably work in play
+   (Richard has been walking and shooting all evening), so the stale half is the INSTRUMENT:
+   `PC->InputKey(CreateSimulated(...))` still produces a press EDGE that `WasInputKeyJustPressed`
+   sees, but a synthesized key-down state does not survive into `IsInputKeyDown` across frames.
+   **Do not read that FAIL as an input regression.** It should be fixed or removed, because a test
+   whose verdict cannot pass is the mirror image of the check-that-cannot-fail this file already
+   warns about — and a red light nobody believes is worse than no light.
+
+Also fixed in the same pass, and smaller:
+ **`-HIShotNoUI` did nothing.** It was read and
 handed to `FScreenshotRequest::RequestScreenshot(bShowUI=...)`, and that flag suppresses
 SLATE, not the canvas the HUD is drawn on — the engine's own `UGameViewportClient::
 ProcessScreenShots` is what says so. Eleven "no UI" captures came back with the full readout

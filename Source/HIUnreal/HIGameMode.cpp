@@ -580,6 +580,22 @@ void AHIGameMode::PlaytestTick(float DeltaSeconds)
 					? TEXT("PASS -- keys move, look turns, fire spends ammunition")
 					: TEXT("FAIL -- at least one of move/look/fire did nothing through the real input path"));
 			break;
+		case 7:
+			// `[ESC]` must give the mouse back. This is the same real input path the keys above
+			// use, so it tests the hatch rather than a private call to it -- and it is worth
+			// testing because the failure mode is a player with no cursor and no title bar, which
+			// is unrecoverable from inside the game.
+			UE_LOG(LogTemp, Display, TEXT("PLAYTEST step7 pressing ESC -- the mouse must come back"));
+			Hold(EKeys::Escape, true);
+			break;
+		case 8:
+			UE_LOG(LogTemp, Display, TEXT("PLAYTEST step8 after ESC: mouse_released=%d showCursor=%d"),
+				bMouseReleased ? 1 : 0, (PC != nullptr && PC->bShowMouseCursor) ? 1 : 0);
+			UE_LOG(LogTemp, Display, TEXT("PLAYTEST %s"),
+				(bMouseReleased && PC != nullptr && PC->bShowMouseCursor)
+					? TEXT("PASS -- [ESC] gives the mouse back and shows the cursor")
+					: TEXT("FAIL -- [ESC] did not release the mouse; the player would have no way out"));
+			break;
 		default:
 			break;
 		}
@@ -616,6 +632,46 @@ void AHIGameMode::ClaimInput()
 	PC->SetInputMode(FInputModeGameOnly());
 	bInputClaimed = true;
 	UE_LOG(LogTemp, Display, TEXT("HI: input claimed -- game-only mode, mouse captured"));
+}
+
+void AHIGameMode::PollMouseRelease()
+{
+	UWorld* World = GetWorld();
+	APlayerController* PC = World != nullptr ? World->GetFirstPlayerController() : nullptr;
+	if (PC == nullptr)
+	{
+		return;
+	}
+	if (!PC->WasInputKeyJustPressed(EKeys::Escape))
+	{
+		return;
+	}
+
+	// A TOGGLE, and that is one deliberate divergence from `game.gd`. The original only ever
+	// RELEASES -- it captures once at start and never again -- so escaping there is a one-way door
+	// until the round resets. A door that opens one way, in a game whose window has no title bar,
+	// is not a hatch, it is a trap. So: `[ESC]` gives the cursor back, `[ESC]` again takes it.
+	bMouseReleased = !bMouseReleased;
+
+	if (bMouseReleased)
+	{
+		PC->bShowMouseCursor = true;
+		// GameAndUI rather than UIOnly: `[ENTER]` must still restart the round and `[ESC]` must
+		// still take the cursor back, and UIOnly would swallow both.
+		FInputModeGameAndUI Mode;
+		Mode.SetHideCursorDuringCapture(false);
+		Mode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+		PC->SetInputMode(Mode);
+	}
+	else
+	{
+		PC->bShowMouseCursor = false;
+		PC->SetInputMode(FInputModeGameOnly());
+	}
+
+	UE_LOG(LogTemp, Display, TEXT("HI: [ESC] -- mouse %s (showCursor=%d)"),
+		bMouseReleased ? TEXT("RELEASED, the cursor is yours") : TEXT("captured again"),
+		PC->bShowMouseCursor ? 1 : 0);
 }
 
 FHISim::FHIInput AHIGameMode::ReadInput()
@@ -1288,6 +1344,14 @@ void AHIGameMode::Tick(float DeltaSeconds)
 	// The marks are built on the first tick rather than in BeginPlay, because a spawned
 	// actor is not fully in the world during BeginPlay and a component registered there can
 	// miss its first update.
+	//
+	// THE MOUSE MUST BE GIVEABLE BACK IN EVERY ROUND STATE, so both of these are polled here
+	// rather than inside the live-round branch below. `ClaimInput` is idempotent; `[ESC]` is the
+	// only way out of a captured cursor, and a player who cannot free it cannot reach anything --
+	// not the round-restart prompt, and not a window control, because this window has no title bar.
+	ClaimInput();
+	PollMouseRelease();
+
 	if (Marks.IsEmpty())
 	{
 		FActorSpawnParameters Params;
