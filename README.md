@@ -190,7 +190,7 @@ Unreal arguments pass through, so `-HIThieves=1` gives a round with one intruder
 |---|---|
 | Mac | double-click **`Play Home Invasion.command`** in the project folder |
 | Mac | or, in Terminal: `./tools/play.sh` |
-| At the Linux box | double-click the **Home Invasion** icon on the desktop, or find it in Activities |
+| At the Linux box | double-click the **Home Invasion** icon on the desktop, or find it in Activities. It runs `launch-game.sh`, not `play.sh` -- see below |
 | At the Linux box | or, in a terminal: `/data/projects/HIUnreal/tools/play.sh` |
 
 The Mac copy used to FAIL with *"play: no editor at /home/richard/UnrealEngine/..."* -- true, and
@@ -253,6 +253,9 @@ toolchain, which is a separate job from making the game work.
 | `tools/session-env.sh` | the session environment, the editor path and the one-editor rule, **sourced by both scripts above** so they cannot drift |
 | `tools/iterate.sh` | **sync + build + test in ONE command**, with the build's own timing and a non-zero exit on failure. `--filter HI.Unreal.Weapons` for a focused check, `--no-test` to build only |
 | `tools/contact-sheet.py` | tile a capture series into ONE image, so a whole sweep is judged in one look instead of sampled three frames at a time |
+| `tools/launch-game.sh` | **what the desktop icon runs.** Refuses to restart a game that is already up, and reports a failure through a notification and zenity, because this box has no terminal to print into |
+| `tools/home-invasion.desktop` | the icon itself, with `Terminal=false`. **Do not set it back to `true`** -- there is no terminal emulator installed here |
+| `tools/install-desktop-icon.sh` | installs that icon to `~/Desktop` and to the app grid, executable and `metadata::trusted`. Idempotent; re-run it after a fresh clone |
 | `tools/tour.sh` | the scripted tour: eight known views, one command |
 | `docs/PARITY.md` | **the port measured against the Godot original, divergence by divergence** |
 
@@ -806,6 +809,34 @@ was reachable from it.
       because `FHIRound::SwitchWeapon` declines an empty key, a repeated key and an unknown
       weapon — all silently, which is right for a keypress and wrong for a scripted sweep that
       then reports success over frames it never covered.
+
+17. **THE DESKTOP ICON WAS INSTALLED, TRUSTED, AND STILL DID NOT WORK.** Reported 2026-10-12:
+   *"I want an icon on the Ubuntu box that I can click and start the game myself."* It already
+   existed -- `~/Desktop/Home Invasion.desktop`, executable, `metadata::trusted: true`, with the
+   DING desktop-icons extension enabled -- so every check anyone would run said the icon was
+   fine. Two things were wrong, and the second one is the interesting one.
+
+   **1. `Terminal=true` asks for a terminal emulator, and this box has none.** `gnome-terminal`,
+   `kgx` and `xterm` are all absent; GNOME's configured launcher is `xdg-terminal-exec --`, which
+   has nothing to hand off to, so the click had nothing to open. It was never needed either: the
+   game's own window is the feedback a player wants, and a failure can be a notification and a
+   zenity window, both of which ARE installed here.
+
+   **2. `play.sh` KILLS AND RESTARTS ANY RUNNING GAME, WHICH TURNS A DOUBLE-CLICK INTO A TRAP.**
+   The game takes about twenty seconds from launch to `input claimed`, and the launcher gives no
+   feedback while it does. So: click, see nothing for twenty seconds, click again -- and the
+   second click kills the first attempt and starts over. **The launcher was working perfectly and
+   could never once finish**, which is indistinguishable from an icon that does nothing.
+
+   `tools/launch-game.sh` is what the icon runs now. It posts a notification the instant it
+   starts, **refuses to restart a game that is already up** (the honest answer is that the window
+   is already somewhere on screen), and reports a failure through `notify-send -u critical` plus a
+   zenity dialog, because a silent failure is the one thing there is no terminal to reveal.
+
+   Verified the way a click actually happens rather than by reading the file: `gio launch` on the
+   desktop entry returns 0, and a second launch returns the **same pid** -- no restart.
+   `tools/install-desktop-icon.sh` installs it to `~/Desktop` and to the Activities app grid and
+   re-applies trust, which is per-file metadata and is lost on every copy.
 
 Also fixed in the same pass, and smaller: **`-HIShotNoUI` did nothing.** It was read and
 handed to `FScreenshotRequest::RequestScreenshot(bShowUI=...)`, and that flag suppresses

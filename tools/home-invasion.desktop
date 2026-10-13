@@ -1,0 +1,26 @@
+# The clickable icon. Installed by `tools/install-desktop-icon.sh` to BOTH
+#   ~/Desktop/Home Invasion.desktop          (for double-clicking)
+#   ~/.local/share/applications/home-invasion.desktop   (so Activities search finds it)
+#
+# WHY `Terminal=false`, given this is a game that prints a startup log:
+#
+#   `Terminal=true` asks the desktop to run Exec inside a terminal emulator, and THIS BOX HAS NO
+#   TERMINAL EMULATOR INSTALLED -- `gnome-terminal`, `kgx` and `xterm` are all absent, and GNOME's
+#   configured launcher is `xdg-terminal-exec --`, which has nothing to hand off to. A click then
+#   does nothing at all and says nothing about why.
+#
+#   It is also unnecessary: the game's own window is the feedback a player wants, and
+#   `tools/launch-game.sh` reports a failure through a notification and a zenity window, which
+#   exist here. Nothing is lost by not having the terminal.
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Home Invasion
+GenericName=Home defence game
+Comment=Start the Home Invasion game (Unreal Engine port)
+Exec=/data/projects/HIUnreal/tools/launch-game.sh
+Icon=applications-games
+Terminal=false
+StartupNotify=true
+Categories=Game;ActionGame;
+Keywords=game;shooter;home;invasion;
