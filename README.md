@@ -1033,6 +1033,11 @@ subdirectory. `SourceAssets/` is gitignored -- the files are yours, and the poin
 receiving one needs no GUI.
 
 ## What is still open, and it is not a green tick
+
+**The decisions waiting on a person are in [`docs/OPEN-QUESTIONS.md`](docs/OPEN-QUESTIONS.md).**
+That file is the queue, ordered by how much each item unblocks, and it is where a session should
+look before deciding what to do next. This section is the technical state; that one is the
+conversation with Richard.
 - **The intruders are still lethal, but no longer absurdly so.** The 6.6 s figure above was
   measured while the intruders could not move — they stood at the van with a clear line
   through the front door and shot an idle homeowner at leisure. **Re-measured after the fix:
