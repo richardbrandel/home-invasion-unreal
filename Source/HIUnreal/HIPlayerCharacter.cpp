@@ -16,12 +16,11 @@
 
 namespace
 {
-	// The engine's own Mannequin, copied out of the engine's template resources into this
-	// project's Content. Paths are the packages' OWN internal names, which is why they read
-	// /Game/Characters/... while the source files sat under a template folder of a different
-	// shape: an asset refers to its neighbours by package path, so the copy has to land where
-	// those references point or every material and skeleton silently goes missing.
-	const TCHAR* PlayerMeshPath = TEXT("/Game/Characters/Mannequins/Meshes/SKM_Manny_Simple.SKM_Manny_Simple");
+	// The shotgun is still the engine's rifle mesh standing in for one. The BODY is not the
+	// engine's mannequin any more: the cast became the Mixamo characters on 2026-10-13, and
+	// Louise is the homeowner -- the same woman the Godot version used, chosen by Richard.
+	// Her mesh and clips resolve per character through FHICharAnim, because each character's
+	// clips bind ONLY to the skeleton its own mesh-carrying export created.
 	const TCHAR* ShotgunMeshPath = TEXT("/Game/Weapons/Rifle/Meshes/SM_Rifle.SM_Rifle");
 }
 
@@ -84,19 +83,34 @@ void AHIPlayerCharacter::BuildVisuals()
 	}
 	bVisualsBuilt = true;
 
-	if (USkeletalMesh* Mesh = LoadObject<USkeletalMesh>(nullptr, PlayerMeshPath))
+	CastTag = FHICharAnim::PlayerTag();
+	const FString MeshPath = FHICharAnim::MeshPathFor(*CastTag);
+	if (USkeletalMesh* Mesh = LoadObject<USkeletalMesh>(nullptr, *MeshPath))
 	{
 		// SetSkeletalMeshAsset takes the loaded mesh; the deprecated SetSkeletalMesh would
 		// do the same thing and warn.
 		Body->SetSkeletalMeshAsset(Mesh);
-		// NOTE: he carries the mesh's OWN material, so the flat-colour trick used for every
-		// primitive in this port does not apply to a character -- BasicShapeMaterial has no
-		// skinning. Telling the two men apart is therefore done by using two DIFFERENT
-		// mannequins (Manny for the homeowner, Quinn for the intruders) rather than by tint.
-		FHICharAnim::SetupLocomotion(Body);
+		// NOTE: she carries the mesh's OWN materials -- the imported Mixamo textures and
+		// the Ch07_body/Ch07_hair materials beside them -- so the flat-colour trick used
+		// for every primitive in this port does not apply to a character. Telling the two
+		// sides apart no longer needs tint or two mannequins at all: the homeowner is
+		// Louise and the intruders are three named men.
+		FHICharAnim::SetupCharacter(Body, *CastTag);
+	}
+	else
+	{
+		// NOT SILENT, and not fatal: the round still plays around a reference-pose body.
+		// The usual cause is a Content/ that predates tools/import-assets.py -- the fix
+		// is to run it, not to rebuild.
+		UE_LOG(LogTemp, Warning, TEXT("HI: the homeowner's mesh did not load from %s"), *MeshPath);
 	}
 
 	SetWeaponVisual(ShownWeapon);
+}
+
+void AHIPlayerCharacter::PlayActionClip(const TCHAR* Clip, float HoldSec)
+{
+	FHICharAnim::PlayAction(Body, *CastTag, Clip, HoldSec);
 }
 
 void AHIPlayerCharacter::SetWeaponVisual(const FString& Weapon)
@@ -176,24 +190,16 @@ void AHIPlayerCharacter::ViewTransform(const FHISim::FHIPlayer& P, FVector& OutL
 
 FRotator AHIPlayerCharacter::BodyRotation(float SimYaw)
 {
-	// THE MESH FACES ITS OWN +Y, NOT ITS +X, AND EVERY ROTATION HERE ASSUMED OTHERWISE.
-	//
-	// Reported from play 2026-10-13: *"The cross hairs are 90 degrees to the right of the player
-	// instead of being in front."* Exactly right, and measured before it was changed: `-HIProbe`
-	// printed `the BODY is 90.0 deg off the crosshair`, derived from the line between the two
-	// clavicles rather than from any axis the code had already assumed.
-	//
-	// The old derivation was not sloppy, it was about the wrong thing. It equated the SIM's yaw 0
-	// (facing +Y) with the ACTOR's yaw 0 (facing +X) and concluded t = 90 - a, which does put the
-	// component's +X on the aim -- and the probe happily confirmed that, twice, because it was
-	// measuring the same +X. But a mannequin SKELETON faces its own +Y: it is why the engine's own
-	// `ACharacter` carries a -90 yaw on its mesh, and it is why aligning the component's +X left
-	// every man in the game facing a quarter turn to the side while every number agreed.
-	//
-	// So the rotation has to put the component's **+Y** on the aim. A UE yaw t sends its local +Y
-	// to (-sin t, cos t), and the sim's direction for yaw a is (sin a, cos a); equating them gives
-	// t = -a. One sign flip from the old expression, and the whole game faces forwards.
-	return FRotator(0.0f, -FMath::RadiansToDegrees(SimYaw), 0.0f);
+	// WHICH AXIS THE MESH FACES IS A PROPERTY OF THE ASSET, and it has now been measured
+	// twice, for two casts. The mannequin skeleton faced its own +Y -- reported from play
+	// 2026-10-13 as *"The cross hairs are 90 degrees to the right of the player"*, measured
+	// at exactly 90.0 deg by `-HIProbe`'s clavicle line, and fixed as t = -a. The Mixamo
+	// cast faces differently again, so the derivation moved to `FHICharAnim::BodyRotationFor`
+	// with the facing as a MEASURED CONSTANT that `HI.Unreal.Cast` recomputes from every
+	// character's bind-pose shoulders and asserts. For a +Y-facing mesh the new formula
+	// reduces to exactly the old t = -a, which is the check that the generalisation did not
+	// quietly change the mannequin-era answer.
+	return FHICharAnim::BodyRotationFor(SimYaw);
 }
 
 FRotator AHIPlayerCharacter::WeaponAimRotation(const FVector& Aim)
@@ -310,9 +316,24 @@ void AHIPlayerCharacter::SyncFromSim(const FHISim::FHIPlayer& P)
 	Body->SetVisibility(BehindHim > 0.35f);
 
 	// `Vel` is already in metres per second, and it is what makes him lean into a walk
-	// instead of skating: the blend space is driven by MEASURED speed, so a man who is
-	// accelerating from a standing start animates as one who is accelerating.
-	FHICharAnim::DriveLocomotion(Body, P.Vel.Size(), P.bAlive, /*bArmed=*/true);
+	// instead of skating: the clip choice and its stride are driven by MEASURED speed, so
+	// a woman accelerating from a standing start animates as one who is accelerating.
+	// Crouching is a STATE here, not a speed: the sim's crouch pace (2.0 m/s) is above the
+	// walk/run threshold, and without the flag a crouching player would be shown running.
+	FHICharAnim::DriveCharacter(Body, *CastTag, P.Vel.Size(), P.bAlive, /*bArmed=*/true,
+		P.bCrouching);
+
+	// THE RELOAD IS AN EDGE, NOT A STATE. `P.Reloading` counts down while the magazine
+	// change runs, and a one-shot restarted every frame would pin the clip to its first
+	// key -- the reload equivalent of dying standing up forever. The hold cap is the
+	// shotgun's 1.60 s window (the pistol's is 1.15 s): the 3.3 s clip must not still be
+	// fumbling after the sim has already let her fire.
+	const bool bReloading = P.Reloading > 0.0f;
+	if (bReloading && !bWasReloading)
+	{
+		PlayActionClip(FHICharAnim::ClipReload(), 1.60f);
+	}
+	bWasReloading = bReloading;
 
 	// Dying puts the gun away, so a man on the floor is not still aiming at you.
 	Gun->SetVisibility(P.bAlive && Body->IsVisible() && Gun->GetStaticMesh() != nullptr);
@@ -402,10 +423,25 @@ void AHIPlayerCharacter::SyncFromSim(const FHISim::FHIPlayer& P)
 			// line lies along the component's X then the man faces ±Y and the assumption is a
 			// quarter turn wrong. Absolute values, because which clavicle is which is exactly the
 			// kind of detail that has already produced three confident wrong answers.
-			if (Body != nullptr && Body->DoesSocketExist(TEXT("clavicle_l")) && Body->DoesSocketExist(TEXT("clavicle_r")))
+			// The shoulders, whichever rig is wearing them: the mannequin calls them
+			// clavicle_l/r, the Mixamo cast LeftShoulder/RightShoulder. The measurement is
+			// rig-agnostic by design -- a humanoid's lateral axis is rig-agnostic -- so the
+			// only thing that has to know the cast is the name lookup.
+			FName ShoulderL, ShoulderR;
+			if (Body != nullptr && Body->DoesSocketExist(TEXT("clavicle_l")))
 			{
-				const FVector ClavL = Body->GetSocketLocation(TEXT("clavicle_l"));
-				const FVector ClavR = Body->GetSocketLocation(TEXT("clavicle_r"));
+				ShoulderL = TEXT("clavicle_l");
+				ShoulderR = TEXT("clavicle_r");
+			}
+			else if (Body != nullptr && Body->DoesSocketExist(TEXT("LeftShoulder")))
+			{
+				ShoulderL = TEXT("LeftShoulder");
+				ShoulderR = TEXT("RightShoulder");
+			}
+			if (!ShoulderL.IsNone() && Body->DoesSocketExist(ShoulderR))
+			{
+				const FVector ClavL = Body->GetSocketLocation(ShoulderL);
+				const FVector ClavR = Body->GetSocketLocation(ShoulderR);
 				const FVector Lateral = (ClavR - ClavL).GetSafeNormal();
 				const float AlongX = FMath::Abs(FVector::DotProduct(Lateral, Body->GetForwardVector()));
 				const float AlongY = FMath::Abs(FVector::DotProduct(Lateral, Body->GetRightVector()));

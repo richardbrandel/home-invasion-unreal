@@ -32,9 +32,21 @@ public:
 
 	virtual void BeginPlay() override;
 
-	/** Matches FHIThief::Id, so the game mode can pair a body with its sim state. */
+	/**
+	 * Matches FHIThief::Id, so the game mode can pair a body with its sim state -- AND so
+	 * the body knows which of the cast it is (`FHICharAnim::IntruderTagForId`). The Id is
+	 * assigned AFTER SpawnActor returns, which is why the visuals are built on the first
+	 * SyncFromSim rather than in BeginPlay: built there, every man would wear Id 0's face.
+	 */
 	UPROPERTY(VisibleAnywhere, Category = "Home Invasion")
 	int32 ThiefId = 0;
+
+	/**
+	 * A timed one-shot on the body -- `shoot` when this man fires. Same handle the
+	 * homeowner has, for the same reason: the events live in the game mode and the
+	 * body lives here.
+	 */
+	void PlayActionClip(const TCHAR* Clip, float HoldSec);
 
 	/**
 	 * Put the body where the sim says it is.
@@ -48,9 +60,10 @@ public:
 	/**
 	 * The sim's plane angle as a world rotation.
 	 *
-	 * The sim's yaw 0 faces +Y, so its direction is (sin a, cos a) in the (X, Y) plane.
-	 * Unreal's FRotator yaw 0 faces +X and turns (cos t, sin t). Equating the two gives
-	 * t = 90 - a. A quarter turn out is silent, so the derivation lives here with it.
+	 * The derivation (t = 90 - a - the mesh's own facing) lives in
+	 * `FHICharAnim::BodyRotationFor`, with the facing as a MEASURED constant the Cast test
+	 * recomputes from the bind pose. A quarter turn out is silent, which is why it is a
+	 * measurement and a test rather than a comment.
 	 */
 	static FRotator BodyRotation(float SimYaw);
 
@@ -112,16 +125,17 @@ public:
 	/**
 	 * How long after the death clip starts the body is handed to PHYSICS.
 	 *
-	 * The six `MM_Death_*` clips are the only deaths the engine ships, they are all about a
-	 * second long, and they all end with the man hunched and STILL UPRIGHT. Measured in a
-	 * driven soak on 2026-10-12: across `MM_Death_Back_01` the pelvis goes 96.6 cm -> 87.5 cm
-	 * and never lower, and the clip then holds that pose. It is a flinch, not a fall, which is
-	 * exactly the report: *"when the intruders get shot, they slouch over. They should fall to
-	 * the ground."*
+	 * HISTORY: the engine's six `MM_Death_*` clips were flinches, not falls -- measured in a
+	 * driven soak on 2026-10-12, across `MM_Death_Back_01` the pelvis went 96.6 cm -> 87.5 cm
+	 * and never lower, and the clip held that pose. That is why the fall became physics at
+	 * all: *"when the intruders get shot, they slouch over. They should fall to the ground."*
 	 *
-	 * So the clip is used for the part it is good at -- the moment of being hit -- and the fall
-	 * itself is physics. This delay is inside every clip's length, so the man is still folding
-	 * when he goes limp and the two halves read as one motion rather than as a cut.
+	 * The cast's own `death` clip IS a real fall -- Mixamo's, 3.03 s, Hips 0.96 m -> 0.14 m,
+	 * measured from the FBX keys by the Godot project's anim probe. The ragdoll handover
+	 * stays anyway, mid-fall at 0.85 s: physics finishes the fall against whatever he
+	 * actually fell onto (a clip cannot know about the coffee table), and the corpse settles
+	 * instead of floating a baked floor-slide. The delay is asserted against the clip's own
+	 * length by `HI.Unreal.DeathFall`.
 	 *
 	 * IT IS A TIMER, NOT A COUNT OF FRAMES, and that is the whole reason it works. Once the
 	 * round is decided the game mode stops calling `SyncFromSim` -- "a decided round is inert at
@@ -135,6 +149,13 @@ private:
 	void BuildVisuals();
 
 	bool bVisualsBuilt = false;
+
+	/** Which of the cast this body is: James, Brute or Martha, by ThiefId. */
+	FString CastTag;
+
+	/** Reload-anim edge detector: `Reloading` is a countdown, and a one-shot is an event. */
+	bool bWasReloading = false;
+
 	/** Latched so the death clip is started once rather than restarted every frame. */
 	bool bDeathPlayed = false;
 	/** Latched when the body is given to physics, after which the animation must let go of it. */

@@ -161,20 +161,34 @@ the second a game that ran out of time without resolving — the failure the God
 exist to catch.
 
 - **Driven (`-HISoak -HIAuto`)**: the autopilot turns onto the nearest standing intruder,
-  closes, fires and shoves. Measured: **WON in 5.0 s, three intruders down, 17 shots.** This
-  says the whole loop works — movement, aiming, firing, hit resolution, death, the win
-  condition — and it says **nothing about balance**, because the autopilot is an aimbot.
-- **Passive (`-HISoak -HINoAuto`)**: the homeowner stands still. Measured: **LOST in 6.6 s,
-  0 shots fired, all three intruders alive, homeowner at 0 HP.** Three men shoot an idle
-  homeowner dead through his own front door in under seven seconds. That is a real
-  measurement and a real design question; it is reported, not patched, because "port it,
-  don't rewrite the design" is the standing instruction. The Godot project already recorded
-  the same phenomenon in the opposite direction — `probe_heist.gd` withholds the intruder's
-  damage for exactly this reason, or every scenario ends with the homeowner dead in ~22-32 s.
+  closes, fires and shoves. Measured 2026-10-13 with the Mixamo cast: **WON in 3.9 s, three
+  intruders down, 13 shots.** This says the whole loop works — movement, aiming, firing, hit
+  resolution, death, the win condition — and it says **nothing about balance**, because the
+  autopilot is an aimbot. It is also an aimbot that must aim the PITCH and not only the yaw,
+  and that is load-bearing: the shot rides the camera at 2.06 m and the intruder's hit capsule
+  tops out at 2.0 m, so level fire passes over every standing man's head. Before the autopilot
+  learned to pitch onto the chest it missed 12 of 12, the intruders' spec fear (`FearPerShot
+  0.7` vs `FearFlee 4.0`) saturated on the heard shots, they fled from beside the van they
+  spawn at, and this soak reported **LOST in 3.3 s with everyone alive** — a shot-placement
+  regression the two camera changes walked into (behind him, then raised for gun visibility),
+  invisible to 41 green tests because no test carries a camera, a capsule and a world trace
+  together. The full story, with the measured gradient across both commits, is in `Autopilot`'s
+  comment, OPEN-QUESTIONS item 1, and bug 20 below.
+- **Passive (`-HISoak -HINoAuto`)**: the homeowner stands still. Measured 2026-10-13: **LOST in
+  74.5 s, 0 shots fired, all three valuables delivered, homeowner dead at the end.** The 6.6 s
+  this bullet used to quote was measured while the intruders could not move — they stood at the
+  van with a clear line through the front door and shot an idle homeowner at leisure. Once they
+  could move, the round became a full heist: they enter, search, find all three valuables, carry
+  them out, and kill the homeowner too. That is a real measurement and a real design question;
+  it is reported, not patched, because "port it, don't rewrite the design" is the standing
+  instruction. The Godot project already recorded the same phenomenon in the opposite
+  direction — `probe_heist.gd` withholds the intruder's damage for exactly this reason, or every
+  scenario ends with the homeowner dead in ~22-32 s.
 - **Heist probe (`-HINoAuto -HINoThiefDamage`)**: withholds only the wound, so the trace, the
   tracer and the hit roll all still run. This is the Unreal answer to `probe_heist.gd`: it
-  asks whether a thief can FIND, GRAB and DELIVER loot, which is unobservable otherwise
-  because the round is over before anyone reaches the house. The report warns loudly that it
+  asks whether a thief can FIND, GRAB and DELIVER loot — observable in the passive soak now
+  that the intruders can move (all three delivered in the 74.5 s round above), but the probe
+  still isolates the question from the lethality one. Its report warns loudly that it
   says nothing about lethality.
 
 ## How to actually PLAY it
@@ -371,7 +385,7 @@ flare stay off, which costs nothing.
 
 ## Status
 
-`HI.` passes **40/40** on ubuntu-dev. **All 97 assertions** in the Godot *sim* spec are
+`HI.` passes **41/41** on ubuntu-dev. **All 97 assertions** in the Godot *sim* spec are
 represented; the port adds coverage the Godot project has never had on either side.
 
 | Test | Covers |
@@ -412,8 +426,9 @@ represented; the port adds coverage the Godot project has never had on either si
 | **`HI.Unreal.Furniture`** | **the furniture heights against `sim.gd`'s own `h` field, and that a sofa is not a column** |
 | **`HI.Unreal.WallFittings`** | **that every socket, switch and thermostat is flush against a wall -- with a negative control** |
 | **`HI.Unreal.Wounds`** | **blood on the man: the wound count against health, five distinct bones, and a wound's SIZE in metres -- the assertion that used to be written in centimetres and so blessed a 7 m box** |
-| **`HI.Unreal.Weapons`** | **both weapon meshes load, their materials are OPAQUE (a masked instance with a missing texture renders as nothing), the character mesh carries the `hand_r` grip bone, and the three pistol-pose clips resolve** |
+| **`HI.Unreal.Weapons`** | **both weapon meshes load, their materials are OPAQUE (a masked instance with a missing texture renders as nothing), and all four cast members carry the `RightHand` grip bone** |
 | **`HI.Unreal.DeathFall`** | **everything a corpse needs in order to reach the floor: the clip is a playable AnimSequence, the mesh carries a physics asset, the lawn/floor/walls block `ECC_PhysicsBody` -- and bullets still pass through the floor while the walls still stop them** |
+| **`HI.Unreal.Cast`** | **the Mixamo cast as assets: per character, mesh/skeleton/physics asset resolve, the 22 rig bone names exist, the bind-pose facing measured from the shoulders matches `MeshFacingYawDeg()` within 2 deg, the nine clips load bound to their own skeleton at the right lengths, the locomotion/aim/shoot clips are really pinned the way the normalizer claims (spine frozen, arms still moving), the crouch clip really lowers the Hips below the standing idle, the death clip really drops them, and the per-character stride table stays inside sane bands** |
 
 ## Bugs the test suite could not have caught
 
@@ -952,6 +967,58 @@ starburst of spokes and — because the polygon reaches 28 m and the panel shows
 spokes painted over the game outside the panel as well. It is now the filled triangle fan the
 Godot original draws, clipped to the panel.
 
+20. **THE CAMERA MOVED UP FOR THE FRAMING, AND EVERY LEVEL SHOT STARTED FLYING OVER THE
+    INTRUDERS' HEADS.** Found 2026-10-13 by the driven soak — the first one run since the
+    camera sweep — reporting **LOST in 3.3 s, 12 shots, `down=0`, all three intruders alive**,
+    against a recorded baseline of WON in 5.0 s. Three times in a row, identically; and then
+    identically at `git stash` on the previous commit, which is what moved the cast wiring off
+    the suspect list and put HEAD itself on it.
+
+    The chain, each link measured: the player's shot is a world trace **from the camera** (that
+    is what makes the crosshair honest — see `ResolvePlayerShot`'s own comment, which records
+    the eye-origin variant putting shots 0.6 m left and 0.3 m low); the camera sits at
+    `EyeHeight + CamUp`,
+    which the gun-visibility sweep moved from 1.84 m to **2.06 m**; the intruder's hit capsule —
+    the only part of him that answers a trace — tops out at **exactly 2.0 m**; and `StartView`
+    pitches only 0.03 rad down, with each shot's recoil kicking the pitch back toward level. So
+    the ray cleared every standing man's head by six centimetres **at any distance**. The sim
+    was innocent throughout: its 2-D `CanSee` really was clear (the front-door line to the van),
+    the fear that ended the round is the spec's own (every shot is *heard* even when it hits a
+    wall: `FearPerShot 0.7` vs `FearFlee 4.0` breaks them after ~6 shots), and Godot scores an
+    empty-handed escape as FAILURE too (`game.gd:1210`). The intruders simply panicked at the
+    gunfire and ran for the van they were standing beside.
+
+    **Why 41 green tests did not see it:** no test carries a camera, a capsule and a world trace
+    together. `HI.Sim.Hit` damages through `DamageThief` directly; `HI.Unreal.Wounds` checks
+    what is shown, not what is struck; the sight-line instruments all measure 2-D. The only
+    integration of "crosshair over a man → trigger → he is hurt" in the whole project is the
+    soak, and no soak had run since the camera moved. **The regression is a measured gradient
+    across the two camera changes, not a single commit:** the WON-in-5.0-s baseline was recorded
+    with the over-the-shoulder camera (`CamSide 0.42`); at the pre-raise commit `e77916c`
+    (camera now behind him, `CamUp 0.22`, ray at 1.84 m) a fresh soak gives LOST 3.4 s with
+    `down=1` — level fire GRAZING the capsule top; at HEAD (`CamUp 0.44`, ray at 2.06 m) it is
+    LOST 3.3 s with `down=0` — clear over it. Only the pitch fix (below) turns it back to WON.
+    (Confirming the baseline era needed a checkout to a commit with no `tools/iterate.sh`, so the
+    soak silently re-ran the PREVIOUS binary and reported its numbers as if fresh — the same
+    stale-artifact trap as bug 16, in a new place. A missing tool fails loudly; a build that
+    quietly did not happen does not look like anything at all.)
+
+    **A human player would never have reported it as "shots miss"** — putting the crosshair ON a
+    man means pitching down, which lowers the ray onto him by construction; only the autopilot,
+    which aimed yaw alone, exposed it. The fix is in the driver, not the design: `Autopilot` now
+    pitches at the target's chest (capsule centre, 1.0 m) with the same slew as its yaw, gates
+    the trigger on that pitch converging AND on the sim's `CanSee`, and the soak is back to
+    **WON in 3.9 s, `down=3`, 13 shots**. The camera constants stay exactly as chosen — the
+    framing question and the ballistics question are now both documented in OPEN-QUESTIONS
+    item 1, including the coupling itself: **`CamUp` is not a framing-only number any more;
+    raising it raises the shot ray with it.**
+
+    The lesson, and it is bug 16's again: a recorded baseline is a claim about the world that
+    silently expires when an adjacent system changes. The soak's WON was last measured before
+    the camera moved; nothing re-ran it; and the number kept being quoted — in this very README
+    — as if it were current. Any figure in these pages with no date next to it is a figure
+    waiting to become this kind of lie.
+
 ## The fix list, item by item
 
 Godot item numbers are from `../home-invasion-godot/ROADMAP-2.md`. **This is the Unreal
@@ -1069,32 +1136,71 @@ The last step reports `N imported, 0 failed` and `done`. Measured at time of wri
 |---|---|
 | skeletal mesh | `/Game/HIImported/characters_<tag>/idle` |
 | skeleton | `/Game/HIImported/characters_<tag>/idle_Skeleton` |
-| clips | `/Game/HIImported/characters_<tag>/{aim,crouch_idle,crouch_walk,death,idle,reload,run,shoot,walk}` |
+| clips | `/Game/HIImported/characters_<tag>/{aim,crouch_idle,crouch_walk,death,reload,run,shoot,walk}` plus `idle_Anim` — the mesh export carries its own idle take, the importer names it `idle_Anim`, and that is what `ClipIdle()` plays |
 
 **EACH CHARACTER HAS ITS OWN SKELETON.** They are all the same Mixamo rig, but they are four
 separate `USkeleton` assets, so a clip from `characters_james` binds to James and not to Louise.
 Anything that plays clips must therefore resolve them **per character**, not from one global
-prefix — which is the main change the current `FHICharAnim` needs, since it holds fixed
-`/Game/Characters/Mannequins/Anims/...` paths.
+prefix. Since 2026-10-13 `FHICharAnim` does exactly that: every path goes through a character
+tag (`PlayerTag()` → louise, `IntruderTagForId(Id)` → james/brute/martha cycled by intruder id),
+and the old fixed `/Game/Characters/Mannequins/...` paths are gone from the module.
 
-**Still to do, in order:**
+**The five wiring steps are DONE (2026-10-13).** This is the record, including the two whose
+answers were not what the notes below them had assumed:
 
-1. `FHICharAnim`: take a per-character clip base path instead of the hardcoded Mannequin paths.
-   The mapping is standing → `aim` (Mixamo's "Aiming Gun", which is also the pose improvement
-   item 2 wanted), walking → `walk`, running → `run`, crouching → `crouch_idle`/`crouch_walk`,
-   firing → `shoot`, reloading → `reload`, death → `death`.
-2. Point `AHIPlayerCharacter` at Louise and `AHIIntruder` at one of the three, one mesh per
-   intruder.
-3. **Bone names.** The rig is `mixamorig:*`. Do NOT guess the prefix — Mixamo exports vary on
-   whether it survives import. Get the truth from C++ in one line that needs no editor:
-   `Body->GetSkeletalMeshAsset()->GetRefSkeleton()` and walk `GetBoneName(i)`. The gun attaches to
-   `hand_r` today and the code already logs a clear warning when that socket is missing.
-4. **Re-measure the facing.** `BodyRotation`'s `t = -a` was measured for the UE Mannequin, whose
-   mesh faces its own +Y. A Mixamo rig lands facing differently. The instrument for this already
-   exists in `-HIProbe` (the clavicle line, which needs the Mixamo shoulder bone names).
-5. **Re-check the camera.** `CamBack 1.30` / `CamUp 0.44` were tuned against the Mannequin's
-   helmeted head. A human head is smaller and occludes less, so the camera can probably come back
-   in toward the framing Richard originally preferred.
+1. ✅ **Per-character clips.** `FHICharAnim` resolves every path from the character tag. Clip
+   choice is speed-thresholded in single-node mode (no AnimBlueprint, no blend spaces — these
+   rigs have none): <15 cm/s stands, <190 walks, else runs; crouch outranks armed; the stride
+   rate is `speed × 100 / AuthoredCmPerSec(Tag, Clip)`, clamped 0.35–1.8 so a sprint never
+   windmills. Firing and reloading are ONE-SHOTS latched over the loop: `shoot` plays on the
+   round's own `playerShot`/`thiefShot` events (a pull the sim did not record must not twitch
+   the body), `reload` on the sim's reload flag's rising edge.
+2. ✅ **Louise is the homeowner**; each `AHIIntruder` picks its mesh on its FIRST `SyncFromSim`,
+   not in `BeginPlay`, because `ThiefId` — which decides the face — is assigned after the spawn
+   call returns.
+3. ✅ **Bone names, from the assets and not from the FBX:** the Interchange importer STRIPS the
+   `mixamorigN:` namespace — the source files carry `mixamorig8:Hips`, the imported skeletons
+   carry `Hips`. The gun grips `RightHand`, the wounds parent to `Spine2`/`RightArm`/`Spine1`/
+   `LeftUpLeg`/`LeftArm`. `HI.Unreal.Cast` asserts the 22 rig names per character, so a
+   re-import that changes the naming scheme fails the suite instead of silently unparenting
+   the gun.
+4. ✅ **The facing, re-measured — and the assumption in the old note was wrong.** The Mixamo
+   meshes face their own **+Y in bind pose, exactly like the mannequin** (measured from the
+   bind-pose shoulders: louise 90.1°, james 90.1°, brute 90.0°, martha 89.9°). The provisional
+   +X guess would have put the whole cast a quarter-turn off — the same class of bug the
+   crosshair report had just cost a playtest. `MeshFacingYawDeg()` holds the measured 90° and
+   the Cast test recomputes it from the shoulders; `-HIProbe`'s clavicle line cross-checked it
+   in-game at **2.0–3.3 deg off the crosshair** (residual aim-clip sway, not systematic).
+5. ✅ **The camera, re-checked.** Swept `-HICamBack` 0.9→1.3 with Louise posed at the worst-case
+   framing (standing, pistol tucked): the gun and arm are SEPARABLE FROM HER SILHOUETTE AT
+   EVERY VALUE — her un-helmeted head and smaller build occlude far less than the mannequin's.
+   The default stays **1.30/0.44** for now because "gun visible at 0.9 on a static pose" is a
+   lower bound, not a preference; Richard can try tighter live with `-HICamBack=1.0` (no
+   rebuild) and the constant is one line in `FHISim`.
+
+**What the steps did not anticipate, and what made the clips usable at all: normalization.**
+Raw Mixamo exports bake root motion into the Hips, and this sim owns positions — unnormalized,
+every character slid or spun away from their body. `UHIAnimTool::NormalizeCharacterClip`
+(editor-only, Python-callable) pins the travel OUT of the assets at import time, per clip:
+`locomotion` pins Hips horizontal travel and keeps the vertical (the bob — and on the crouch
+clips the lowered Hips ARE the crouch); `aim` pins Hips completely plus spine and legs (raw
+louise aim travels 73.5 cm and rotates 147.8° — the clip is an aim CYCLE, not a move); `shoot`
+pins Hips rotation and horizontal travel but keeps the arm recoil; `death` is left AS AUTHORED
+and merely measured (louise's Hips drop 82 cm and travel 110 cm — the fall IS the root motion,
+brute 100/133). `tools/import-assets.py` runs it on every character clip, so **"102 imported,
+0 failed" now means imported AND normalized** — a clip that imports fine but fails to pin
+counts as a failed import. A pinned constant track collapses to ONE key in the data model;
+that is compression, not data loss (verified with `UHIAnimTool::MeasureCharacterClip`, the
+read-only third reader added when the tool and the test disagreed — the disagreement was the
+test's own buffer reuse, and the probe proved the assets were right).
+
+**One more measurement the wiring changed: stride is PER CHARACTER.** Mixamo scales clip travel
+to the body — the same walk clip travels louise 174.8 cm, james and martha 168.5 cm, brute
+211.6 cm (import report, 2026-10-13). `AuthoredCmPerSec(Tag, Clip)` holds the per-character
+table; because travel is pinned out of the saved clips, that table is the only surviving record
+of it, and its provenance is `/tmp/hi_import_assets.log` on the build box. The Cast test keeps
+the table honest with band checks (walk 100–260 cm/s, run 300–750 and >2.5× walk, crouch
+60–200 and < walk, everything else exactly 0).
 
 ### How to add a source file
 

@@ -35,6 +35,34 @@ DEST = "/Game/HIImported"
 # "FAILED (no objects)", which is exactly what an animation with nowhere to bind does.
 MESH_CARRYING = "idle.fbx"
 
+# THE CLIPS ARE NOT LEFT AS MIXAMO SHIPPED THEM. The raw exports carry root motion baked
+# into the Hips track -- measured from these same files by the Godot project's anim probe:
+# walk travels +1.748 m, run +3.552 m, aim travels 0.735 m AND turns 143.2 deg, shoot
+# swivels the Hips +/-70 deg -- but the SIM owns position, so a clip that moves the mesh
+# moves it away from the body the sim is stepping. Godot flattened its copies at load
+# time; this port flattens the ASSETS, at import, through `UHIAnimTool` (see its header
+# for what each mode pins and why). Every imported character clip goes through it, and
+# `HI.Unreal.Cast` asserts the result from the saved key data -- so a skipped or failed
+# normalization is a failed import, not a surprise in a screenshot.
+#
+# Mode per clip: `aim` is stripped to its upper body (Hips + spine + legs frozen at their
+# first keys -- the single-node equivalent of Godot's `_strip_to_upper_body`), `shoot`
+# loses only the Hips swivel (the arm's recoil IS the shot), `death` is left exactly as
+# authored and merely measured (the fall IS the root motion), and everything locomotive
+# keeps its vertical bob -- which in the crouch clips IS the crouch -- with only the
+# horizontal travel pinned.
+NORMALIZE_MODES = {
+	"aim": "aim",
+	"shoot": "shoot",
+	"death": "none",
+}
+NORMALIZE_DEFAULT_MODE = "locomotion"
+# A report is a failure when it says so, in the tool's own words. Mode "none" succeeds
+# with "report only, SAVED nothing"; every failure path says "(nothing normalized)",
+# "MISSED", "FAILED" or "NOT UNIFORM".
+NORMALIZE_FAIL_TOKENS = ("FAILED", "MISSING", "NOT UNIFORM", "UNKNOWN MODE", "MISSED",
+	"nothing normalized")
+
 # Subdirectories that are not assets in their own right (a .bin is a glTF's mesh data and is
 # imported WITH its .gltf, not on its own).
 SKIP_EXT = (".bin", ".import", ".uid", ".aiff", ".json")
@@ -91,6 +119,45 @@ def _import(rel_path, dest_folder):
 	return paths[0]
 
 
+def _normalize(rel_path, imported_path, folder):
+	"""Pin a character clip's root motion through UHIAnimTool. True when normalized.
+
+	Only `characters/` content is normalized -- weapons and audio have no Hips. The
+	mesh-carrying export needs special handling: importing `idle.fbx` yields the mesh
+	`idle` AND its own take as a separate asset `idle_Anim`, and the import task reports
+	the first of its objects, so the anim's package path is derived from the folder
+	instead of trusted from the report.
+	"""
+	rel = rel_path.replace(os.sep, "/")
+	parts = rel.split("/")
+	# ONLY the animation files in `characters/<tag>/` are clips -- NOT the loose
+	# textures in the `idle.fbm/` folders beside them, which are three parts deep
+	# under characters/ and are not AnimSequences at all. Measured 2026-10-13 on the
+	# first normalization run: counting a texture's "MISSING" report as a failure
+	# turned a fully successful import into "28 imported, 74 failed". The shape check
+	# mirrors `_skeleton_for`'s, which is the same question -- is this one of a
+	# character's animation files?
+	if len(parts) != 3 or parts[0] != "characters" or not parts[2].lower().endswith(".fbx"):
+		return True
+	base = os.path.splitext(parts[2])[0].lower()
+	mode = NORMALIZE_MODES.get(base, NORMALIZE_DEFAULT_MODE)
+	pkg = imported_path
+	if base == os.path.splitext(MESH_CARRYING)[0]:
+		pkg = "%s/%s/idle_Anim.idle_Anim" % (DEST, folder)
+
+	tool = getattr(unreal, "HIAnimTool", None)
+	if tool is None:
+		# NOT SILENT: without the tool the clips stay raw, and raw clips mean bodies
+		# that skate, aim sideways and moonwalk -- the game still runs, which is
+		# exactly why a missing tool has to fail the import instead of warning.
+		print("HI_IMPORT: FAILED to normalize %s -- unreal.HIAnimTool is missing "
+			"(the C++ build is older than this script)" % pkg)
+		return False
+	report = tool.normalize_character_clip(pkg, mode)
+	print("HI_IMPORT: normalize: %s" % report)
+	return not any(tok in report for tok in NORMALIZE_FAIL_TOKENS)
+
+
 def main():
 	print("HI_IMPORT: importing source assets from %s" % SRC)
 	if not os.path.isdir(SRC):
@@ -117,7 +184,11 @@ def main():
 				continue
 			rel = os.path.relpath(os.path.join(root, name), SRC)
 			folder = os.path.dirname(rel).replace(os.sep, "_") or "Misc"
-			if _import(rel, folder) is not None:
+			# An import that lands but fails to NORMALIZE counts as a failure: the
+			# asset exists, and a green run over it would certify clips that make
+			# bodies skate. Both halves or nothing.
+			imported = _import(rel, folder)
+			if imported is not None and _normalize(rel, imported, folder):
 				ok += 1
 			else:
 				failed += 1

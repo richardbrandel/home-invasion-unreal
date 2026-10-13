@@ -9,37 +9,37 @@
 #include "TimerManager.h"
 #include "HICharAnim.h"
 #include "HIMaterials.h"
+#include "HIPlayerCharacter.h"
 #include "HIUnits.h"
 
 namespace
 {
-	// A DIFFERENT mannequin from the homeowner's, and that is the point: with one mesh for
-	// both, three men coming through the door would be indistinguishable from each other and
-	// from you. Fix-list item 5's "walls" and item 2's "characters" are separate items; being
-	// able to tell who is who is its own requirement and this is the cheapest way to meet it.
-	const TCHAR* IntruderMeshPath = TEXT("/Game/Characters/Mannequins/Meshes/SKM_Quinn_Simple.SKM_Quinn_Simple");
-	const TCHAR* DeathPath = TEXT("/Game/Characters/Mannequins/Anims/Death/MM_Death_Back_01.MM_Death_Back_01");
-
 	/**
 	 * The five places a man gets shot, in the order the wounds appear.
 	 *
-	 * UE5's skeletons share these bone names between Manny and Quinn, so the same table
-	 * serves both. The offsets are in the BONE's space, which for these bones runs down the
-	 * limb -- so a wound on `spine_03` is pushed out along the bone's own X/Z rather than
-	 * along world axes, and it stays on the chest as he turns.
+	 * The cast is Mixamo now, and its bone names are the standard ones with the importer's
+	 * namespace stripped (`mixamorig8:Spine2` in the source FBX, `Spine2` in the skeleton --
+	 * measured, and asserted per character by `HI.Unreal.Cast`). The old table's mannequin
+	 * names (`spine_03`, `upperarm_r`, ...) exist in none of these rigs.
+	 *
+	 * The offsets are in the BONE's space, and bone-space axes are a per-rig property that
+	 * nobody has measured yet: `HI.Unreal.Cast` logs each wound bone's ref-pose child
+	 * direction, and a capture of a shot intruder is the verdict. The numbers here are
+	 * deliberately MODEST until both have spoken -- a wound slightly sunk into the body reads
+	 * far better than one floating a hand-span off it in a direction only the old rig had.
 	 */
 	struct FWoundSpot
 	{
 		const TCHAR* Bone;
-		float X, Y, Z;      // cm, relative to the bone
+		float X, Y, Z;      // cm, relative to the bone -- PROVISIONAL, see above
 		float Size;         // cm across
 	};
 	const FWoundSpot WoundSpots[5] = {
-		{ TEXT("spine_03"),     6.0f, -9.0f,  0.0f, 7.0f },   // chest, his left
-		{ TEXT("upperarm_r"),   5.0f,  0.0f, -7.0f, 6.0f },   // right arm
-		{ TEXT("spine_01"),     7.0f,  8.0f,  0.0f, 7.0f },   // abdomen
-		{ TEXT("thigh_l"),      0.0f, -7.0f,  9.0f, 6.0f },   // left thigh
-		{ TEXT("upperarm_l"),   5.0f,  0.0f,  7.0f, 6.0f },   // left arm
+		{ TEXT("Spine2"),     3.0f, -5.0f, 0.0f, 7.0f },   // chest, his left
+		{ TEXT("RightArm"),   3.0f,  0.0f, -4.0f, 6.0f },  // right arm
+		{ TEXT("Spine1"),     3.0f,  4.0f, 0.0f, 7.0f },   // abdomen
+		{ TEXT("LeftUpLeg"),  0.0f, -4.0f, 5.0f, 6.0f },   // left thigh
+		{ TEXT("LeftArm"),    3.0f,  0.0f,  4.0f, 6.0f },  // left arm
 	};
 }
 
@@ -74,29 +74,37 @@ AHIIntruder::AHIIntruder()
 	Body->SetupAttachment(Root);
 	// The mesh's own origin is between the feet, like the root, so no offset is needed at all.
 	Body->SetRelativeLocation(FVector::ZeroVector);
-	// The MESH does not collide: the capsule above is the hit volume, and a second, finer
-	// one would disagree with the sim about what a hit is. See the class comment.
+	// Same rule as the pawn's body, and it is load-bearing in two directions: a pellet that
+	// the sim let through must not be stopped by the mesh (it is not the hit volume), and the
+	// mesh must not stop the CAMERA trace either -- a wall that blocked it would pull the view
+	// inside the house and show the front garden from the bedroom. The hit volume above is the
+	// only part of him that answers a trace, and only on Visibility.
 	Body->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	Body->SetGenerateOverlapEvents(false);
+	Body->SetCastShadow(true);
 
 	Gun = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Gun"));
 	Gun->SetupAttachment(Body);
 	Gun->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	Gun->SetVisibility(false);
 
-	// ---- the wounds. Built here rather than in BeginPlay because a component created
-	// outside a constructor cannot use CreateDefaultSubobject (it is protected, and only
-	// valid while the CDO is being built) -- see the porting hazards.
-	Wounds.Reserve(MaxWounds);
+	// WOUNDS, hidden until SyncFromSim shows the ones his health has earned. Created here and
+	// parented in BuildVisuals, which is where the mesh is loaded and therefore the only place
+	// a BONE name can be resolved.
 	for (int32 Idx = 0; Idx < MaxWounds; ++Idx)
 	{
-		const FName Name(*FString::Printf(TEXT("Wound%d"), Idx));
-		UStaticMeshComponent* Wound = CreateDefaultSubobject<UStaticMeshComponent>(Name);
+		UStaticMeshComponent* Wound = CreateDefaultSubobject<UStaticMeshComponent>(
+			*FString::Printf(TEXT("Wound%d"), Idx));
 		Wound->SetupAttachment(Body);
 		Wound->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 		Wound->SetGenerateOverlapEvents(false);
 		Wound->SetCastShadow(false);
 		Wound->SetVisibility(false);
+		if (UStaticMesh* Quad = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Plane.Plane")))
+		{
+			Wound->SetStaticMesh(Quad);
+		}
+		FHIMaterials::Tint(Wound, FHIMaterials::Blood);
 		Wounds.Add(Wound);
 	}
 }
@@ -104,7 +112,10 @@ AHIIntruder::AHIIntruder()
 void AHIIntruder::BeginPlay()
 {
 	Super::BeginPlay();
-	BuildVisuals();
+	// VISUALS ARE BUILT ON THE FIRST SyncFromSim, NOT HERE. ThiefId decides which of the
+	// cast this body is, and the game mode can only assign it after SpawnActor has returned
+	// -- which is after BeginPlay has run. Building here would give every man Id 0's face
+	// (all of them James), the exact failure the deferral exists to avoid.
 }
 
 void AHIIntruder::BuildVisuals()
@@ -115,40 +126,83 @@ void AHIIntruder::BuildVisuals()
 	}
 	bVisualsBuilt = true;
 
-	if (USkeletalMesh* Mesh = LoadObject<USkeletalMesh>(nullptr, IntruderMeshPath))
+	// THREE DIFFERENT MEN, and that is the point: with one mesh for all of them, three men
+	// coming through the door would be indistinguishable from each other. The mannequin era
+	// met this by using a different mannequin from the homeowner's; the cast era gives each
+	// Id its own named person (cycling if a round runs more than three).
+	CastTag = FHICharAnim::IntruderTagForId(ThiefId);
+	const FString MeshPath = FHICharAnim::MeshPathFor(*CastTag);
+	if (USkeletalMesh* Mesh = LoadObject<USkeletalMesh>(nullptr, *MeshPath))
 	{
 		Body->SetSkeletalMeshAsset(Mesh);
-		FHICharAnim::SetupLocomotion(Body);
+		FHICharAnim::SetupCharacter(Body, *CastTag);
 	}
-	if (UStaticMesh* Mesh = LoadObject<UStaticMesh>(nullptr, FHICharAnim::PistolMeshPath()))
+	else
 	{
-		Gun->SetStaticMesh(Mesh);
-		FHICharAnim::AttachPistol(this, Body, Gun);
-		Gun->SetVisibility(true);
+		// NOT SILENT, and not fatal: the round still plays around a reference-pose body.
+		// The usual cause is a Content/ that predates tools/import-assets.py.
+		UE_LOG(LogTemp, Warning, TEXT("HI: intruder %d's mesh did not load from %s"),
+			ThiefId, *MeshPath);
 	}
 
-	// The wounds share the engine cube and a blood-coloured material. Loaded here rather
-	// than in the constructor for the same reason as everything else in this function.
-	if (UStaticMesh* Cube = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cube.Cube")))
+	// The weapon, attached to the right hand. Parented into the bone so it follows the
+	// animation; if the mesh has no hand bone, this returns nullptr and the gun is simply
+	// not shown rather than floating at the actor's origin.
+	if (UStaticMesh* PistolMesh = LoadObject<UStaticMesh>(nullptr, FHICharAnim::PistolMeshPath()))
 	{
-		for (UStaticMeshComponent* Wound : Wounds)
+		Gun->SetStaticMesh(PistolMesh);
+		if (FHICharAnim::AttachPistol(this, Body, Gun) != nullptr)
 		{
-			if (Wound == nullptr)
-			{
-				continue;
-			}
-			Wound->SetStaticMesh(Cube);
-			FHIMaterials::Tint(Wound, FHIMaterials::Blood);
+			Gun->SetVisibility(false);
 		}
+	}
+
+	// The wound quads were created in the constructor and parented to `Body`; only now that
+	// the mesh is loaded can a BONE be named. A bone that does not exist leaves the wound
+	// parented to the mesh's origin, which would slide across the skin -- exactly what the
+	// bone attachment is here to prevent -- so it is hidden instead, and says so.
+	for (int32 Idx = 0; Idx < Wounds.Num(); ++Idx)
+	{
+		FName Bone; FVector Offset; FVector Size;
+		if (!WoundPlacement(Idx, Bone, Offset, Size) || Wounds[Idx] == nullptr)
+		{
+			continue;
+		}
+		if (Body->GetSkeletalMeshAsset() == nullptr
+			|| Body->GetBoneIndex(Bone) == INDEX_NONE)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("HI: wound %d names bone '%s', which this mesh does not have"),
+				Idx, *Bone.ToString());
+			Wounds[Idx]->SetVisibility(false);
+			continue;
+		}
+		Wounds[Idx]->AttachToComponent(Body,
+			FAttachmentTransformRules::SnapToTargetNotIncludingScale, Bone);
+		Wounds[Idx]->SetRelativeLocation(Offset);
+		// A blood spatter lying in the plane of the skin, not sticking out of it.
+		Wounds[Idx]->SetRelativeRotation(FRotator(-90.0f, 0.0f, 0.0f));
+		// `Size` is ALREADY metres -- see WoundPlacement's unit note. Dividing here too
+		// would make every wound a millimetre across: invisible, and just as wrong as
+		// the seven-metre box this asymmetry once produced.
+		Wounds[Idx]->SetRelativeScale3D(Size);
+		Wounds[Idx]->SetVisibility(false);
 	}
 }
 
-int32 AHIIntruder::WoundsForHealth(float Hp)
+void AHIIntruder::PlayActionClip(const TCHAR* Clip, float HoldSec)
 {
-	// Five bands of 20 HP. At full health he is unmarked; a lethal hit shows all five, which
-	// is the point -- the body should say what the HUD number says.
-	const float Fraction = FMath::Clamp(1.0f - (Hp / static_cast<float>(FHISim::ThiefHealth)), 0.0f, 1.0f);
-	return FMath::Clamp(FMath::FloorToInt(Fraction * MaxWounds + KINDA_SMALL_NUMBER), 0, MaxWounds);
+	FHICharAnim::PlayAction(Body, *CastTag, Clip, HoldSec);
+}
+
+void AHIIntruder::ShowWounds(int32 Count)
+{
+	for (int32 Idx = 0; Idx < Wounds.Num(); ++Idx)
+	{
+		if (Wounds[Idx] != nullptr)
+		{
+			Wounds[Idx]->SetVisibility(Idx < Count);
+		}
+	}
 }
 
 bool AHIIntruder::WoundPlacement(int32 Index, FName& OutBone, FVector& OutOffset, FVector& OutSize)
@@ -166,134 +220,116 @@ bool AHIIntruder::WoundPlacement(int32 Index, FName& OutBone, FVector& OutOffset
 	//
 	// THE SCALE IS IN METRES, AND THESE NUMBERS ARE CENTIMETRES. The engine's cube is ONE
 	// METRE across at unit scale, so `SetRelativeScale3D(7.0)` is a seven-metre cube -- and
-	// that is exactly what was shipped: every wound was a 7 m x 7 m x 2 m dark red box.
-	//
-	// Reported from play as "when I fire my gun a giant dark red rectangular box appears. It
-	// kind of fills up the room." It appeared on the FIRST hit and not before, because a
-	// full-health intruder shows no wounds and the first hit takes him below full.
+	// that is exactly what was shipped once: every wound was a 7 m x 7 m x 2 m dark red box,
+	// reported from play as "when I fire my gun a giant dark red rectangular box appears. It
+	// kind of fills up the room."
 	//
 	// Note what is NOT converted here: `OutOffset` above is in centimetres, and should be,
 	// because `SetRelativeLocation` is centimetre-denominated. Only the scale is in metres.
-	// That asymmetry is the whole trap, and it is why `HI.Unreal.Wounds` now asserts the
-	// SIZE of a shown wound and not merely that it is shown.
+	// That asymmetry is the whole trap, and it is why `HI.Unreal.Wounds` asserts the SIZE of
+	// a shown wound and not merely that it is shown -- and why the 2026-10-13 rewrite of
+	// this table for the Mixamo bones, which dropped the conversion, was caught by the test
+	// within one build instead of by a room-filling box in a screenshot.
 	OutSize = FVector(Spot.Size, Spot.Size, 2.0f) / HI_METERS_TO_UU;
 	return true;
 }
 
-void AHIIntruder::ShowWounds(int32 Count)
+int32 AHIIntruder::WoundsForHealth(float Hp)
 {
-	for (int32 Idx = 0; Idx < Wounds.Num(); ++Idx)
-	{
-		UStaticMeshComponent* Wound = Wounds[Idx];
-		if (Wound == nullptr)
-		{
-			continue;
-		}
-		if (Idx >= Count)
-		{
-			Wound->SetVisibility(false);
-			continue;
-		}
-
-		FName Bone;
-		FVector Offset;
-		FVector Size;
-		if (!WoundPlacement(Idx, Bone, Offset, Size))
-		{
-			Wound->SetVisibility(false);
-			continue;
-		}
-
-		// Attach to the BONE, which is the whole point: the mesh animates, the bone carries
-		// the mark with it, and a wound on the arm follows the arm.
-		Wound->AttachToComponent(Body, FAttachmentTransformRules::KeepRelativeTransform, Bone);
-		Wound->SetRelativeLocation(Offset);
-		Wound->SetRelativeScale3D(Size);
-		Wound->SetVisibility(true);
-	}
-}
-
-void AHIIntruder::GoLimp()
-{
-	// One-shot. The timer cannot fire twice, but this is the only guard against a second
-	// caller -- and a body handed to physics twice would be re-positioned in mid-fall.
-	if (bRagdolled)
-	{
-		return;
-	}
-	bRagdolled = true;
-
-	// THE FALL IS PHYSICS, BECAUSE NO CLIP IN THE ENGINE PUTS A MAN ON THE FLOOR.
-	//
-	// Measured, not assumed: all six `MM_Death_*` sequences end with the pelvis at about 87 cm
-	// and hold there -- a hunch, which is what a player saw and reported. There is no
-	// full-collapse death clip anywhere in the mannequin content (the 97 sequences under
-	// `Anims/` were listed to check). So the clip gives the moment of impact and physics gives
-	// the fall.
-	//
-	// Both prerequisites exist and BOTH are asserted by `HI.Unreal.DeathFall`, because either
-	// one missing makes this function silently do nothing and leaves the corpse standing:
-	// `PA_Mannequin` is assigned to `SKM_Quinn_Simple`, and the house's lawn, floors, walls and
-	// furniture are InstancedStaticMeshComponents with `QueryAndPhysics` collision to land on.
-	//
-	// The profile is set before simulation is enabled: `Ragdoll` is the engine profile that
-	// makes the mesh a PhysicsBody which blocks the world, and the component was constructed
-	// with collision explicitly OFF (the capsule is the hit volume), so without this the body
-	// would simulate and fall through the lawn for ever.
-	Body->SetCollisionProfileName(TEXT("Ragdoll"));
-	Body->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
-	Body->SetAllBodiesSimulatePhysics(true);
-	Body->SetSimulatePhysics(true);
-	Body->WakeAllRigidBodies();
-
-	// Once, at Display rather than Verbose: "the corpse never went limp" and "the corpse went
-	// limp somewhere you cannot see" look identical in a log otherwise.
-	UE_LOG(LogTemp, Display, TEXT("HI: intruder %d went limp -- handed to physics"), ThiefId);
-
+	// A band is 20 HP. The first whole band lost shows the first wound; a corpse shows all
+	// of them. The clamp is what makes 0 HP mean "all five" rather than "six, off the end".
+	const int32 Bands = static_cast<int32>((FHISim::ThiefHealth - Hp) / 20.0f);
+	return FMath::Clamp(Bands, 0, MaxWounds);
 }
 
 FRotator AHIIntruder::BodyRotation(float SimYaw)
 {
-	// t = -a, NOT 90 - a. See `AHIPlayerCharacter::BodyRotation` for the measurement: a mannequin
-	// skeleton faces its own +Y, so a rotation that puts the component's +X on the aim leaves the
-	// man a quarter turn out. This is the same convention as the homeowner's, deliberately
-	// duplicated, and it was wrong in the same way -- so the intruders were walking sideways too,
-	// unremarked only because a man at fifteen metres is easy to get wrong.
-	return FRotator(0.0f, -FMath::RadiansToDegrees(SimYaw), 0.0f);
+	// t = 90 - a - the mesh's own facing; the derivation and the measured facing constant
+	// live in FHICharAnim now, in one place instead of one per actor. A quarter turn out is
+	// silent -- it WAS, on 2026-10-13, at exactly 90.0 degrees, measured by `-HIProbe`'s
+	// clavicle line before anything was believed.
+	return FHICharAnim::BodyRotationFor(SimYaw);
+}
+
+void AHIIntruder::GoLimp()
+{
+	if (bRagdolled || Body == nullptr)
+	{
+		return;
+	}
+	bRagdolled = true;
+	// Animation must let go first. A pose still being evaluated writes over the physics
+	// every frame and the body snaps back upright -- which is what "still standing" looked
+	// like when the handover was tried without this.
+	Body->SetAnimInstanceClass(nullptr);
+	Body->SetCollisionProfileName(TEXT("Ragdoll"));
+	Body->SetAllBodiesSimulatePhysics(true);
+	Body->SetSimulatePhysics(true);
+	// NOT silent. `SetSimulatePhysics` does nothing at all without a physics asset, and the
+	// result is indistinguishable from the bug being fixed -- a corpse that stays standing.
+	// The cast's imported meshes each carry their own auto-generated asset (`idle_PhysicsAsset`,
+	// created by the FBX import beside the mesh); `HI.Unreal.DeathFall` asserts it per
+	// character, because "it worked on the mannequin" is precisely the kind of inherited
+	// assumption this port keeps having to unlearn.
+	if (Body->GetPhysicsAsset() == nullptr)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("HI: %s has no physics asset, so the corpse cannot fall"),
+			*GetName());
+	}
 }
 
 void AHIIntruder::SyncFromSim(const FHISim::FHIThief& T, float Dt)
 {
-	// The sim's plane is (X, Y) with Z up, so a 2-D position plus Z is already a world
-	// position -- no axis swap here, unlike Godot, where the plane is XZ. Only the units
-	// need converting, and they go through one constant so a world cannot end up a hundred
-	// times too small for the engine's own assumptions.
-	SetActorLocation(FVector(T.Pos.X, T.Pos.Y, T.Z) * HI_METERS_TO_UU);
-	SetActorRotation(BodyRotation(T.Yaw));
+	// Built here, not in BeginPlay: ThiefId -- which decides the face -- is only assigned
+	// after the spawn returns, and the game mode calls this immediately after assigning it.
+	BuildVisuals();
+
+	if (Root != nullptr)
+	{
+		Root->SetWorldLocation(FVector(T.Pos.X * HI_METERS_TO_UU, T.Pos.Y * HI_METERS_TO_UU, T.Z * HI_METERS_TO_UU));
+	}
+	if (Body != nullptr && !bRagdolled)
+	{
+		Body->SetWorldRotation(BodyRotation(T.Yaw));
+	}
 
 	// Wounds follow health every frame: see the header for why this is derived here rather
-	// than pushed from the damage site.
-	ShowWounds(WoundsForHealth(T.Hp));
+	// than pushed from the damage site. A dead man shows all five.
+	ShowWounds(T.bAlive ? WoundsForHealth(T.Hp) : MaxWounds);
 
 	if (!T.bAlive)
 	{
+		// Play it ONCE. Calling SetAnimation every frame restarts the death from frame 0
+		// and the body never finishes falling -- which is exactly the bug this latch fixes,
+		// and it looked like the ragdoll not working rather than like a restarted clip.
 		if (!bDeathPlayed)
 		{
-			// Latched: replaying a one-shot every frame would pin him to its first frame and
-			// he would die standing up, forever, which is the worst of both outcomes.
 			bDeathPlayed = true;
-			FHICharAnim::PlayOneShot(Body, DeathPath);
-			// A dead man is not a target. Leaving the capsule blocking would let a player
-			// keep shooting a corpse the sim has already stopped counting.
-			HitVolume->SetCollisionResponseToChannel(ECC_Visibility, ECR_Ignore);
-			Gun->SetVisibility(false);
-			// THE HANDOVER IS ON A TIMER, and this is not a style choice. Once the round is
-			// decided the game mode stops calling this function at all -- "a decided round is
-			// inert at the sim level too" -- so a handover that counted frames HERE would never
-			// happen for the last man killed, who is exactly the one the player is watching.
-			// A world timer fires whether or not anybody is still syncing the corpse.
-			GetWorldTimerManager().SetTimer(RagdollTimer, this, &AHIIntruder::GoLimp,
-				RagdollAfterDeath, /*bLooping=*/false);
+			FHICharAnim::PlayDeath(Body, *CastTag);
+
+			// A CORPSE PUTS ITS GUN DOWN. The pistol stayed in the dead man's hand and, once
+			// the ragdoll took over, dangled from the wrist of a body on the floor -- because
+			// nothing after death ever touched its visibility again. Reported from play.
+			if (Gun != nullptr)
+			{
+				Gun->SetVisibility(false);
+			}
+
+			// THE HANDOVER IS A TIMER, NOT A FRAME. Once the round is decided the game mode
+			// stops calling SyncFromSim -- a decided round is inert at the sim level too -- so
+			// a handover that waited to be driven would never happen for the LAST man killed,
+			// who is precisely the one the player is watching fall. Measured, not assumed:
+			// across `MM_Death_Back_01` the engine clip's pelvis went 96.6 cm -> 87.5 cm and
+			// never lower, so the clip alone could not put anyone down; the cast's own clip is
+			// a real fall (Hips 0.96 m -> 0.14 m across 3.03 s, measured from the FBX keys)
+			// and physics now finishes it against the actual floor rather than a baked one.
+			// 0.85 s lands mid-fall in both cases, so the two halves read as one motion.
+			// See the header for why it is a timer.
+			if (UWorld* World = GetWorld())
+			{
+				World->GetTimerManager().SetTimer(
+					RagdollTimer, this, &AHIIntruder::GoLimp, RagdollAfterDeath, /*bLoop=*/false);
+			}
 		}
 
 		return;
@@ -304,11 +340,33 @@ void AHIIntruder::SyncFromSim(const FHISim::FHIThief& T, float Dt)
 	const float Speed = (Dt > 1e-5f) ? (T.Pos - T.Prev).Size() / Dt : 0.0f;
 	// ARMED ONLY WITH HIS HANDS FREE, which is the same condition the gun's visibility uses --
 	// a man carrying a television is not in a shooting stance, and the pistol is put away.
-	FHICharAnim::DriveLocomotion(Body, Speed, true, /*bArmed=*/T.Carry.IsEmpty());
+	const bool bFree = T.Carry.IsEmpty();
+	FHICharAnim::DriveCharacter(Body, *CastTag, Speed, true, /*bArmed=*/bFree,
+		/*bCrouching=*/false);
+
+	// THE RELOAD IS AN EDGE, NOT A STATE: `T.Reloading` counts down (ThiefReload = 1.5 s)
+	// and the one-shot must start once, not restart every frame. The hold is the sim's own
+	// window so the animation cannot still be fumbling after he can fire again.
+	const bool bReloading = T.Reloading > 0.0f;
+	if (bReloading && !bWasReloading)
+	{
+		PlayActionClip(FHICharAnim::ClipReload(), FHISim::ThiefReload);
+	}
+	bWasReloading = bReloading;
 
 	// He carries a visible pistol ONLY while his hands are free, which is the same condition
 	// the sim uses to decide he may fire. Drawing it otherwise would show a gun in the hands
 	// of a man the sim has already decided cannot shoot.
-	const bool bFree = T.Carry.IsEmpty();
 	Gun->SetVisibility(bFree && Gun->GetStaticMesh() != nullptr);
+	if (bFree && Gun->GetStaticMesh() != nullptr)
+	{
+		// AND IT POINTS WHERE HE POINTS. The Mixamo hand BONE's axes are its own -- the
+		// mannequin socket's "+Y is the pointing direction" was a measurement of that rig,
+		// not a law -- and a pistol left at the bone's identity rotation would swing with
+		// the walk cycle and point at the floor. The homeowner's weapon has been
+		// world-aimed since bug 14 for exactly this reason; the intruder's now is too,
+		// through the same pure helper, along his facing.
+		Gun->SetWorldRotation(AHIPlayerCharacter::WeaponAimRotation(
+			FHISim::AimDir(T.Yaw, 0.0f)));
+	}
 }

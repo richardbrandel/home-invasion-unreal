@@ -8,75 +8,150 @@
 #include "Engine/SkeletalMesh.h"
 #include "HIUnits.h"
 
-const TCHAR* FHICharAnim::LocomotionPath()
+// ---------------------------------------------------------------- the cast
+
+const TCHAR* FHICharAnim::PlayerTag()
 {
-	return TEXT("/Game/Characters/Mannequins/Anims/Unarmed/BS_Idle_Walk_Run.BS_Idle_Walk_Run");
+	return TEXT("louise");
 }
 
-const TCHAR* FHICharAnim::PistolMeshPath()
+const TCHAR* FHICharAnim::IntruderTagForId(int32 Id)
 {
-	return TEXT("/Game/Weapons/Pistol/Meshes/SM_Pistol.SM_Pistol");
+	// Three named men, cycling: the default round is three intruders, so within a
+	// default round no two men share a face. A bigger --thieves count reuses faces,
+	// which is the honest failure mode -- inventing unnamed men would be worse.
+	static const TCHAR* Cast[] = { TEXT("james"), TEXT("brute"), TEXT("martha") };
+	return Cast[((Id % 3) + 3) % 3];
 }
 
-void FHICharAnim::SetupLocomotion(USkeletalMeshComponent* Mesh)
+FString FHICharAnim::CharacterDir(const TCHAR* Tag)
 {
-	if (Mesh == nullptr || Mesh->GetSkeletalMeshAsset() == nullptr)
-	{
-		return;
-	}
-	UAnimationAsset* Blend = LoadObject<UAnimationAsset>(nullptr, LocomotionPath());
-	if (Blend == nullptr)
-	{
-		return;
-	}
-	// Single node is the mode that evaluates ONE asset with no graph. Setting it explicitly
-	// matters: a mesh left in AnimationBlueprint mode with no AnimBlueprint assigned
-	// evaluates nothing at all and holds the reference pose, which looks like the character
-	// failing to load rather than the mode being wrong.
-	Mesh->SetAnimationMode(EAnimationMode::AnimationSingleNode);
-	Mesh->SetAnimation(Blend);
-	Mesh->Play(true);
+	return FString::Printf(TEXT("/Game/HIImported/characters_%s/"), Tag);
+}
 
-	// IDLE VARIATION, or as much of fix-list item 15 as can be had without more clips.
+FString FHICharAnim::MeshPathFor(const TCHAR* Tag)
+{
+	// The mesh-carrying export (`idle.fbx`) imports its skeletal mesh as `idle`.
+	return CharacterDir(Tag) + TEXT("idle.idle");
+}
+
+FString FHICharAnim::ClipPathFor(const TCHAR* Tag, const TCHAR* Clip)
+{
+	return CharacterDir(Tag) + FString::Printf(TEXT("%s.%s"), Clip, Clip);
+}
+
+const TCHAR* FHICharAnim::ClipAim()        { return TEXT("aim"); }
+const TCHAR* FHICharAnim::ClipWalk()       { return TEXT("walk"); }
+const TCHAR* FHICharAnim::ClipRun()        { return TEXT("run"); }
+const TCHAR* FHICharAnim::ClipCrouchIdle() { return TEXT("crouch_idle"); }
+const TCHAR* FHICharAnim::ClipCrouchWalk() { return TEXT("crouch_walk"); }
+const TCHAR* FHICharAnim::ClipIdle()       { return TEXT("idle_Anim"); }
+const TCHAR* FHICharAnim::ClipReload()     { return TEXT("reload"); }
+const TCHAR* FHICharAnim::ClipShoot()      { return TEXT("shoot"); }
+const TCHAR* FHICharAnim::ClipDeath()      { return TEXT("death"); }
+
+float FHICharAnim::AuthoredCmPerSec(const TCHAR* Tag, const TCHAR* Clip)
+{
+	// Travel per clip length, measured by UHIAnimTool from the Hips keys of the imported
+	// clips BEFORE it pinned them (import run 2026-10-13; every line in
+	// /tmp/hi_import_assets.log's normalize report). The same walk clip travels a
+	// different distance per character because Mixamo scales travel to the body:
+	// brute is ~23% longer-strided than james. The Godot probe, measuring the same FBX
+	// files on its side, agrees with Louise's row to the centimetre (174.8 cm walk,
+	// 355.2 cm run, 152.9 cm crouch_walk).
 	//
-	// Every body shares one idle clip, so without this they stand in the SAME POSE at the
-	// SAME MOMENT -- three men breathing in unison, which is the single most artificial thing
-	// a crowd of identical rigs can do. Starting each loop at a different phase means that at
-	// any instant they are at different points in the cycle, so they read as three men rather
-	// than one man drawn three times.
-	//
-	// It is honest to say what this is NOT: it is phase variation, not pose variation. A
-	// genuinely different idle -- shifting weight, checking a phone, glancing at the door --
-	// needs more recorded clips, and the engine ships exactly one.
-	if (UAnimSingleNodeInstance* Single = Mesh->GetSingleNodeInstance())
+	//           walk    run     crouch_walk   (cm/s; everything else does not travel)
+	// louise   169.2   561.1    89.9
+	// james    163.1   540.8    86.7
+	// brute    204.8   679.1   108.9
+	// martha   163.1   540.6    86.6
+	struct FRow { const TCHAR* Tag; float Walk, Run, CrouchWalk; };
+	static const FRow Rows[] = {
+		{ TEXT("louise"), 169.2f, 561.1f,  89.9f },
+		{ TEXT("james"),  163.1f, 540.8f,  86.7f },
+		{ TEXT("brute"),  204.8f, 679.1f, 108.9f },
+		{ TEXT("martha"), 163.1f, 540.6f,  86.6f },
+	};
+	for (const FRow& R : Rows)
 	{
-		const float Length = Single->GetLength();
-		if (Length > 0.0f)
+		if (Tag != nullptr && FCString::Strcmp(Tag, R.Tag) == 0)
 		{
-			Single->SetPosition(FMath::FRand() * Length, /*bFireNotifies=*/false);
+			if (FCString::Strcmp(Clip, ClipWalk()) == 0)       { return R.Walk; }
+			if (FCString::Strcmp(Clip, ClipRun()) == 0)        { return R.Run; }
+			if (FCString::Strcmp(Clip, ClipCrouchWalk()) == 0) { return R.CrouchWalk; }
+			return 0.0f;
+		}
+	}
+	// An unknown tag has no measured row. Guessing a stride would be worse than not
+	// matching one: the clip plays at rate 1 and the feet skate, which is visible and
+	// fixable, instead of strobing at a made-up rate, which is also visible and is a lie.
+	return 0.0f;
+}
+
+// ------------------------------------------------------------- action latch
+
+namespace
+{
+	/**
+	 * Which bodies are mid-one-shot, and for how long the clip may hold them.
+	 *
+	 * A static map because `FHICharAnim` is a struct of statics with nowhere per-body
+	 * to hang state, and the components are owned by exactly two actors that outlive
+	 * the latch entries. WEAK pointers, so a destroyed body cannot be resurrected by a
+	 * stale key, and every touch purges the dead -- the map only ever holds a handful
+	 * of entries (one per body), so the purge costs nothing.
+	 */
+	TMap<TWeakObjectPtr<USkeletalMeshComponent>, float>& ActionLatches()
+	{
+		static TMap<TWeakObjectPtr<USkeletalMeshComponent>, float> Latches;
+		return Latches;
+	}
+
+	void PurgeDeadLatches()
+	{
+		TMap<TWeakObjectPtr<USkeletalMeshComponent>, float>& Latches = ActionLatches();
+		for (auto It = Latches.CreateIterator(); It; ++It)
+		{
+			if (!It.Key().IsValid())
+			{
+				It.RemoveCurrent();
+			}
 		}
 	}
 }
 
-const TCHAR* FHICharAnim::PistolIdlePath()
+// ---------------------------------------------------------------- driving
+
+void FHICharAnim::SetupCharacter(USkeletalMeshComponent* Mesh, const TCHAR* Tag)
 {
-	return TEXT("/Game/Characters/Mannequins/Anims/Pistol/MF_Pistol_Idle_ADS.MF_Pistol_Idle_ADS");
+	if (Mesh == nullptr || Mesh->GetSkeletalMeshAsset() == nullptr || Tag == nullptr)
+	{
+		return;
+	}
+	const FString Start = ClipPathFor(Tag, ClipAim());
+	UAnimationAsset* Clip = LoadObject<UAnimationAsset>(nullptr, *Start);
+	if (Clip == nullptr)
+	{
+		// NOT SILENT. A character whose clips did not import stands in the reference
+		// pose forever, and "the man is a statue" without this line looks like an
+		// animation bug rather than a missing asset.
+		UE_LOG(LogTemp, Warning, TEXT("HI: no starting clip at %s -- %s will hold the reference pose"),
+			*Start, Tag);
+		return;
+	}
+	// Single node is the mode that evaluates ONE asset with no graph. Setting it
+	// explicitly matters: a mesh left in AnimationBlueprint mode with no AnimBlueprint
+	// assigned evaluates nothing at all and holds the reference pose, which looks like
+	// the character failing to load rather than the mode being wrong.
+	Mesh->SetAnimationMode(EAnimationMode::AnimationSingleNode);
+	Mesh->SetAnimation(Clip);
+	Mesh->Play(true);
 }
 
-const TCHAR* FHICharAnim::PistolWalkPath()
+void FHICharAnim::DriveCharacter(USkeletalMeshComponent* Mesh, const TCHAR* Tag, float SpeedMps,
+	bool bAlive, bool bArmed, bool bCrouching)
 {
-	return TEXT("/Game/Characters/Mannequins/Anims/Pistol/Walk/MF_Pistol_Walk_Fwd.MF_Pistol_Walk_Fwd");
-}
-
-const TCHAR* FHICharAnim::PistolJogPath()
-{
-	return TEXT("/Game/Characters/Mannequins/Anims/Pistol/Jog/MF_Pistol_Jog_Fwd.MF_Pistol_Jog_Fwd");
-}
-
-void FHICharAnim::DriveLocomotion(USkeletalMeshComponent* Mesh, float SpeedMps, bool bAlive,
-	bool bArmed)
-{
-	if (Mesh == nullptr || !bAlive)
+	if (Mesh == nullptr || Tag == nullptr || !bAlive)
 	{
 		return;
 	}
@@ -86,82 +161,187 @@ void FHICharAnim::DriveLocomotion(USkeletalMeshComponent* Mesh, float SpeedMps, 
 		return;
 	}
 
-	if (bArmed)
+	// ---- A ONE-SHOT IN PROGRESS OWNS THE BODY until it ends or its hold expires.
+	// Both conditions, because they fail differently: a non-looping single node stops
+	// at the last key, and a clip longer than its mechanic (reload: 3.3 s against a
+	// 1.15 s magazine change) must be cut off even while still playing.
 	{
-		// ---- ARMED: pick the pistol-pose clip by speed, because there is no blend space to
-		// pick it for us. See the header. The thresholds are the clips' own authored speeds,
-		// in cm/s: standing, walking, and the jog this port calls a run.
-		const float ArmedCm = SpeedMps * HI_METERS_TO_UU;
-		const TCHAR* Want = (ArmedCm < 15.0f) ? PistolIdlePath()
-			: (ArmedCm < 190.0f ? PistolWalkPath() : PistolJogPath());
-		UAnimationAsset* WantAsset = LoadObject<UAnimationAsset>(nullptr, Want);
-		if (WantAsset != nullptr)
+		TMap<TWeakObjectPtr<USkeletalMeshComponent>, float>& Latches = ActionLatches();
+		if (const float* Hold = Latches.Find(Mesh))
 		{
-			// Only on a CHANGE, or the sequence is restarted every frame and the man moonwalks
-			// in place: SetAnimation resets the playhead, which is the same trap the death
-			// handover had to avoid.
-			if (Single->GetCurrentAsset() != WantAsset)
+			const bool bRunning = Single->IsPlaying()
+				&& Single->GetCurrentTime() < (*Hold - KINDA_SMALL_NUMBER);
+			if (bRunning)
 			{
-				Mesh->SetAnimation(WantAsset);
-				Mesh->Play(true);
-				if (UAnimSingleNodeInstance* Fresh = Mesh->GetSingleNodeInstance())
-				{
-					// Item 15's phase variation, same as the idle loop: three men must not
-					// march in step.
-					const float Len = Fresh->GetLength();
-					if (Len > 0.0f)
-					{
-						Fresh->SetPosition(FMath::FRand() * Len, /*bFireNotifies=*/false);
-					}
-				}
+				return;
 			}
-			// Stride matching, the same rule as the unarmed path but against each clip's own
-			// authored speed -- a walk clip at 400 cm/s would skate badly.
-			const float Reference = (Want == PistolIdlePath()) ? 150.0f
-				: (Want == PistolWalkPath() ? 150.0f : 400.0f);
-			Single->SetPlayRate(FMath::Clamp(ArmedCm / Reference, 0.6f, 1.6f));
-			return;
+			Latches.Remove(Mesh);
 		}
-		// A missing clip must not leave the body frozen in the pistol pose for ever.
-		UE_LOG(LogTemp, Warning, TEXT("HI: no pistol locomotion clip at %s"), Want);
 	}
-	// X is the blend space's Speed axis and Y its Direction axis. Direction stays 0: the sim
-	// turns the BODY to face where it is going, so a body is never strafing sideways in its
-	// own frame -- forward is the only direction the blend space ever needs to be told about.
-	const float SpeedCm = SpeedMps * HI_METERS_TO_UU;
-	Single->SetBlendSpacePosition(FVector(SpeedCm, 0.0f, 0.0f));
 
-	// STRIDE MATCHING, which is the half of "the feet skate" that needs no anim graph. The
-	// blend space picks a clip by speed; it does not make that clip's stride cover the ground
-	// the body is actually crossing. The mannequin's jog is authored at roughly 400 cm/s, so
-	// the rate is the ratio -- clamped, because a body at 6.6 m/s sprinting past the top of
-	// the blend, or one shoved backwards at a negative speed, must not strobe the clip.
-	constexpr float ReferenceCmPerSec = 400.0f;
-	const float Rate = FMath::Clamp(SpeedCm / ReferenceCmPerSec, 0.35f, 1.8f);
+	// ---- CLIP SELECTION. Thresholds in cm/s against the sim's own speeds; see the
+	// header. Crouch outranks weapon (a crouched man aims from the crouch), and the
+	// armed standing pose is `aim` -- the pose improvement fix-list item 2 asked for,
+	// with its Hips pinned by the import tool so it cannot spin the body against the
+	// yaw the game sets every frame.
+	const float Cm = SpeedMps * HI_METERS_TO_UU;
+	const TCHAR* Want;
+	if (bCrouching)
+	{
+		Want = (Cm < 15.0f) ? ClipCrouchIdle() : ClipCrouchWalk();
+	}
+	else if (bArmed)
+	{
+		Want = (Cm < 15.0f) ? ClipAim() : (Cm < 190.0f ? ClipWalk() : ClipRun());
+	}
+	else
+	{
+		Want = (Cm < 15.0f) ? ClipIdle() : (Cm < 190.0f ? ClipWalk() : ClipRun());
+	}
+
+	const FString WantPath = ClipPathFor(Tag, Want);
+	UAnimationAsset* WantAsset = LoadObject<UAnimationAsset>(nullptr, *WantPath);
+	if (WantAsset == nullptr)
+	{
+		// A missing clip must not leave the body frozen for ever; the reference pose
+		// plus the SetupCharacter warning is the degraded state, logged once there.
+		return;
+	}
+
+	if (Single->GetCurrentAsset() != WantAsset)
+	{
+		// Only on a CHANGE, or the sequence restarts every frame and the man moonwalks
+		// in place: SetAnimation resets the playhead, the same trap the death handover
+		// and the mannequin-era code both had to avoid.
+		Mesh->SetAnimation(WantAsset);
+		Mesh->Play(true);
+		if (UAnimSingleNodeInstance* Fresh = Mesh->GetSingleNodeInstance())
+		{
+			// Item 15's phase variation: three men must not march in step. Random
+			// start inside the loop, and honest about what it is not -- phase
+			// variation, not pose variation; the pose set is the nine clips.
+			const float Length = Fresh->GetLength();
+			if (Length > 0.0f)
+			{
+				Fresh->SetPosition(FMath::FRand() * Length, /*bFireNotifies=*/false);
+			}
+		}
+	}
+
+	// ---- STRIDE MATCHING, the half of fix-list item 14 that needs no anim graph:
+	// rate = ground speed over the speed THIS CHARACTER's clip was authored at (the
+	// travel is per body -- Mixamo scales it -- so the table is per tag), clamped so a
+	// body shoved backwards, a laden thief at 0.5 m/s or a sprint past the top of the
+	// set does not strobe. Clips with no authored travel (idle, aim, crouch_idle) play
+	// at rate 1 -- dividing by zero to "match" a clip that goes nowhere is meaningless.
+	const float Authored = AuthoredCmPerSec(Tag, Want);
+	const float Rate = (Authored > 0.0f)
+		? FMath::Clamp(Cm / Authored, 0.35f, 1.8f)
+		: 1.0f;
 	Single->SetPlayRate(Rate);
 }
 
-void FHICharAnim::PlayOneShot(USkeletalMeshComponent* Mesh, const TCHAR* SequencePath)
+void FHICharAnim::PlayAction(USkeletalMeshComponent* Mesh, const TCHAR* Tag, const TCHAR* Clip,
+	float HoldSec)
 {
+	if (Mesh == nullptr || Tag == nullptr || Clip == nullptr)
+	{
+		return;
+	}
+	UAnimationAsset* Asset = LoadObject<UAnimationAsset>(nullptr, *ClipPathFor(Tag, Clip));
+	if (Asset == nullptr)
+	{
+		return;
+	}
+	PurgeDeadLatches();
+
+	Mesh->SetAnimationMode(EAnimationMode::AnimationSingleNode);
+	Mesh->SetAnimation(Asset);
+	// NON-LOOPING, and from the FIRST frame -- a re-fired shot restarts the burst,
+	// which is what a trigger pull does; a random phase here would play the middle of
+	// a recoil nobody caused.
+	Mesh->Play(false);
+	ActionLatches().Add(Mesh, FMath::Max(HoldSec, 0.05f));
+}
+
+void FHICharAnim::PlayDeath(USkeletalMeshComponent* Mesh, const TCHAR* Tag)
+{
+	if (Mesh == nullptr || Tag == nullptr)
+	{
+		return;
+	}
+	UAnimationAsset* Asset = LoadObject<UAnimationAsset>(nullptr, *ClipPathFor(Tag, ClipDeath()));
+	if (Asset == nullptr)
+	{
+		return;
+	}
+	// A death cancels any action latch: the corpse must not be "still reloading" as far
+	// as the latch is concerned, and nothing may resume locomotion on it afterwards --
+	// DriveCharacter's bAlive guard is the other half of that.
+	ActionLatches().Remove(Mesh);
+	Mesh->SetAnimationMode(EAnimationMode::AnimationSingleNode);
+	Mesh->SetAnimation(Asset);
+	Mesh->Play(false);
+}
+
+// ---------------------------------------------------------------- facing
+
+float FHICharAnim::MeshFacingYawDeg()
+{
+	// MEASURED, 2026-10-13, by HI.Unreal.Cast from each character's bind-pose shoulders
+	// (RightShoulder - LeftShoulder is lateral; lateral x up is the facing):
+	// louise 90.1, james 90.1, brute 90.0, martha 89.9. The imported Mixamo meshes face
+	// their own **+Y** -- the same axis the mannequin faced, so BodyRotationFor reduces
+	// to the mannequin era's measured t = -a. The pre-measurement guess in this spot was
+	// 0 (+X), from "a Y-up FBX's +Z becomes the engine's +X"; it was wrong, and wrong by
+	// exactly the quarter turn that 2026-10-13's crosshair report had just cost a
+	// playtest. That is why this is a number with a measurement attached, and why the
+	// Cast test fails with the measured value in its message if an asset ever changes it.
+	return 90.0f;
+}
+
+FVector FHICharAnim::MeshForwardAxis()
+{
+	const float Rad = FMath::DegreesToRadians(MeshFacingYawDeg());
+	return FVector(FMath::Cos(Rad), FMath::Sin(Rad), 0.0f);
+}
+
+FRotator FHICharAnim::BodyRotationFor(float SimYaw)
+{
+	// t = 90 - a - facing, in degrees. See the header for the derivation and the
+	// measurement chain; for the mannequin's facing of +90 this is exactly the t = -a
+	// that `-HIProbe` measured into existence on 2026-10-13.
+	return FRotator(0.0f,
+		90.0f - FMath::RadiansToDegrees(SimYaw) - MeshFacingYawDeg(),
+		0.0f);
+}
+
+// --------------------------------------------------------------- weapons
+
+const TCHAR* FHICharAnim::PistolMeshPath()
+{
+	return TEXT("/Game/Weapons/Pistol/Meshes/SM_Pistol.SM_Pistol");
+}
+
+FName FHICharAnim::HandBoneFor(const USkeletalMeshComponent* Mesh)
+{
+	// Two rigs have held a gun in this project: the engine mannequin (`hand_r`) and the
+	// Mixamo cast (`RightHand`, the prefix stripped by the importer -- the SOURCE files
+	// say `mixamorig8:RightHand` for Louise and `mixamorig9:` for James, which is why
+	// guessing the prefix was forbidden and why the suffix is what gets matched).
 	if (Mesh == nullptr)
 	{
-		return;
+		return NAME_None;
 	}
-	if (SequencePath == nullptr)
+	if (Mesh->DoesSocketExist(TEXT("hand_r")))
 	{
-		SetupLocomotion(Mesh);
-		return;
+		return FName(TEXT("hand_r"));
 	}
-	UAnimationAsset* Clip = LoadObject<UAnimationAsset>(nullptr, SequencePath);
-	if (Clip == nullptr)
+	if (Mesh->DoesSocketExist(TEXT("RightHand")))
 	{
-		return;
+		return FName(TEXT("RightHand"));
 	}
-	// Explicitly single node again: a caller may switch to a one-shot from a state where the
-	// mode was never set, and in AnimationBlueprint mode this would silently do nothing.
-	Mesh->SetAnimationMode(EAnimationMode::AnimationSingleNode);
-	Mesh->SetAnimation(Clip);
-	Mesh->Play(false);
+	return NAME_None;
 }
 
 UStaticMeshComponent* FHICharAnim::AttachPistol(
@@ -171,49 +351,37 @@ UStaticMeshComponent* FHICharAnim::AttachPistol(
 	{
 		return nullptr;
 	}
-	// A socket that does not exist must not be guessed at: AttachToComponent with a missing
-	// socket falls back to the component's origin, which reads as a pistol embedded in the
-	// character's pelvis and is easy to mistake for a modelling problem.
-	if (Mesh->DoesSocketExist(TEXT("hand_r")))
+	// A socket that does not exist must not be guessed at: AttachToComponent with a
+	// missing socket falls back to the component's origin, which reads as a pistol
+	// embedded in the character's pelvis and is easy to mistake for a modelling problem.
+	const FName Hand = HandBoneFor(Mesh);
+	if (!Hand.IsNone())
 	{
 		Pistol->AttachToComponent(
-			Mesh, FAttachmentTransformRules::SnapToTargetNotIncludingScale, TEXT("hand_r"));
-		// ---- THE PISTOL'S BARREL IS ITS +Y, AND SO IS THE SOCKET'S.
-		//
-		// Reported from play: *"the crosshairs are pointing one way and the defender another"*.
-		// Measured in the running game, at the aiming pose:
-		//
-		//     camera forward yaw 90.0 | socket X 14.0 | socket Y 100.5 | socket Z 179.3
-		//
-		// The socket's +Y is the direction the hand points, so mapping the mesh's barrel onto it
-		// is the IDENTITY rotation. An earlier version used a yaw of -90, which maps the barrel
-		// onto the socket's +X -- the sideways axis -- and that is exactly what a player sees: the
-		// pistol held out horizontally to the man's right while the crosshair points down the room.
-		//
-		// ---- THE OFFSET IS 2 cm, NOT HALF THE GUN, and getting that wrong is what "the defender
-		// has no pistol in his hand" looked like.
-		//
-		// `SM_Pistol` is 26 cm long with its PIVOT AT ITS CENTRE, so the grip sits 13 cm BEHIND
-		// the pivot. Offsetting the pivot 13 cm along the barrel therefore puts the GRIP at the
-		// wrist and the whole pistol out past the fingertips, floating in front of the fist --
-		// which is exactly what it looked like. The palm is about 11 cm along the socket from
-		// the wrist, so the offset that actually seats the grip in the hand is 13 - 11 = 2 cm.
-		//
-		// Tuned by looking, at three offsets, and it is the sort of number that only an eye can
-		// settle: -HIGunLoc=0,13,0 floats it, 0,6,0 hangs it above the knuckles, 0,2,0 grips it.
+			Mesh, FAttachmentTransformRules::SnapToTargetNotIncludingScale, Hand);
+		// ---- THE MANNEQUIN'S SOCKET +Y WAS THE POINTING DIRECTION, and the identity
+		// rotation aligned the barrel (the mesh's +Y, asserted in `HI.Unreal.Weapons`)
+		// with it, with a 2 cm offset seating the grip in the palm. A Mixamo hand BONE
+		// has its own axes, which nobody has measured yet, so the honest defaults are
+		// identity and ZERO offset -- the grip at the wrist -- and the dev switches
+		// below plus captured frames are how the seat-in-the-hand gets tuned, the same
+		// way it was tuned for the mannequin. Both actors overwrite the weapon's WORLD
+		// rotation from the aim every frame anyway (`WeaponAimRotation`), so what the
+		// relative rotation decides is where the grip sits, not where the barrel points.
 		Pistol->SetRelativeRotation(FRotator(0.0f, 0.0f, 0.0f));
-		Pistol->SetRelativeLocation(FVector(0.0f, 2.0f, 0.0f));
+		Pistol->SetRelativeLocation(FVector::ZeroVector);
 		Pistol->SetRelativeScale3D(FVector(1.0f));
 
-		// ---- DEV SWITCHES, for the same reason they exist for the camera: a socket offset is
-		// judged by LOOKING at it.
+		// ---- DEV SWITCHES, for the same reason they exist for the camera: a socket
+		// offset is judged by LOOKING at it.
 		//
 		//     -HIGunLoc=X,Y,Z   -HIGunRot=Pitch,Yaw,Roll   -HIGunScale=S
 		//
-		// `bShouldStopOnSeparator=false` IS LOAD-BEARING. With the default, `FParse::Value` stops
-		// at the comma, so "0,-90,0" parses as "0" and every one of these switches silently did
-		// NOTHING -- which is how a whole sweep of candidate rotations produced identical
-		// measurements and looked like evidence about the rig. It was evidence about the parser.
+		// `bShouldStopOnSeparator=false` IS LOAD-BEARING. With the default,
+		// `FParse::Value` stops at the comma, so "0,-90,0" parses as "0" and every one
+		// of these switches silently did NOTHING -- which is how a whole sweep of
+		// candidate rotations produced identical measurements and looked like evidence
+		// about the rig. It was evidence about the parser.
 		{
 			const TCHAR* Cmd = FCommandLine::Get();
 			FString LocS, RotS, ScaleS;
@@ -244,10 +412,11 @@ UStaticMeshComponent* FHICharAnim::AttachPistol(
 		}
 		return Pistol;
 	}
-	// NOT SILENT. When this returned nullptr without a word, the pistol stayed parented to the
-	// mesh's own origin -- between the man's feet -- and nothing anywhere said why.
+	// NOT SILENT. When this returned nullptr without a word, the pistol stayed parented
+	// to the mesh's own origin -- between the man's feet -- and nothing anywhere said
+	// why.
 	UE_LOG(LogTemp, Warning,
-		TEXT("HI: %s has no 'hand_r' socket or bone, so the weapon cannot be held"),
+		TEXT("HI: %s has no 'hand_r'/'RightHand' socket or bone, so the weapon cannot be held"),
 		*Owner->GetName());
 	return nullptr;
 }

@@ -2,6 +2,7 @@
 #include "Misc/AutomationTest.h"
 
 #include "Animation/AnimSequence.h"
+#include "Animation/AnimData/IAnimationDataModel.h"
 #include "Components/InstancedStaticMeshComponent.h"
 #include "Engine/SkeletalMesh.h"
 #include "HIAudio.h"
@@ -71,17 +72,23 @@ bool FHIUnrealSizing::RunTest(const FString& Parameters)
 	// of the player instead of being in front"*, and measured at exactly 90.0 deg with `-HIProbe`.
 	//
 	// So it asserts the PROPERTY rather than two magic numbers, and against `FHISim::AimDir`, which
-	// is the sim's own independent statement of the direction: whatever the yaw, the rotation's +Y
-	// -- the axis the mesh actually faces -- must land on it.
+	// is the sim's own independent statement of the direction: whatever the yaw, the MESH'S OWN
+	// forward axis must land on it. Which axis that is, is a property of the ASSET and has now
+	// changed casts once -- the mannequin faced +Y, the Mixamo characters face `MeshFacingYawDeg`,
+	// a constant `HI.Unreal.Cast` recomputes from every character's bind-pose shoulders. Note the
+	// division of labour: THIS test checks the composition (the formula maps a sim yaw to a world
+	// rotation consistently) and cannot catch a wrong facing constant, because both sides would
+	// read the same one; the Cast test is the check that can.
 	{
+		const FVector MeshFwd = FHICharAnim::MeshForwardAxis();
 		const float SimYaws[] = { 0.0f, UE_PI * 0.5f, UE_PI, -UE_PI * 0.5f, 1.1f };
 		for (const float SimYaw : SimYaws)
 		{
 			const FVector Want = FHISim::AimDir(SimYaw, 0.0f).GetSafeNormal();
-			const FRotationMatrix M(AHIIntruder::BodyRotation(SimYaw));
-			const float OnAim = FVector::DotProduct(M.GetUnitAxis(EAxis::Y), Want);
+			const FVector World = AHIIntruder::BodyRotation(SimYaw).RotateVector(MeshFwd).GetSafeNormal();
+			const float OnAim = FVector::DotProduct(World, Want);
 			TestTrue(*FString::Printf(
-				TEXT("a body at sim yaw %.2f faces where the sim says (its +Y . aim = %.4f)"), SimYaw, OnAim),
+				TEXT("a body at sim yaw %.2f faces where the sim says (meshFwd . aim = %.4f)"), SimYaw, OnAim),
 				OnAim > 0.9999f);
 		}
 	}
@@ -1048,34 +1055,55 @@ bool FHIUnrealDeathFall::RunTest(const FString& Parameters)
 	// frame loop that stops the moment the round is decided.
 
 	// ---- 1. THE CLIP CAN BE PLAYED AT ALL. A montage cannot play in single-node mode -- it
-	// needs a slot in an AnimGraph -- and it would fail SILENTLY.
-	const TCHAR* Death =
-		TEXT("/Game/Characters/Mannequins/Anims/Death/MM_Death_Back_01.MM_Death_Back_01");
-	UAnimationAsset* Clip = LoadObject<UAnimationAsset>(nullptr, Death);
-	TestNotNull(TEXT("the death clip the game plays loads"), Clip);
-	if (Clip != nullptr)
+	// needs a slot in an AnimGraph -- and it would fail SILENTLY. The cast version loops:
+	// every intruder is a different character with his OWN `death` clip, and one character's
+	// clip cannot play on another's skeleton -- the fact the import ordering bug of
+	// 2026-10-13 turned on.
+	double ShortestDeath = 0.0;
+	const TCHAR* DeadMen[] = {
+		FHICharAnim::IntruderTagForId(0),
+		FHICharAnim::IntruderTagForId(1),
+		FHICharAnim::IntruderTagForId(2),
+	};
+	for (const TCHAR* Tag : DeadMen)
 	{
-		TestTrue(TEXT("and is an AnimSequence, because single node cannot play a montage"),
+		UAnimationAsset* Clip = LoadObject<UAnimationAsset>(nullptr,
+			*FHICharAnim::ClipPathFor(Tag, FHICharAnim::ClipDeath()));
+		TestNotNull(*FString::Printf(TEXT("%s's death clip loads"), Tag), Clip);
+		if (Clip == nullptr)
+		{
+			continue;
+		}
+		TestTrue(*FString::Printf(
+			TEXT("%s's death is an AnimSequence, because single node cannot play a montage"), Tag),
 			Clip->IsA<UAnimSequence>());
-		// Recorded rather than asserted, because it is the REASON the ragdoll exists. Measured
-		// in a driven soak: across this clip the pelvis travels 96.6 cm -> 87.5 cm and then
-		// holds. It is a flinch, not a fall. If a future engine version ships a clip that really
-		// does put a man down, this line is the note that says the ragdoll is now redundant.
-		AddInfo(FString::Printf(
-			TEXT("MM_Death_Back_01 is %.2f s long, and its own pose ends with the pelvis at 87 cm"),
-			Clip->GetPlayLength()));
+		// RECORDED, the fall itself asserted from the source keys by HI.Unreal.Cast. Measured
+		// from the FBX by the Godot project's anim probe: Hips 0.96 m -> 0.14 m across 3.03 s
+		// -- a REAL fall, which is why the ragdoll is now a settle rather than the fall. The
+		// engine-era `MM_Death_Back_01` flinched and held upright at 87 cm; that number was
+		// the reason the ragdoll existed at all.
+		AddInfo(FString::Printf(TEXT("%s's death clip is %.2f s long"), Tag, Clip->GetPlayLength()));
+		if (ShortestDeath <= 0.0 || Clip->GetPlayLength() < ShortestDeath)
+		{
+			ShortestDeath = Clip->GetPlayLength();
+		}
 	}
 
 	// ---- 2. THE BODY CAN GO LIMP. `GoLimp` calls SetSimulatePhysics, which does NOTHING AT
 	// ALL without a physics asset -- it would leave the corpse standing exactly as before,
-	// which is the bug being fixed.
-	USkeletalMesh* Quinn = LoadObject<USkeletalMesh>(nullptr,
-		TEXT("/Game/Characters/Mannequins/Meshes/SKM_Quinn_Simple.SKM_Quinn_Simple"));
-	TestNotNull(TEXT("the intruder's mesh loads"), Quinn);
-	if (Quinn != nullptr)
+	// which is the bug being fixed. The cast's physics assets are auto-generated beside each
+	// mesh by the FBX import (`idle_PhysicsAsset`); "it worked on the mannequin" is precisely
+	// the inherited assumption this port keeps having to unlearn, so it is asserted per man.
+	for (const TCHAR* Tag : DeadMen)
 	{
-		TestNotNull(TEXT("and carries a physics asset, or going limp is a silent no-op"),
-			Quinn->GetPhysicsAsset());
+		USkeletalMesh* Man = LoadObject<USkeletalMesh>(nullptr, *FHICharAnim::MeshPathFor(Tag));
+		TestNotNull(*FString::Printf(TEXT("%s's mesh loads"), Tag), Man);
+		if (Man != nullptr)
+		{
+			TestNotNull(*FString::Printf(
+				TEXT("%s carries a physics asset, or going limp is a silent no-op"), Tag),
+				Man->GetPhysicsAsset());
+		}
 	}
 
 	// ---- 3. IT HAS SOMETHING TO LAND ON. This is the half that took longest to find. The
@@ -1132,14 +1160,479 @@ bool FHIUnrealDeathFall::RunTest(const FString& Parameters)
 	// ---- 4. THE HANDOVER IS NOT ON THE FRAME LOOP. Once the round is decided the game mode
 	// stops calling `SyncFromSim` -- "a decided round is inert at the sim level too" -- so the
 	// LAST man killed, who is the one the player is watching, would never have gone limp. It is
-	// a world timer for that reason, and the delay is asserted to be a real wait inside the clip
-	// so the flinch and the fall read as one motion.
+	// a world timer for that reason, and the delay is asserted to be a real wait INSIDE the
+	// clip -- mid-fall -- so the animation and the physics read as one motion.
 	TestTrue(FString::Printf(TEXT("the handover waits %.2f s -- after the hit, before the pose holds"),
 		AHIIntruder::RagdollAfterDeath), AHIIntruder::RagdollAfterDeath > 0.2f);
-	if (Clip != nullptr)
+	if (ShortestDeath > 0.0)
 	{
-		TestTrue(FString::Printf(TEXT("and lands inside the clip (%.2f s) so the two are one motion"),
-			Clip->GetPlayLength()), AHIIntruder::RagdollAfterDeath < Clip->GetPlayLength());
+		TestTrue(FString::Printf(
+			TEXT("and lands inside even the SHORTEST death clip (%.2f s) so the two are one motion"),
+			ShortestDeath), AHIIntruder::RagdollAfterDeath < ShortestDeath);
+	}
+
+	return true;
+}
+
+// ---------------------------------------------------------------------------
+// HI.Unreal.Cast -- the four imported characters themselves.
+//
+// Everything else in this port reasons about "the homeowner" and "the intruders"
+// abstractly; this is where those words meet assets, and it asserts every fact the
+// runtime silently assumes about them:
+//
+//   1. each mesh loads, with a skeleton and a physics asset (no physics asset = a
+//      corpse that cannot fall, silently -- the DeathFall bug, per character);
+//   2. each character's nine clips load, are AnimSequences (a montage cannot play in
+//      single-node mode), and bind to THAT character's own skeleton -- four separate
+//      USkeleton assets, so a clip used across characters silently fails to evaluate;
+//   3. clip lengths match the source FBX as measured by the Godot project's anim
+//      probe: a wrong-take import shows up here rather than as a man who skates;
+//   4. the rig carries the standard Mixamo bone names with the importer's namespace
+//      stripped (`mixamorig8:Hips` in the FBX, `Hips` here) -- the fact the gun grip,
+//      the wound placement and the whole normalization recipe stand on;
+//   5. the bind-pose facing matches FHICharAnim::MeshFacingYawDeg, RECOMPUTED from
+//      the two shoulders rather than trusted: this is the check that makes the Sizing
+//      test's facing property meaningful, since that one cannot catch a wrong constant;
+//   6. the normalized clips are normalized IN THE SAVED ASSET: Hips horizontal travel
+//      pinned for the locomotion set, Hips fully pinned plus spine frozen for `aim`,
+//      Hips rotation pinned but the arms still recoiling for `shoot` -- because the
+//      sim owns position, and a clip that travels moves the mesh away from the body
+//      the sim is stepping. This section FAILS UNTIL `tools/import-assets.py` has run
+//      `UHIAnimTool` over the content, which is the point: raw and normalized must
+//      not test the same.
+//   7. `death` really falls -- Hips descends -- asserted from the key data, which is
+//      what licenses the ragdoll handover to be a settle rather than the fall.
+//
+// It also LOGS what cannot be asserted without eyes: each wound bone's ref-pose
+// child direction in bone space -- the measurement the provisional wound offsets in
+// HIIntruder.cpp are tuned against.
+#if WITH_EDITORONLY_DATA
+namespace
+{
+	/** One bone track's keys, sampled from a sequence's data model. */
+	bool HICastGetTrack(UAnimSequence* Seq, const TCHAR* Bone,
+		TArray<FVector3f>& OutPos, TArray<FQuat4f>& OutRot)
+	{
+		IAnimationDataModel* Model = Seq->GetDataModel();
+		if (Model == nullptr)
+		{
+			return false;
+		}
+		FName Target = NAME_None;
+		TArray<FName> Tracks;
+		Model->GetBoneTrackNames(Tracks);
+		const FString Suffix = FString::Printf(TEXT(":%s"), Bone);
+		for (const FName& T : Tracks)
+		{
+			const FString S = T.ToString();
+			if (S == Bone || S.EndsWith(Suffix))
+			{
+				Target = T;
+				break;
+			}
+		}
+		if (Target.IsNone())
+		{
+			return false;
+		}
+		Model->IterateBoneKeys(Target,
+			[&OutPos, &OutRot](const FVector3f& P, const FQuat4f& R, const FVector3f, const FFrameNumber&)
+			{
+				OutPos.Add(P);
+				OutRot.Add(R);
+				return true;
+			});
+		return OutPos.Num() > 0;
+	}
+
+	/** Largest horizontal (component X/Y) distance any key sits from the first, in cm. */
+	float HICastHorizSpreadCm(const TArray<FVector3f>& Pos)
+	{
+		float Max = 0.0f;
+		for (int32 i = 1; i < Pos.Num(); ++i)
+		{
+			Max = FMath::Max(Max, FVector2f(Pos[i].X - Pos[0].X, Pos[i].Y - Pos[0].Y).Size());
+		}
+		return Max;
+	}
+
+	/** Largest vertical distance any key sits from the first, in cm. */
+	float HICastZSpreadCm(const TArray<FVector3f>& Pos)
+	{
+		float Max = 0.0f;
+		for (int32 i = 1; i < Pos.Num(); ++i)
+		{
+			Max = FMath::Max(Max, FMath::Abs(Pos[i].Z - Pos[0].Z));
+		}
+		return Max;
+	}
+
+	/** Largest angle any key's rotation makes with the first key's, in degrees. */
+	float HICastRotSpreadDeg(const TArray<FQuat4f>& Rot)
+	{
+		const FQuat First(Rot[0].X, Rot[0].Y, Rot[0].Z, Rot[0].W);
+		float MaxDeg = 0.0f;
+		for (const FQuat4f& R : Rot)
+		{
+			const float Dot = FMath::Abs(First | FQuat(R.X, R.Y, R.Z, R.W));
+			MaxDeg = FMath::Max(MaxDeg,
+				FMath::RadiansToDegrees(2.0f * FMath::Acos(FMath::Clamp(Dot, -1.0f, 1.0f))));
+		}
+		return MaxDeg;
+	}
+}
+#endif // WITH_EDITORONLY_DATA
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHIUnrealCast,
+	"HI.Unreal.Cast",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FHIUnrealCast::RunTest(const FString& Parameters)
+{
+	// ---- the cast IS four different people. "Three men are three people" is the
+	// feature; a cycling bug that sent every Id to one tag would be silent.
+	const TCHAR* CastTags[] = {
+		FHICharAnim::PlayerTag(),
+		FHICharAnim::IntruderTagForId(0),
+		FHICharAnim::IntruderTagForId(1),
+		FHICharAnim::IntruderTagForId(2),
+	};
+	for (int32 i = 0; i < UE_ARRAY_COUNT(CastTags); ++i)
+	{
+		for (int32 j = i + 1; j < UE_ARRAY_COUNT(CastTags); ++j)
+		{
+			TestTrue(*FString::Printf(TEXT("cast slot %d (%s) and slot %d (%s) are different people"),
+				i, CastTags[i], j, CastTags[j]),
+				FCString::Strcmp(CastTags[i], CastTags[j]) != 0);
+		}
+	}
+
+	// ---- the standard Mixamo rig, as the importer leaves it: namespace STRIPPED
+	// (the source FBX says `mixamorig8:Hips`, the imported skeleton says `Hips`).
+	// Every consumer -- the gun grip, the wounds, the normalization recipe, the
+	// facing measurement below -- addresses these names, and a re-import that kept
+	// the namespace would break all of them at once.
+	const TCHAR* RigBones[] = {
+		TEXT("Hips"), TEXT("Spine"), TEXT("Spine1"), TEXT("Spine2"), TEXT("Neck"), TEXT("Head"),
+		TEXT("LeftShoulder"), TEXT("RightShoulder"), TEXT("LeftArm"), TEXT("RightArm"),
+		TEXT("LeftForeArm"), TEXT("RightForeArm"), TEXT("LeftHand"), TEXT("RightHand"),
+		TEXT("LeftUpLeg"), TEXT("RightUpLeg"), TEXT("LeftLeg"), TEXT("RightLeg"),
+		TEXT("LeftFoot"), TEXT("RightFoot"), TEXT("LeftToeBase"), TEXT("RightToeBase"),
+	};
+
+	// ---- the nine clips and the lengths measured from the SAME FBX files by the
+	// Godot project's anim probe. +/-5%: tight enough that a wrong take (idle has two,
+	// 8.333 s and 9.080 s) or a retimed bake fails, loose enough for import rounding.
+	// idle_Anim is logged, not asserted, BECAUSE which take the importer picked is its
+	// choice and both are acceptable idles -- but the choice must be visible.
+	struct FHIClipCheck
+	{
+		const TCHAR* Name;
+		double Len;      // seconds; 0 = log only
+		const TCHAR* Mode;   // the UHIAnimTool mode it must have been normalized with
+	};
+	const FHIClipCheck Clips[] = {
+		{ FHICharAnim::ClipAim(),        2.400, TEXT("aim") },
+		{ FHICharAnim::ClipWalk(),       1.033, TEXT("locomotion") },
+		{ FHICharAnim::ClipRun(),        0.633, TEXT("locomotion") },
+		{ FHICharAnim::ClipCrouchIdle(), 2.100, TEXT("locomotion") },
+		{ FHICharAnim::ClipCrouchWalk(), 1.700, TEXT("locomotion") },
+		{ FHICharAnim::ClipIdle(),       0.000, TEXT("locomotion") },
+		{ FHICharAnim::ClipReload(),     3.300, TEXT("locomotion") },
+		{ FHICharAnim::ClipShoot(),      2.667, TEXT("shoot") },
+		{ FHICharAnim::ClipDeath(),      3.033, TEXT("none") },
+	};
+
+	for (const TCHAR* Tag : CastTags)
+	{
+		// ---- 1. the mesh, its skeleton, its physics asset.
+		USkeletalMesh* Mesh = LoadObject<USkeletalMesh>(nullptr, *FHICharAnim::MeshPathFor(Tag));
+		TestNotNull(*FString::Printf(TEXT("%s's mesh loads from %s"), Tag, *FHICharAnim::MeshPathFor(Tag)), Mesh);
+		if (Mesh == nullptr)
+		{
+			AddError(FString::Printf(TEXT("%s: mesh missing -- run tools/import-assets.py; nothing else about this character can be checked"), Tag));
+			continue;
+		}
+		USkeleton* Skel = Mesh->GetSkeleton();
+		TestNotNull(*FString::Printf(TEXT("%s's mesh has a skeleton"), Tag), Skel);
+		TestNotNull(*FString::Printf(TEXT("%s's mesh has a physics asset, or the corpse cannot fall"), Tag),
+			Mesh->GetPhysicsAsset());
+
+		const FReferenceSkeleton& Ref = Mesh->GetRefSkeleton();
+		AddInfo(FString::Printf(TEXT("%s: %d bones, bone[0] is '%s'"),
+			Tag, Ref.GetNum(), Ref.GetNum() > 0 ? *Ref.GetBoneName(0).ToString() : TEXT("(none)")));
+
+		// ---- 4. the rig's named bones, all of them, present.
+		for (const TCHAR* Bone : RigBones)
+		{
+			TestTrue(*FString::Printf(TEXT("%s's rig has a '%s' bone"), Tag, Bone),
+				Ref.FindBoneIndex(Bone) != INDEX_NONE);
+		}
+
+		// ---- 5. the bind-pose facing, MEASURED from the shoulders. Accumulate the
+		// ref pose into component space (Comp[i] = local[i] * Comp[parent]), then the
+		// line LeftShoulder -> RightShoulder is the rig's lateral axis and
+		// lateral x up is the direction the chest faces. This is the number
+		// FHICharAnim::MeshFacingYawDeg must carry; a quarter turn of disagreement is
+		// silent everywhere else, which is what 2026-10-13's crosshair report cost.
+		if (Skel != nullptr)
+		{
+			const int32 LS = Ref.FindBoneIndex(TEXT("LeftShoulder"));
+			const int32 RS = Ref.FindBoneIndex(TEXT("RightShoulder"));
+			if (LS != INDEX_NONE && RS != INDEX_NONE)
+			{
+				TArray<FTransform> Comp;
+				Comp.SetNum(Ref.GetNum());
+				for (int32 i = 0; i < Ref.GetNum(); ++i)
+				{
+					const int32 Parent = Ref.GetParentIndex(i);
+					Comp[i] = (Parent != INDEX_NONE)
+						? Ref.GetRefBonePose()[i] * Comp[Parent]
+						: Ref.GetRefBonePose()[i];
+				}
+				const FVector Lateral = (Comp[RS].GetLocation() - Comp[LS].GetLocation()).GetSafeNormal();
+				const FVector Fwd = FVector::CrossProduct(Lateral, FVector::UpVector).GetSafeNormal();
+				const float Phi = FMath::RadiansToDegrees(FMath::Atan2(Fwd.Y, Fwd.X));
+				TestTrue(*FString::Printf(
+					TEXT("%s's bind pose faces yaw %.1f deg, so FHICharAnim::MeshFacingYawDeg() must say so (it says %.1f)"),
+					Tag, Phi, FHICharAnim::MeshFacingYawDeg()),
+					FMath::Abs(FMath::FindDeltaAngleDegrees(Phi, FHICharAnim::MeshFacingYawDeg())) < 2.0f);
+			}
+			else
+			{
+				AddError(FString::Printf(TEXT("%s: no shoulders to measure the facing from"), Tag));
+			}
+		}
+
+		// ---- the wound bones' ref-pose child directions, LOGGED: bone-space axes are
+		// per-rig, the offsets in HIIntruder.cpp are provisional, and this is the
+		// measurement they get tuned against (a direction mostly +X means the bone's
+		// X runs down the limb, and so on).
+		for (const TCHAR* WB : { TEXT("Spine2"), TEXT("RightArm"), TEXT("Spine1"), TEXT("LeftUpLeg"), TEXT("LeftArm") })
+		{
+			const int32 Bi = Ref.FindBoneIndex(WB);
+			if (Bi == INDEX_NONE)
+			{
+				AddInfo(FString::Printf(TEXT("%s: wound bone %s is missing from the rig"), Tag, WB));
+				continue;
+			}
+			// The first bone whose parent is this one -- FReferenceSkeleton exposes
+			// parents, not children, so the child is found by scanning. Bone order in a
+			// ref skeleton is parents-before-children, so this is the natural first
+			// child, and for these five bones there is exactly one candidate each
+			// (Spine2->Neck chain, arms->forearms, upleg->leg) -- logged with its name
+			// so a rig that surprises us is visible rather than averaged away.
+			int32 Child = INDEX_NONE;
+			for (int32 i = 0; i < Ref.GetNum(); ++i)
+			{
+				if (Ref.GetParentIndex(i) == Bi)
+				{
+					Child = i;
+					break;
+				}
+			}
+			if (Child == INDEX_NONE)
+			{
+				AddInfo(FString::Printf(TEXT("%s: wound bone %s has no child to measure"), Tag, WB));
+				continue;
+			}
+			const FVector Dir = Ref.GetRefBonePose()[Child].GetLocation().GetSafeNormal();
+			AddInfo(FString::Printf(TEXT("%s: %s -> '%s', child dir in bone space (%+.2f, %+.2f, %+.2f)"),
+				Tag, WB, *Ref.GetBoneName(Child).ToString(), Dir.X, Dir.Y, Dir.Z));
+		}
+
+		// ---- 2, 3, 6, 7: the clips.
+		for (const FHIClipCheck& C : Clips)
+		{
+			UAnimationAsset* Asset = LoadObject<UAnimationAsset>(nullptr,
+				*FHICharAnim::ClipPathFor(Tag, C.Name));
+			TestNotNull(*FString::Printf(TEXT("%s/%s loads"), Tag, C.Name), Asset);
+			if (Asset == nullptr)
+			{
+				continue;
+			}
+			UAnimSequence* Seq = Cast<UAnimSequence>(Asset);
+			TestTrue(*FString::Printf(TEXT("%s/%s is an AnimSequence -- single-node cannot play anything else"), Tag, C.Name),
+				Seq != nullptr);
+			if (Seq == nullptr)
+			{
+				continue;
+			}
+			// THE BINDING. Four characters, four skeletons; a clip that loaded but bound
+			// to the wrong skeleton evaluates to nothing and the body stands in ref pose.
+			TestTrue(*FString::Printf(TEXT("%s/%s binds to %s's own skeleton"), Tag, C.Name, Tag),
+				Skel != nullptr && Seq->GetSkeleton() == Skel);
+
+			if (C.Len > 0.0)
+			{
+				TestTrue(*FString::Printf(
+					TEXT("%s/%s is %.3f s, within 5%% of the %.3f s measured from the source FBX"),
+					Tag, C.Name, Seq->GetPlayLength(), C.Len),
+					FMath::IsWithin(Seq->GetPlayLength(), C.Len * 0.95, C.Len * 1.05));
+			}
+			else
+			{
+				AddInfo(FString::Printf(TEXT("%s/%s is %.3f s (logged, not asserted: which idle take the importer picked is its choice)"),
+					Tag, C.Name, Seq->GetPlayLength()));
+			}
+
+#if WITH_EDITORONLY_DATA
+			// ---- 6/7: the normalization, asserted from the SAVED key data.
+			TArray<FVector3f> HipPos; TArray<FQuat4f> HipRot;
+			if (!HICastGetTrack(Seq, TEXT("Hips"), HipPos, HipRot))
+			{
+				AddError(FString::Printf(TEXT("%s/%s has no Hips track to check normalization against"), Tag, C.Name));
+				continue;
+			}
+
+			if (FCString::Strcmp(C.Mode, TEXT("locomotion")) == 0)
+			{
+				// The sim owns position: the mesh must not travel. The vertical
+				// component is NOT pinned -- it is the bob, and in the crouch clips
+				// it is the crouch.
+				const float Spread = HICastHorizSpreadCm(HipPos);
+				TestTrue(*FString::Printf(
+					TEXT("%s/%s: Hips horizontal travel is pinned (spread %.2f cm; run tools/import-assets.py if this fails)"),
+					Tag, C.Name, Spread), Spread < 2.0f);
+			}
+			else if (FCString::Strcmp(C.Mode, TEXT("aim")) == 0)
+			{
+				// Godot's strip, in key form: Hips frozen completely (the raw clip
+				// travels 0.735 m AND turns 143.2 deg AND drops 25 cm mid-clip), and
+				// the spine frozen with it -- while the ARMS still move, or the clip
+				// has been over-pinned into a statue and the aiming is gone.
+				const float HSpread = HICastHorizSpreadCm(HipPos);
+				const float ZSpread = HICastZSpreadCm(HipPos);
+				const float HRot = HICastRotSpreadDeg(HipRot);
+				TestTrue(*FString::Printf(TEXT("%s/aim: Hips translation fully pinned (%.2f cm horiz, %.2f cm vert)"), Tag, HSpread, ZSpread),
+					HSpread < 2.0f && ZSpread < 2.0f);
+				TestTrue(*FString::Printf(TEXT("%s/aim: Hips rotation pinned (%.2f deg spread)"), Tag, HRot), HRot < 1.0f);
+				for (const TCHAR* SB : { TEXT("Spine"), TEXT("Spine1"), TEXT("Spine2") })
+				{
+					// FRESH ARRAYS PER BONE, and that is not a style choice: the
+					// collector APPENDS, so an array reused across bones measures the
+					// concatenation against the FIRST bone's key0 -- which is how this
+					// test came to report a "3.28 deg spread" on a perfectly pinned
+					// Spine1 on 2026-10-13 (Spine's keys, then Spine1's, measured
+					// against Spine). The failure looked like the normalization tool
+					// silently not sticking; it was the reader aliasing its own buffer.
+					TArray<FVector3f> SpinePos; TArray<FQuat4f> SpineRot;
+					if (HICastGetTrack(Seq, SB, SpinePos, SpineRot))
+					{
+						const float SRot = HICastRotSpreadDeg(SpineRot);
+						TestTrue(*FString::Printf(TEXT("%s/aim: %s rotation frozen (%.2f deg spread)"), Tag, SB, SRot), SRot < 1.0f);
+					}
+				}
+				TArray<FVector3f> ArmPos; TArray<FQuat4f> ArmRot;
+				if (HICastGetTrack(Seq, TEXT("RightArm"), ArmPos, ArmRot))
+				{
+					const float ARot = HICastRotSpreadDeg(ArmRot);
+					TestTrue(*FString::Printf(TEXT("%s/aim: the RightArm STILL moves (%.2f deg spread), so the aim survived the pinning"), Tag, ARot),
+						ARot > 1.0f);
+				}
+			}
+			else if (FCString::Strcmp(C.Mode, TEXT("shoot")) == 0)
+			{
+				// The Hips swivel (measured: +/-70 deg) is pinned -- the sim owns
+				// facing -- but the recoil in the arms is the whole point of the clip
+				// and must have survived.
+				const float HSpread = HICastHorizSpreadCm(HipPos);
+				const float HRot = HICastRotSpreadDeg(HipRot);
+				TestTrue(*FString::Printf(TEXT("%s/shoot: Hips pinned (%.2f cm, %.2f deg)"), Tag, HSpread, HRot),
+					HSpread < 2.0f && HRot < 1.0f);
+				TArray<FVector3f> ArmPos; TArray<FQuat4f> ArmRot;
+				if (HICastGetTrack(Seq, TEXT("RightArm"), ArmPos, ArmRot))
+				{
+					const float ARot = HICastRotSpreadDeg(ArmRot);
+					TestTrue(*FString::Printf(TEXT("%s/shoot: the RightArm STILL recoils (%.2f deg spread)"), Tag, ARot),
+						ARot > 1.0f);
+				}
+			}
+			else
+			{
+				// ---- 7. `death` is a REAL FALL, asserted from the keys: the Hips
+				// must descend by more than half a metre (measured from the FBX:
+				// 0.96 m -> 0.14 m, i.e. 82 cm). The engine-era clip flinched and
+				// held upright at 87 cm -- if a re-export ever regresses to that,
+				// the ragdoll stops being a settle and has to become the fall again,
+				// and this line is what says so.
+				const float Drop = HipPos[0].Z - HipPos.Last().Z;
+				const float Travel = HICastHorizSpreadCm(HipPos);
+				AddInfo(FString::Printf(TEXT("%s/death: Hips drops %.0f cm and travels %.0f cm horizontally (left as authored -- the fall IS the root motion)"),
+					Tag, Drop, Travel));
+				TestTrue(*FString::Printf(TEXT("%s/death really falls: Hips descends %.0f cm (> 40)"), Tag, Drop),
+					Drop > 40.0f);
+			}
+#endif // WITH_EDITORONLY_DATA
+		}
+
+		// ---- the stride table is sane FOR THIS CHARACTER. The travel was measured at
+		// import and then pinned out of the asset, so the table in AuthoredCmPerSec is
+		// the only surviving record of it and cannot be recomputed from the clips here.
+		// What CAN be checked is internal consistency: the moving clips carry positive
+		// numbers inside the band a human gait produces (brute's longer stride and the
+		// others' shorter ones all sit in it), run outruns walk by a gait's worth, the
+		// crouch is slower than the walk, and nothing that does not travel claims to.
+		const float AW = FHICharAnim::AuthoredCmPerSec(Tag, FHICharAnim::ClipWalk());
+		const float AR = FHICharAnim::AuthoredCmPerSec(Tag, FHICharAnim::ClipRun());
+		const float AC = FHICharAnim::AuthoredCmPerSec(Tag, FHICharAnim::ClipCrouchWalk());
+		TestTrue(*FString::Printf(TEXT("%s's walk stride (%.1f cm/s) is a walk"), Tag, AW),
+			AW >= 100.0f && AW <= 260.0f);
+		TestTrue(*FString::Printf(TEXT("%s's run stride (%.1f cm/s) is a run, well over the walk"), Tag, AR),
+			AR >= 300.0f && AR <= 750.0f && AR > 2.5f * AW);
+		TestTrue(*FString::Printf(TEXT("%s's crouch-walk stride (%.1f cm/s) is slower than the walk"), Tag, AC),
+			AC >= 60.0f && AC <= 200.0f && AC < AW);
+		for (const TCHAR* Still : { FHICharAnim::ClipIdle(), FHICharAnim::ClipAim(),
+			FHICharAnim::ClipCrouchIdle(), FHICharAnim::ClipReload(),
+			FHICharAnim::ClipShoot(), FHICharAnim::ClipDeath() })
+		{
+			TestEqual(*FString::Printf(TEXT("%s/%s claims no travel to stride-match"), Tag, Still),
+				FHICharAnim::AuthoredCmPerSec(Tag, Still), 0.0f);
+		}
+
+#if WITH_EDITORONLY_DATA
+		// ---- THE CROUCH IS ACTUALLY LOW. `DriveCharacter` picks the crouch clips on the
+		// sim's crouch flag, but a crouch that plays a clip whose Hips never came down is
+		// a standing man sliding around at 2 m/s -- invisible to every other check here,
+		// because nothing else reads the HEIGHT the normalization deliberately preserved
+		// (pinning horizontal travel while KEEPING the vertical component is the whole
+		// reason the crouch clips work at all). Godot's probe measured the source FBX:
+		// crouch_idle's Hips sit at ~0.47 m against the standing idle's ~0.96 m. Asserted
+		// from the imported keys: both bands, and crouch strictly below stand.
+		auto MeanHipsZCm = [](UAnimSequence* S) -> float
+		{
+			TArray<FVector3f> Pos; TArray<FQuat4f> Rot;
+			if (S == nullptr || !HICastGetTrack(S, TEXT("Hips"), Pos, Rot))
+			{
+				return -1.0f;
+			}
+			double Sum = 0.0;
+			for (const FVector3f& P : Pos)
+			{
+				Sum += P.Z;
+			}
+			return static_cast<float>(Sum / Pos.Num());
+		};
+		UAnimSequence* StandSeq = Cast<UAnimSequence>(LoadObject<UAnimationAsset>(nullptr,
+			*FHICharAnim::ClipPathFor(Tag, FHICharAnim::ClipIdle())));
+		UAnimSequence* CrouchSeq = Cast<UAnimSequence>(LoadObject<UAnimationAsset>(nullptr,
+			*FHICharAnim::ClipPathFor(Tag, FHICharAnim::ClipCrouchIdle())));
+		const float StandZ = MeanHipsZCm(StandSeq);
+		const float CrouchZ = MeanHipsZCm(CrouchSeq);
+		// The standing band is WIDE because the cast is not one size: louise, james and
+		// martha idle at ~96 cm and brute at 121 cm -- measured, first run of this check,
+		// which an 80-115 band rejected. What the band is for is "a pelvis, not the floor
+		// and not a hover"; the crouch-vs-stand relation below is the real invariant, and
+		// it is relative so it holds for every scale in the cast.
+		TestTrue(*FString::Printf(
+			TEXT("%s: the standing idle's Hips mean %.0f cm high (a pelvis, not the floor)"), Tag, StandZ),
+			StandZ > 80.0f && StandZ < 135.0f);
+		TestTrue(*FString::Printf(
+			TEXT("%s: the crouch idle's Hips mean %.0f cm high -- visibly below the %.0f cm stand"),
+			Tag, CrouchZ, StandZ),
+			CrouchZ > 30.0f && CrouchZ < 70.0f && CrouchZ < StandZ - 20.0f);
+#endif // WITH_EDITORONLY_DATA
 	}
 
 	return true;
@@ -1246,36 +1739,36 @@ bool FHIUnrealWeapons::RunTest(const FString& Parameters)
 			StraightUp.GetUnitAxis(EAxis::Y).Equals(FVector(0.0f, 0.0f, 1.0f), 1e-4f));
 	}
 
-	// ---- 3. THE GRIP EXISTS. The attachment is by the `hand_r` socket, which is resolved
+	// ---- 3. THE GRIP EXISTS. The attachment is by a hand-bone socket, which is resolved
 	// against the mesh and its skeleton; the BONE is the thing that must be there, because a
 	// swap to a mesh without one leaves the weapon at the man's feet with only a log line.
-	USkeletalMesh* Body = LoadObject<USkeletalMesh>(nullptr,
-		TEXT("/Game/Characters/Mannequins/Meshes/SKM_Quinn_Simple.SKM_Quinn_Simple"));
-	TestNotNull(TEXT("the intruder's mesh loads"), Body);
-	if (Body != nullptr && Body->GetSkeleton() != nullptr)
-	{
-		const FReferenceSkeleton& Ref = Body->GetSkeleton()->GetReferenceSkeleton();
-		TestTrue(TEXT("and it has the 'hand_r' bone the weapon is gripped with"),
-			Ref.FindBoneIndex(TEXT("hand_r")) != INDEX_NONE);
-	}
-	else
-	{
-		AddError(TEXT("the intruder's mesh has no skeleton, so no grip can be resolved"));
-	}
-
-	// ---- 4. THE PISTOL-POSE CLIPS LOAD, and this is the half that actually made the guns
-	// visible. There is no pistol BLEND SPACE in the engine's mannequin content -- one unarmed
-	// blend space and a set of pistol sequences -- so an armed man's locomotion is chosen by
-	// hand in `DriveLocomotion`. A missing clip there logs and falls back to the empty-handed
-	// pose, and a pistol in an empty hand is what the bug looked like.
-	const TCHAR* PoseClips[] = {
-		FHICharAnim::PistolIdlePath(), FHICharAnim::PistolWalkPath(), FHICharAnim::PistolJogPath(),
+	// The cast is Mixamo now, whose hand is `RightHand` rather than the mannequin's `hand_r`;
+	// `FHICharAnim::HandBoneFor` accepts either, and every one of the four must answer one.
+	//
+	// (The mannequin-era section 4 asserted the three MF_Pistol pose clips loaded, because
+	// armed locomotion was chosen by hand from engine content. The cast carries its own nine
+	// clips each, bound to its own skeleton, and their loading is asserted by
+	// `HI.Unreal.Cast` -- which is where the whole imported-asset story lives now.)
+	const TCHAR* GripCast[] = {
+		FHICharAnim::PlayerTag(),
+		FHICharAnim::IntruderTagForId(0),
+		FHICharAnim::IntruderTagForId(1),
+		FHICharAnim::IntruderTagForId(2),
 	};
-	for (const TCHAR* Path : PoseClips)
+	for (const TCHAR* Tag : GripCast)
 	{
-		UAnimationAsset* Clip = LoadObject<UAnimationAsset>(nullptr, Path);
-		TestNotNull(*FString::Printf(TEXT("the pistol pose clip %s loads"),
-			*FPaths::GetBaseFilename(Path)), Clip);
+		USkeletalMesh* Body = LoadObject<USkeletalMesh>(nullptr, *FHICharAnim::MeshPathFor(Tag));
+		TestNotNull(*FString::Printf(TEXT("%s's mesh loads"), Tag), Body);
+		if (Body != nullptr && Body->GetSkeleton() != nullptr)
+		{
+			const FReferenceSkeleton& Ref = Body->GetSkeleton()->GetReferenceSkeleton();
+			TestTrue(*FString::Printf(TEXT("%s has a 'RightHand' bone the weapon is gripped with"), Tag),
+				Ref.FindBoneIndex(TEXT("RightHand")) != INDEX_NONE);
+		}
+		else
+		{
+			AddError(FString::Printf(TEXT("%s's mesh has no skeleton, so no grip can be resolved"), Tag));
+		}
 	}
 
 	return true;

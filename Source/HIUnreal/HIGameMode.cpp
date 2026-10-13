@@ -15,6 +15,7 @@
 #include "EngineUtils.h"
 #include "GameFramework/PlayerController.h"
 #include "HIAudio.h"
+#include "HICharAnim.h"
 #include "HIHouse.h"
 #include "HIHUD.h"
 #include "HIIntruder.h"
@@ -918,12 +919,50 @@ void AHIGameMode::Autopilot(FHISim::FHIInput& In)
 		while (Delta < -UE_PI) { Delta += 2.0f * UE_PI; }
 		Round.Player.Yaw += FMath::Clamp(Delta, -3.0f / 60.0f, 3.0f / 60.0f);
 
+		// AIM THE PITCH AT HIS CHEST, and that one requirement is the difference between a
+		// soak that wins and a soak that loses — the CAMERA is what made it necessary.
+		//
+		// The player's shot in this port is a real world trace from the real camera, so the
+		// crosshair is honest by construction (see ResolvePlayerShot). The camera sits CamUp
+		// above the 1.62 m eye — 2.06 m since 2026-10-13, when up 0.44 was picked for gun
+		// visibility — and the intruder's hit capsule tops out at EXACTLY 2.0 m. A level ray
+		// (StartView pitches 0.03 down; each shot's recoil kicks the pitch back up toward
+		// level) therefore passes six centimetres over every standing man's head at ANY
+		// distance. Measured after the camera change: the driven soak missed 12 of 12, the
+		// intruders' fear (FearPerShot 0.7 vs FearFlee 4.0 — spec numbers, asserted by
+		// HI.Sim.Fear) saturated after about six heard shots, and since they spawn beside
+		// the van they flee to, the round ended LOST in 3.3 s with everyone alive. The
+		// pre-camera baseline (up 0.22, camera at 1.84 m) put the ray under the capsule top,
+		// so level fire hit and the same soak WON in 5.0 s — and no soak ran between the
+		// camera change and this one, which is how a shot-placement regression sat in HEAD
+		// behind 41 green tests: no test carries a camera, a capsule and a world trace
+		// together. A human never notices the bug — putting the crosshair ON a man means
+		// pitching down, which is the fix — but the autopilot aimed yaw only. So aim both.
+		//
+		// Chest height = the hit capsule's centre = 1.0 m (AHIIntruder's constructor offsets
+		// it there); the horizontal leg is Dist. The same per-frame slew as the yaw.
+		const float WantPitch = FMath::Atan2(
+			FHISim::EyeHeight + FHISim::CamUp - 1.0f, FMath::Max(Dist, 0.5f));
+		Round.Player.Pitch = FMath::Clamp(Round.Player.Pitch
+			+ FMath::Clamp(WantPitch - Round.Player.Pitch, -3.0f / 60.0f, 3.0f / 60.0f),
+			FHISim::PitchMin, FHISim::PitchMax);
+
 		// Close the distance, and fire once he is worth shooting at rather than at the sky.
 		if (Dist > 2.5f)
 		{
 			In.Axis = FVector2D(0.0f, 1.0f);
 		}
-		In.bFire = FMath::Abs(Delta) < 0.25f;
+		// Only pull the trigger on a target he can actually SEE, and only once the pitch has
+		// converged onto it. The line-of-sight gate did NOT explain the 3.3 s LOST — measured,
+		// `CanSee` was true for all twelve of those shots, the sim's 2-D line through the front
+		// door to the van is clear, and the misses were the pitch problem above. It stays
+		// anyway because a human does not empty a magazine into a wall either, and every shot
+		// heard is 0.7 of the fear that ends rounds; and the pitch gate keeps the first shot of
+		// an engagement from flying where the slew has not arrived yet. CanSee is the sim's own
+		// line-of-sight — the same call the intruders' perception uses.
+		In.bFire = FMath::Abs(Delta) < 0.25f
+			&& FMath::Abs(WantPitch - Round.Player.Pitch) < 0.05f
+			&& FHISim::CanSee(Round.Player.Pos, Target);
 		if (Dist < FHISim::ShoveRange)
 		{
 			In.bShove = true;
@@ -1535,10 +1574,36 @@ void AHIGameMode::Tick(float DeltaSeconds)
 		{
 			++PlayerShotsFired;
 			ResolvePlayerShot(Ev);
+
+			// The firing ANIMATION, driven off the round's own event like the flash and the
+			// report are -- a trigger pull the sim never recorded must not twitch the body.
+			// The hold is the clip's first fire burst (0.33-0.89 s, measured from the FBX
+			// keys by the Godot probe), so one shot shows one shot, and a burst re-triggers
+			// faster than the hold expires, which is what continuous fire should look like.
+			if (APlayerController* ShotPC = GetWorld()->GetFirstPlayerController())
+			{
+				if (AHIPlayerCharacter* ShotPawn = Cast<AHIPlayerCharacter>(ShotPC->GetPawn()))
+				{
+					ShotPawn->PlayActionClip(FHICharAnim::ClipShoot(), 0.95f);
+				}
+			}
 		}
 		else if (Ev.Type == TEXT("thiefShot"))
 		{
 			ResolveThiefShot(Ev);
+
+			// His firing animation, from the same event that carries his tracer and his
+			// report: `Ev.Id` says who fired, and the actor paired with that Id plays it.
+			// An unattributable twitch would be the animation version of the unattributable
+			// bang the positioned gunshot exists to avoid.
+			for (AHIIntruder* Shooter : IntruderActors)
+			{
+				if (Shooter != nullptr && Shooter->ThiefId == Ev.Id)
+				{
+					Shooter->PlayActionClip(FHICharAnim::ClipShoot(), 0.95f);
+					break;
+				}
+			}
 		}
 		else if (Ev.Type == TEXT("thiefDown"))
 		{

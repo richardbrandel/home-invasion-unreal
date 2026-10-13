@@ -42,6 +42,14 @@ public:
 	/** Show the pistol or the shotgun in his hand. Idempotent. */
 	void SetWeaponVisual(const FString& Weapon);
 
+	/**
+	 * A timed one-shot on the body -- `shoot` when the round fires a round, `reload`
+	 * when the magazine change starts. The hold cap and the why are on
+	 * `FHICharAnim::PlayAction`; this is the handle the game mode needs, because the
+	 * events live there and the body lives here.
+	 */
+	void PlayActionClip(const TCHAR* Clip, float HoldSec);
+
 	/** The eye pivot: the point the chase camera orbits. */
 	static FVector EyePivot(const FHISim::FHIPlayer& P);
 
@@ -66,11 +74,10 @@ public:
 	/**
 	 * The sim's plane angle as a world rotation for a BODY.
 	 *
-	 * The sim's yaw 0 faces +Y, so its direction is (sin a, cos a); Unreal's yaw 0 faces +X
-	 * and turns (cos t, sin t). Equating the two gives t = 90 - a. The same derivation as the
-	 * intruder's, deliberately duplicated rather than shared through a common base class:
-	 * the two are different kinds of thing and a base class for one line of maths would
-	 * couple them for nothing.
+	 * The derivation (t = 90 - a - the mesh's own facing) and its measurement chain live in
+	 * `FHICharAnim::BodyRotationFor` now, in one place instead of one per actor: the cast
+	 * became Mixamo characters whose meshes face their own +X rather than the mannequin's
+	 * +Y, and "which way does the asset face" is a property of the cast, not of the actor.
 	 */
 	static FRotator BodyRotation(float SimYaw);
 
@@ -107,6 +114,12 @@ private:
 	void BuildVisuals();
 
 	bool bVisualsBuilt = false;
+
+	/** Which of the cast this body is: Louise, always, for the homeowner. */
+	FString CastTag;
+
+	/** Reload-anim edge detector: `Reloading` is a countdown, and a one-shot is an event. */
+	bool bWasReloading = false;
 
 	/** `-HIProbe`: seconds since the last geometry line (see SyncFromSim). */
 	float ProbeTime = 0.0f;

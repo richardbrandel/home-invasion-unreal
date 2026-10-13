@@ -31,6 +31,22 @@ see the gun."* The measurement overturned the premise and the default is now **b
 
 `CamSide` stays **0** — the camera remains on his own line, so the crosshair is in front of him.
 
+**Re-measured with the Mixamo cast, 2026-10-13:** Louise's un-helmeted head and smaller build
+occlude far less than the mannequin's. Swept at back 0.9/1.0/1.1/1.2/1.3 (posed worst case, up
+0.44): the pistol and arm are separable from her silhouette at **every** value — `shots/camsweep-sheet.png`.
+The default stays 1.30 because "visible on one static pose at sheet scale" is a floor, not a
+preference; if Richard wants the tighter framing he originally preferred, `-HICamBack=1.0` tries it
+live with no rebuild, and the constant is one line in `HISim.h`.
+
+**AND THE CAMERA HEIGHT IS NOW LOAD-BEARING FOR BALLISTICS, not just framing** — measured the hard
+way on 2026-10-13: the player's shot is a world trace from the camera (that is what makes the
+crosshair honest), so the ray flies at `EyeHeight + CamUp` = **2.06 m**, and the intruder's hit
+capsule tops out at exactly **2.0 m**. Level fire passes over every standing man's head. A human
+never notices — putting the crosshair on a target means pitching down — but the driven soak's
+autopilot aimed yaw only, missed 12 of 12, and the round ended LOST in 3.3 s on intruder fear.
+The autopilot now aims pitch at the chest (see its comment); the constants stay as Richard chose
+them. **If CamUp is ever raised again, remember a higher camera raises the shot ray with it.**
+
 **A correction worth keeping, because it nearly ruled out the answer.** This file first warned that
 `CamUp` was capped at about **+0.38 m** by 2.0 m walls — a number INHERITED FROM THE GODOT PROJECT.
 Measured here: `HISim.h` has `WallHeight = 3.0f`. Every candidate was safe. A number from the other
@@ -55,13 +71,22 @@ Upstream's `Game/Weapons/Rifle/.../SM_Rifle` stands in for it and the code says 
 `.fbx`/`.glb` arrives, or the stand-in is accepted and the item is struck off. The README calls
 this the only asset genuinely still needed.
 
-## 4. Mixamo retargeting — OPEN, scope decision
+## 4. Mixamo retargeting — **RESOLVED 2026-10-13: there was nothing to retarget**
 
-`assets/mixamo/` holds 28 clips including `crouch_idle` and `look_around`, which fix-list items 14
+~~`assets/mixamo/` holds 28 clips including `crouch_idle` and `look_around`, which fix-list items 14
 and 15 are both waiting on. Measured: an animation-only FBX imports to nothing without a target
 skeleton, and setting `task.skeleton` stops the run part-way with no error — so this needs an IK
 Retargeter or an Interchange pipeline, i.e. a job rather than a file drop. It also decides whether
-the men in the game are Unreal's mannequins or the Mixamo characters.
+the men in the game are Unreal's mannequins or the Mixamo characters.~~
+
+**The decision:** the retargeting "wall" was a misread error — mesh-carrying FBX exports import
+directly, and each character export carries its own skeleton, so clips bind per character with no
+IK Retargeter at all. All four characters (louise the homeowner; james, brute, martha the
+intruders) are imported, wired, normalized at import time by `UHIAnimTool` (root motion pinned out
+per clip mode — the sim owns positions), and asserted by `HI.Unreal.Cast`. The mannequins are out
+of the game. What the clip set still does NOT include: `look_around` was never imported, and the
+search behaviour plays `walk` — if Richard wants a distinct searching pose, that is one more FBX
+in `SourceAssets/characters/<tag>/` and one import run, not a job.
 
 ## 5. The playtest's move/fire verdict — OPEN, small
 
@@ -76,6 +101,16 @@ Camera distance in motion, whether the thief's 0.45 s aim delay feels right, whe
 read as urgent or merely slow, whether the house is findable. He is still the only person who has
 ever played this. Three sentences of "this annoyed me" are worth more than a day of captures.
 
+**The 2026-10-13 cast swap added a short, concrete list:**
+1. **Camera distance**: the gun is visible down to back 0.9 with Louise — does he want the tighter
+   framing now (`-HICamBack=1.0` tries it with no rebuild; the constant is one line)?
+2. **The crouch**: `crouch_idle`/`crouch_walk` play on [C], but no capture switch can press a key —
+   does the lowered walk read correctly at 2 m/s?
+3. **Wound placement**: the five blood decals' bone offsets are provisional (placed from measured
+   bone child-directions, not from looking at each body). Do any sit inside the body or float off it?
+4. **The intruders' gait**: stride-matching is per character (Brute's clips travel 25% further —
+   measured), but only a human can say whether all three walk believably at ThiefSpeed 1.3 m/s.
+
 ## 7. The mouse — OPEN, and possibly already fixed
 
 `[ESC]` now releases the cursor (the port had captured it with no way back; `game.gd` released on
@@ -87,6 +122,13 @@ startup, which is a different fix.
 
 The body now faces the aim (measured 0.5 deg, was exactly 90.0). The gun is aimed by construction.
 Whether it *reads* as aimed is exactly the framing question in item 1.
+
+**Re-measured with the Mixamo cast, 2026-10-13:** `-HIProbe` reports the body **2.0–3.3 deg off the
+crosshair** (the residual is the aim clip's torso sway, not a systematic offset — the bind-pose
+facing constant itself is measured at 90° from the shoulders and asserted by `HI.Unreal.Cast`),
+barrel-vs-aim **0.0 deg**, gun roll **2.0 deg** from upright. A frame review of the posed capture
+found the pistol gripped in the right hand in a natural aiming stance. The instruments say it is
+straight; whether it LOOKS straight in motion is still only Richard's call, in item 6.
 
 ---
 
