@@ -437,6 +437,46 @@ void AHIPlayerCharacter::SyncFromSim(const FHISim::FHIPlayer& P)
 					MeshFwd.X, MeshFwd.Y, MeshFwd.Z,
 					MeshFwd.Rotation().Yaw, CamFwd.Rotation().Yaw, MeshVsAimDeg);
 			}
+
+			// ---- IS THE GUN VISIBLE, OR MERELY "VISIBLE"?
+			//
+			// `gunVis` is a FLAG ON A COMPONENT. It says nothing about the man standing between the
+			// camera and his own hand, and that is the entire subject of this framing work: the probe
+			// reported the gun visible, in front of the camera and 1.3 m away, while there was no gun
+			// on screen at all. It was checked against the wrong occlusion, three times.
+			//
+			// So TRACE it and name what is in the way. This is the number a camera sweep has to be
+			// judged by -- "find the minimum back and up that still shows the gun" is a question
+			// about line of sight, and line of sight is something a ray answers and an eye cannot
+			// be asked about forty times in a row.
+			if (Gun->GetStaticMesh() != nullptr && GetWorld() != nullptr)
+			{
+				const FBoxSphereBounds GunBounds = Gun->GetStaticMesh()->GetBounds();
+				// The mesh is authored in centimetres and its barrel is its +Y, so the muzzle sits
+				// Origin.Y + Extent.Y along that axis from the component's origin.
+				const float MuzzleCm = GunBounds.Origin.Y + GunBounds.BoxExtent.Y;
+				const FVector MuzzlePt = GunLoc + Barrel * MuzzleCm;
+				const FVector MidPt = GunLoc + Barrel * (MuzzleCm * 0.5f);
+
+				FCollisionQueryParams SightParams(SCENE_QUERY_STAT(HIGunSight), /*bTraceComplex=*/false);
+				// The gun cannot obstruct its own muzzle, or every reading would be "blocked".
+				// The cast is not decoration: `Gun` is a TObjectPtr and the overloads take a
+				// UPrimitiveComponent and a UActorComponent, so passing it raw is AMBIGUOUS.
+				SightParams.AddIgnoredComponent(static_cast<UPrimitiveComponent*>(Gun.Get()));
+
+				auto Sight = [&](const FVector& To) -> const TCHAR*
+				{
+					FHitResult SightHit;
+					if (!GetWorld()->LineTraceSingleByChannel(SightHit, CamLoc, To, ECC_Visibility, SightParams))
+					{
+						return TEXT("clear");
+					}
+					return (SightHit.GetComponent() == Body) ? TEXT("HIDDEN BY HIM") : TEXT("blocked");
+				};
+				UE_LOG(LogTemp, Display,
+					TEXT("HI: probe   gunSight(WORLD ONLY, it CANNOT see the body -- no collision): muzzle=%s  mid=%s"),
+					Sight(MuzzlePt), Sight(MidPt));
+			}
 		}
 	}
 }

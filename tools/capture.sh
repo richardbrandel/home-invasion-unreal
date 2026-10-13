@@ -58,12 +58,14 @@ TIMES=""
 MODE=windowed
 THIEVES=3
 MAXW=300
+TAKEOVER=0
 PASSTHRU=""
 
 while [ $# -gt 0 ]; do
 	case "$1" in
 		--offscreen) MODE=offscreen; shift ;;
 		--windowed)  MODE=windowed; shift ;;
+		--take-over) TAKEOVER=1; shift ;;
 		--thieves)   THIEVES="${2:-3}"; shift 2 ;;
 		--thieves=*) THIEVES="${1#*=}"; shift ;;
 		--timeout)   MAXW="${2:-300}"; shift 2 ;;
@@ -97,6 +99,23 @@ fi
 hi_require_editor || exit 1
 hi_require_gpu || exit 1
 hi_detect_session
+
+# A CAPTURE KILLS A RUNNING GAME, AND IT IS NOT ALWAYS YOURS TO KILL.
+#
+# `hi_kill_stale_editor` pkills UnrealEditor BY NAME, so a capture started while a person is
+# playing ends their round a second or two in, with no warning, no crash report and nothing in the
+# log but an abrupt stop. From their seat the game "just crashes" -- which is exactly what was
+# reported on 2026-10-13, after a sweep ran while Richard was playing. He was right and the build
+# was fine; the tooling did it.
+#
+# So a run that finds a game already up now REFUSES, and taking it has to be deliberate.
+if pgrep -x UnrealEditor >/dev/null 2>&1 && [ "$TAKEOVER" != "1" ]; then
+	echo "capture: A GAME IS ALREADY RUNNING (pid $(pgrep -x UnrealEditor | head -1))." >&2
+	echo "capture: refusing to kill it -- it may be Richard's round, not a stale editor." >&2
+	echo "capture: if it is yours to take, re-run with --take-over." >&2
+	exit 3
+fi
+
 hi_kill_stale_editor
 
 LOG=/tmp/hi_capture_$NAME.log

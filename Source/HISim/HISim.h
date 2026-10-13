@@ -76,22 +76,29 @@ struct HISIM_API FHISim
 	static constexpr float PitchMin = -0.30f;   // looking up
 	static constexpr float PitchMax = 0.85f;    // looking down
 
-	// CAM_BACK / CAM_UP ARE THE FRAMING, and they were chosen by Richard from a four-way rendered
-	// comparison on 2026-10-13: *"do the back 1.6 and up .44 and let's see what that looks like."*
+	// CAM_BACK / CAM_UP ARE THE FRAMING. CamUp 0.44 was Richard's pick from a four-way rendered
+	// comparison on 2026-10-13; CamBack 1.30 is the MEASURED MINIMUM that still shows the gun,
+	// found by sweeping back at a fixed up (see below).
 	//
 	// THE REASON THEY MOVED IS THE GUN. With the camera on the defender's own line (CamSide 0,
 	// below) and close to him, his own head and torso hid the pistol COMPLETELY -- `-HIProbe`
 	// reported the gun visible, in front of the camera and 1.30 m away, while there was no gun on
-	// screen at all. It was checked against the wrong occlusion. Backing off and rising moves the
-	// sight line OVER his head and shoulder instead of through his chest, which is how the Godot
-	// original solved the same problem and what Richard asked for here.
+	// screen at all. It was checked against the wrong occlusion.
 	//
-	// Measured at these values: the camera sits at 2.12 m. **The walls are 3.0 m** (see
-	// `WallHeight`), so this is nowhere near the dollhouse view and there is about a metre of
-	// headroom left. A note elsewhere in this project warned that CamUp was capped at about
-	// +0.38 m by "the 2.0 m walls" -- that number was inherited from the GODOT project and is
-	// wrong here. Do not let it rule out a framing candidate without measuring.
-	static constexpr float CamBack = 1.60f;
+	// AND THE PARAMETER THAT ACTUALLY MATTERS IS **BACK**, NOT UP. Richard asked for the minimum
+	// back and up that still shows the gun, expecting up to be the lever. Rendered at back 0.90
+	// with up 0.22, 0.30, 0.38 and 0.44, the gun is invisible at EVERY one of them: raising the
+	// camera on his own axis does not move the sight line past his chest, it pushes the whole man
+	// -- and the gun with him -- down out of the bottom of the frame. Sweeping back at a fixed
+	// up 0.44 is what moves the arm and pistol clear of his silhouette, and it happens between
+	// 1.10 (nothing) and 1.30 (the arm and gun separate). Hence 1.30: the smallest value that
+	// works in the WORST pose, which is standing, where the pistol is tucked against his chest.
+	//
+	// Measured at these values: the camera sits at 2.05 m. **The walls are 3.0 m** (see
+	// `WallHeight`), so this is nowhere near the dollhouse view. A note elsewhere in this project
+	// warned that CamUp was capped at about +0.38 m by "the 2.0 m walls" -- that number was
+	// inherited from the GODOT project and is wrong here.
+	static constexpr float CamBack = 1.30f;
 	static constexpr float CamUp = 0.44f;
 
 	/**
