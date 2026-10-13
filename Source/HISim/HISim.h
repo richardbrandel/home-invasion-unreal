@@ -75,8 +75,24 @@ struct HISIM_API FHISim
 	/** game.gd's aim scheme: body yaw plus a limited cone of free aim. */
 	static constexpr float PitchMin = -0.30f;   // looking up
 	static constexpr float PitchMax = 0.85f;    // looking down
-	static constexpr float CamBack = 0.90f;
-	static constexpr float CamUp = 0.22f;
+
+	// CAM_BACK / CAM_UP ARE THE FRAMING, and they were chosen by Richard from a four-way rendered
+	// comparison on 2026-10-13: *"do the back 1.6 and up .44 and let's see what that looks like."*
+	//
+	// THE REASON THEY MOVED IS THE GUN. With the camera on the defender's own line (CamSide 0,
+	// below) and close to him, his own head and torso hid the pistol COMPLETELY -- `-HIProbe`
+	// reported the gun visible, in front of the camera and 1.30 m away, while there was no gun on
+	// screen at all. It was checked against the wrong occlusion. Backing off and rising moves the
+	// sight line OVER his head and shoulder instead of through his chest, which is how the Godot
+	// original solved the same problem and what Richard asked for here.
+	//
+	// Measured at these values: the camera sits at 2.12 m. **The walls are 3.0 m** (see
+	// `WallHeight`), so this is nowhere near the dollhouse view and there is about a metre of
+	// headroom left. A note elsewhere in this project warned that CamUp was capped at about
+	// +0.38 m by "the 2.0 m walls" -- that number was inherited from the GODOT project and is
+	// wrong here. Do not let it rule out a framing candidate without measuring.
+	static constexpr float CamBack = 1.60f;
+	static constexpr float CamUp = 0.44f;
 
 	/**
 	 * ZERO, AND THIS IS A DELIBERATE DIVERGENCE FROM `game.gd`, which uses 0.42.

@@ -9,25 +9,26 @@ Ordered by how much each one unblocks. Status is as of 2026-10-13.
 
 ---
 
-## 1. Camera framing — centre vs seeing your own gun — **ANSWERED, in progress**
+## 1. Camera framing — centre vs seeing your own gun — **DECIDED 2026-10-13**
 
 **The decision (Richard, 2026-10-13):** *"position the camera exactly behind the defender, but
-move it back and up a little bit so that we can see the gun. We did something similar in the
-Godot version."*
+move it back and up a little bit so that we can see the gun. We did something similar in the Godot
+version."* Four settings were rendered and he picked **back 1.60 / up 0.44**, which is now the
+default in `HISim.h` (the camera sits at 2.12 m).
 
-So: keep `CamSide = 0` (the camera stays on his own line, crosshair in front of him), and gain
-the view by moving **back and up** instead of sideways. `-HICamBack` / `-HICamUp` already exist
-as dev switches, and a sweep of them is being captured for him to choose from.
+`CamSide` stays **0** — the camera remains on his own line, so the crosshair is in front of him.
 
 **Why "up" is the dimension that matters:** moving straight back along his own axis does not
 change the occlusion — his torso is between the camera and anything held in front of his chest.
 Raising the camera does, because the sight line then passes over his head and shoulder.
 
-**The cap to respect:** the walls are 2.0 m and the eye is 1.62 m, so `CamUp` above roughly
-**+0.38 m** puts the camera *over* the walls and the house becomes a dollhouse — you see the
-intruder over cover the minimap correctly hides. This was measured in the Godot original by
-rendering candidates, and two of them showed open sky above the walls. Any chosen value must be
-checked against that, not assumed safe.
+**A correction worth keeping, because it nearly ruled out the answer.** This file first warned that
+`CamUp` was capped at about **+0.38 m** by 2.0 m walls — a number INHERITED FROM THE GODOT PROJECT.
+Measured here: `HISim.h` has `WallHeight = 3.0f`. All four candidates were therefore safe, and
+there is still about a metre of headroom. A number from the other project is not a measurement of
+this one.
+
+**Still to confirm by eye:** whether the gun now reads as aimed in motion, which no still can show.
 
 ## 2. What "working" means — OPEN, the most valuable one
 
