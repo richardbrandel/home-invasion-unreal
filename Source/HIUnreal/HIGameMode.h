@@ -386,6 +386,19 @@ private:
 	/** Frames to wait after asking for a screenshot before quitting, so it can be written. */
 	int32 QuitCountdownFrames = INDEX_NONE;
 	bool bShotTaken = false;
+	/**
+	 * `-HIShotSeries=t1,t2,...`: capture at each of these SIM seconds, in ONE run.
+	 *
+	 * Empty means the single `-HIShotAfter` capture, which is what every earlier capture used.
+	 * When present, this list IS the schedule and `-HIShotAfter` is ignored. One build, one
+	 * launch, a whole sweep of poses -- which is the point. See `TickHarness` for why a sweep
+	 * matters more here than it would in an engine that starts in two seconds.
+	 */
+	TArray<float> ShotSeries;
+	/** Index into `ShotSeries` of the next frame not yet asked for. */
+	int32 ShotSeriesNext = 0;
+	/** How many scheduled frames the round ended too early for, so the log can say so. */
+	int32 ShotSeriesMissed = 0;
 	/** Guards against reporting a soak twice, now that two paths can end one. */
 	bool bSoakReported = false;
 	/** `-HIRounds=N`: play N rounds back to back. 0 or 1 means one. */

@@ -124,7 +124,8 @@ ssh ubuntu-dev 'cd /data/projects/HIUnreal && \
 | Switch | Meaning |
 |---|---|
 | `-HIShot=NAME` | capture one frame, then quit |
-| `-HIShotAfter=SEC` | how much round time first (default 1.5) |
+| `-HIShotAfter=SEC` | how much round time first (default 1.5). Ignored when `-HIShotSeries` is given |
+| `-HIShotSeries=t1,t2,...` | **capture at each of these SIM seconds, in ONE run** — `NAME_01.png`, `NAME_02.png`, … Then quit. See `tools/capture.sh` and bug 16 |
 | `-HIShotPos=X,Y` | stand the homeowner at a sim coordinate. Also turns the autopilot OFF, so a posed frame stays posed |
 | `-HIShotYaw=DEG`, `-HIShotPitch=DEG` | aim it |
 | `-HIShotNoUI` | capture without the HUD |
@@ -247,6 +248,8 @@ toolchain, which is a separate job from making the game work.
 | `tools/make-voices.sh` | renders the bark lines on the Mac's own speech synthesiser (macOS `say`, the OLD take) |
 | `tools/make-voices-neural.sh` | renders the same nine lines with **Kokoro**, an offline neural TTS on this Mac -- **this is what the game ships** |
 | `tools/play.sh` | **launch the game for a person**, with the session environment and a driver check. See the hazards below |
+| `tools/capture.sh` | **several frames from ONE launch, and it always ends**: `tools/capture.sh walk 1,2,3,4,5`. See bug 16 |
+| `tools/session-env.sh` | the session environment, the editor path and the one-editor rule, **sourced by both scripts above** so they cannot drift |
 | `tools/tour.sh` | the scripted tour: eight known views, one command |
 | `docs/PARITY.md` | **the port measured against the Godot original, divergence by divergence** |
 
@@ -716,6 +719,58 @@ was reachable from it.
    version would have been useless in the same way the still frames were: it logged the barrel
    against the **camera** forward, which is the aim, so it can distinguish "the gun is off the
    aim" -- but not "the gun is behind the man", which is the other half of the report.
+
+16. **THE CAPTURE HARNESS COULD ONLY PHOTOGRAPH A ROUND THAT OUTLIVED ITS TIMER.** Not a game
+   bug, and it is written down here because it is the reason bug 15 survived two rounds of
+   "verified" fixes. The harness was as much a part of the defect as the code was.
+
+   The gate was `RoundSeconds < ShotAfterSeconds → return`, and **`RoundSeconds` is SIM time that
+   only advances while the round is LIVE**. So a capture scheduled later than the round's last
+   second was not *late*, it was **UNREACHABLE**: the process sat in `-game` until something
+   killed it. Measured twice, at 75 s and at 120 s, and it reads exactly like a hang because it
+   is one.
+
+   The consequence is worse than the wasted time. The autopilot clears the house in about five
+   sim seconds, so **every capture that DID succeed was one where the round ran long** — and with
+   the autopilot off and the homeowner standing still, the round ran long because he was being
+   shot. The harness could photograph a man standing still and dying, and nothing else. Every
+   still in bug 15's investigation was one of those, and the sweep that would have caught it
+   needed a round that did *not* outlive its timer.
+
+   The fix is in the gate: when the round is decided and the clock has stopped short of the
+   target, it captures where the clock actually stopped and says what that cost —
+
+   ```
+   HI: round decided at 3.45 s, before the 4.00 s capture -- taking it at 3.45 s instead;
+       1 further frame(s) unreachable
+   ```
+
+   — rather than waiting for a time that can never arrive. Skipping would be a lie about what was
+   photographed; waiting is a hang. `tools/capture.sh` carries its own wall-clock ceiling on top,
+   because a harness that *can* hang costs an afternoon and this one already had.
+
+   **`-HIShotSeries=t1,t2,...` now takes many frames from ONE launch**, named `NAME_01.png` and
+   so on, quitting only after the last. Measured: a five-view sweep of a *moving* player went
+   from five launches (~200 s, and the moving ones hung) to **one 28 s run that produced four
+   frames and reported the fifth as unreachable**. That is the speed the loop needed, and it is
+   the difference between seeing a walk cycle and guessing at one.
+
+   **Two corrections to the record, both measured rather than reasoned.** (1) This README's
+   `~2 fps / a quarter of real speed` claim about offscreen rendering is **stale** and it had a
+   whole design built on it: offscreen and windowed both advance the sim at about **1x realtime**
+   (one sim second cost 1.83-1.90 s of wall clock in the first interval, 0.99-1.01 s in the
+   second, in both modes). The reason to prefer windowed is not speed — it is that a windowed run
+   **honours `-ResX=1600 -ResY=900` and writes a 1600x900 PNG, while `-RenderOffscreen` ignores it
+   and writes 1280x720**, which quietly answers a different question from the one a 1600x900
+   screen print asks. (2) `-HIShotSeries` was first written with `FParse::Value`'s default, which
+   **stops at the first comma**: `-HIShotSeries=1,2,3,4,5` parsed as `1` and the run took one
+   frame and reported success. That is the **third** time this project has been bitten by the same
+   default — after `-HIGunRot=0,-90,0` and `-HIShotPos=0,16` — and it is now the reason
+   `bShouldStopOnSeparator=false` is called out at every comma-parsing site.
+
+   `tools/session-env.sh` holds the editor path, the session environment and the one-editor rule
+   that `play.sh` and `capture.sh` both need, so the cookie discovery and the driver check exist
+   once instead of twice.
 
 Also fixed in the same pass, and smaller: **`-HIShotNoUI` did nothing.** It was read and
 handed to `FScreenshotRequest::RequestScreenshot(bShowUI=...)`, and that flag suppresses

@@ -107,6 +107,46 @@ void AHIGameMode::HandleCommandLine()
 	FParse::Value(Cmd, TEXT("HIShot="), ShotName);
 	bPlaytest = FParse::Param(Cmd, TEXT("HIPlaytest"));
 	FParse::Value(Cmd, TEXT("HIShotAfter="), ShotAfterSeconds);
+
+	// `-HIShotSeries=t1,t2,...`: MANY frames from ONE run. One build and one launch for a whole
+	// sweep of poses, which is the difference between seeing a walk cycle and guessing at one
+	// from a picture of the man standing still -- see the note on the capture gate in
+	// `TickHarness`, which is exactly the trap this project fell into twice.
+	{
+		FString SeriesArg;
+		// `bShouldStopOnSeparator=false` IS LOAD-BEARING, and this is the THIRD time this project
+		// has been bitten by it. `FParse::Value` stops at the first comma by default, so
+		// `-HIShotSeries=1,2,3,4,5` parses as `1` and the run silently takes ONE frame and quits
+		// -- a sweep that reports success and is not one. The same default made
+		// `-HIGunRot=0,-90,0` parse as `0` (four candidate rotations, four identical
+		// measurements that looked like evidence about the rig) and made `-HIShotPos=0,16`
+		// ignore the position outright.
+		if (FParse::Value(Cmd, TEXT("HIShotSeries="), SeriesArg, /*bShouldStopOnSeparator=*/false))
+		{
+			TArray<FString> Parts;
+			SeriesArg.ParseIntoArray(Parts, TEXT(","), /*bCullEmpty=*/true);
+			for (const FString& Part : Parts)
+			{
+				const float At = FCString::Atof(*Part);
+				if (At > 0.0f)
+				{
+					ShotSeries.Add(At);
+				}
+			}
+			// Ascending, because the schedule is consumed in order and `t2,t1` should not turn
+			// into a capture that can never be reached.
+			ShotSeries.Sort();
+		}
+	}
+	// A series with no name has nowhere to write, and a silent no-op capture is the exact
+	// failure this harness has already been bitten by. Say so instead.
+	if (ShotSeries.Num() > 0 && ShotName.IsEmpty())
+	{
+		UE_LOG(LogTemp, Warning,
+			TEXT("HI: -HIShotSeries lists %d frame(s) but -HIShot=NAME is missing, so there is nowhere to write them -- ignored"),
+			ShotSeries.Num());
+		ShotSeries.Reset();
+	}
 	FParse::Value(Cmd, TEXT("HISoak="), SoakSeconds);
 	bHideUIForShot = FParse::Param(Cmd, TEXT("HIShotNoUI"));
 	const bool bAutoAsked = FParse::Param(Cmd, TEXT("HIAuto"));
@@ -145,8 +185,8 @@ void AHIGameMode::HandleCommandLine()
 
 	if (bScripted || bAuto)
 	{
-		UE_LOG(LogTemp, Display, TEXT("HI: scripted run -- thieves=%d shot='%s' after=%.1f soak=%.1f auto=%d posed=%d no_thief_damage=%d"),
-			IntruderCount, *ShotName, ShotAfterSeconds, SoakSeconds, bAuto ? 1 : 0, bPosed ? 1 : 0,
+		UE_LOG(LogTemp, Display, TEXT("HI: scripted run -- thieves=%d shot='%s' after=%.1f series=%d soak=%.1f auto=%d posed=%d no_thief_damage=%d"),
+			IntruderCount, *ShotName, ShotAfterSeconds, ShotSeries.Num(), SoakSeconds, bAuto ? 1 : 0, bPosed ? 1 : 0,
 			bNoThiefDamage ? 1 : 0);
 		// Printed rather than assumed: the screenshot path is the difference between seeing
 		// a frame and believing one exists, and this project has already been bitten once by
@@ -1329,10 +1369,16 @@ void AHIGameMode::Tick(float DeltaSeconds)
 	// THE ROUND CLOCK IS SIM TIME, not wall time, and the difference is not academic. Every
 	// timer in this game -- the police clock, the weapon cooldown, the intruder's fear decay
 	// -- advances by the sim's own dt, so a clock counting wall seconds would disagree with
-	// the game it is describing. It matters most exactly where it was found: an offscreen
-	// probe on this box renders at ~2 fps and is clamped to 8 sub-steps a frame, so the sim
-	// advances at roughly a QUARTER of real speed. A soak budget read as real seconds would
-	// therefore end a "240 second" probe after about 64 seconds of game.
+	// the game it is describing.
+	//
+	// CORRECTED 2026-10-12, because the stale half of this note cost a plan. It used to add:
+	// "an offscreen probe on this box renders at ~2 fps and is clamped to 8 sub-steps a frame,
+	// so the sim advances at roughly a QUARTER of real speed. A soak budget read as real
+	// seconds would therefore end a '240 second' probe after about 64 seconds of game." The
+	// conclusion still holds; the number does not. Measured from the shot log's own timestamps,
+	// one sim second costs 1.83-1.90 s of wall clock in the first interval and 0.99-1.01 s in
+	// the second, in BOTH offscreen and windowed runs -- about 1x realtime, not a quarter. It
+	// had `tools/capture.sh` about to be designed around "windowed is ten times faster".
 	RoundSeconds += StepsThisFrame * SimFixedDt;
 
 	// Drained ONCE for the whole frame rather than per sub-step: an event is an event, and
@@ -1597,13 +1643,67 @@ void AHIGameMode::TickHarness(float DeltaSeconds)
 	}
 
 	// ---- a capture
-	if (ShotName.IsEmpty() || bShotTaken || RoundSeconds < ShotAfterSeconds)
+	//
+	// THE GATE IS A SIM CLOCK THAT STOPS, AND THAT IS THE BUG THIS BLOCK EXISTS TO FIX.
+	//
+	// `RoundSeconds` is only advanced inside the LIVE-round branch of `Tick` (see "the round
+	// clock is sim time" there), so the moment a round is decided the clock FREEZES. A capture
+	// scheduled later than the round's last second is therefore not late -- it is
+	// UNREACHABLE -- and the old gate `RoundSeconds < ShotAfterSeconds` returned for ever. The
+	// process sat in `-game` until it was killed, which is indistinguishable from a hang, and
+	// it cost this project two runs of 75 s and 120 s of exactly that.
+	//
+	// It is worth being precise about WHAT it photographed, because it was worse than wasted
+	// time: the autopilot clears the house in about five sim seconds, so every capture that
+	// DID succeed was one where the round ran long enough -- which, with the autopilot off and
+	// the homeowner standing still, means the round ran long because he was being shot. **The
+	// harness could only photograph a round that outlived its timer, and the sweep that would
+	// have caught bug 15 needed a round that did not.** A capture run must always end, so it
+	// now captures where the clock actually stopped and says how many frames that cost.
+	if (ShotName.IsEmpty() || bShotTaken)
 	{
 		return;
 	}
-	bShotTaken = true;
+	const bool bSeries = ShotSeries.Num() > 0;
+	const int32 TotalShots = bSeries ? ShotSeries.Num() : 1;
+	if (ShotSeriesNext >= TotalShots)
+	{
+		bShotTaken = true;
+		return;
+	}
 
-	FScreenshotRequest::RequestScreenshot(ShotName, /*bShowUI=*/!bHideUIForShot, /*bAddFilenameSuffix=*/false);
+	const bool bRoundLive = Round.State == FHISim::EHIRoundState::Play;
+	const float TargetTime = bSeries ? ShotSeries[ShotSeriesNext] : ShotAfterSeconds;
+	bool bGiveUpTheRest = false;
+	if (RoundSeconds < TargetTime)
+	{
+		if (bRoundLive)
+		{
+			return;   // still coming; the clock is running
+		}
+		// Decided, and the clock has stopped short of the target. Waiting is a hang and
+		// skipping is a lie about what was photographed, so take it here and account for the
+		// frames that can no longer happen.
+		ShotSeriesMissed += TotalShots - ShotSeriesNext - 1;
+		bGiveUpTheRest = true;
+		UE_LOG(LogTemp, Warning,
+			TEXT("HI: round decided at %.2f s, before the %.2f s capture -- taking it at %.2f s instead; %d further frame(s) unreachable"),
+			RoundSeconds, TargetTime, RoundSeconds, TotalShots - ShotSeriesNext - 1);
+	}
+
+	// One file per frame: a series that overwrote one name would look exactly like a single
+	// capture, which is the failure this whole harness keeps having to be defended against.
+	const FString CaptureName = bSeries
+		? FString::Printf(TEXT("%s_%02d"), *ShotName, ShotSeriesNext + 1)
+		: ShotName;
+	++ShotSeriesNext;
+	const bool bLastShot = bGiveUpTheRest || ShotSeriesNext >= TotalShots;
+	if (bLastShot)
+	{
+		bShotTaken = true;
+	}
+
+	FScreenshotRequest::RequestScreenshot(CaptureName, /*bShowUI=*/!bHideUIForShot, /*bAddFilenameSuffix=*/false);
 
 	// WHERE THE CAMERA ACTUALLY IS, measured rather than assumed. The first batch of aimed
 	// captures produced the same interior view from three different commanded positions, and
@@ -1623,18 +1723,30 @@ void AHIGameMode::TickHarness(float DeltaSeconds)
 				}
 			}
 		}
+		// The SIM SPEED is logged because it is the number that made every earlier capture feel
+		// slow: an offscreen run on this box renders at about 2 fps, so a "6 second" capture is
+		// nearer 24 seconds of wall clock, and a series reads as a hang when it is not one.
+		// Same expression as the soak's report, so the two cannot disagree.
+		const float SimSpeed = Frames / FMath::Max(RoundSeconds, 0.001f) / 60.0f;
 		UE_LOG(LogTemp, Display,
-			TEXT("HI: shot '%s' at %.2f s -- sim player (%.2f, %.2f) yaw %.1f deg pitch %.1f deg; %s"),
-			*ShotName, RoundSeconds, Round.Player.Pos.X, Round.Player.Pos.Y,
+			TEXT("HI: shot %d/%d '%s' at %.2f s of round (sim at %.2fx realtime) -- sim player (%.2f, %.2f) yaw %.1f deg pitch %.1f deg; %s"),
+			ShotSeriesNext, TotalShots, *CaptureName, RoundSeconds, SimSpeed,
+			Round.Player.Pos.X, Round.Player.Pos.Y,
 			FMath::RadiansToDegrees(Round.Player.Yaw), FMath::RadiansToDegrees(Round.Player.Pitch),
 			*Where);
 	}
-	UE_LOG(LogTemp, Display, TEXT("HI: screenshot '%s' requested at %.2f s of round"),
-		*ShotName, RoundSeconds);
 
 	// The screenshot is written by the viewport on a later frame, so quitting immediately
-	// would produce no file -- and a missing file looks exactly like a rendering failure.
-	QuitCountdownFrames = 10;
+	// would produce no file -- and a missing file looks exactly like a rendering failure. Only
+	// after the LAST frame: quitting after the first is what made a sweep impossible.
+	if (bLastShot)
+	{
+		QuitCountdownFrames = 10;
+	}
+	else
+	{
+		UE_LOG(LogTemp, Display, TEXT("HI: %d more frame(s) scheduled; the run continues"), TotalShots - ShotSeriesNext);
+	}
 }
 
 void AHIGameMode::ApplyStartWeapon()

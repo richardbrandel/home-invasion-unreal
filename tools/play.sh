@@ -41,47 +41,14 @@ Darwin)
 	;;
 esac
 
-UE=/home/richard/UnrealEngine/Engine/Binaries/Linux/UnrealEditor
-PROJ=/data/projects/HIUnreal/HIUnreal.uproject
-RUNTIME=/run/user/$(id -u)
+# The editor path, the session environment and the one-editor rule live in ONE file, because
+# `capture.sh` needs all three as well and a second copy would drift.
+. "$(dirname "$0")/session-env.sh" || exit 1
 
-if [ ! -x "$UE" ]; then
-	echo "play: no editor at $UE" >&2
-	exit 1
-fi
-
-# The graphics driver must match its kernel module, or nothing renders. Checked here because
-# the failure is otherwise a silent hang that looks like a game bug.
-if command -v nvidia-smi >/dev/null 2>&1; then
-	if ! timeout 20 nvidia-smi >/dev/null 2>&1; then
-		echo "play: THE GPU DRIVER IS BROKEN -- nvidia-smi fails." >&2
-		echo "play: an update was probably installed without a reboot (kernel module vs" >&2
-		echo "play: userspace mismatch). REBOOT the machine; no amount of relaunching helps." >&2
-		exit 1
-	fi
-fi
-
-# The Xwayland cookie is named per boot, so find it rather than guess it.
-XA=""
-for f in "$RUNTIME"/.mutter-Xwaylandauth.*; do
-	[ -f "$f" ] && XA="$f"
-done
-
-DISPLAY="${DISPLAY:-:0}"
-export DISPLAY XAUTHORITY="${XA:-$HOME/.Xauthority}"
-export XDG_RUNTIME_DIR="$RUNTIME"
-export WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-0}"
-
-echo "play: display=$DISPLAY auth=$XAUTHORITY runtime=$XDG_RUNTIME_DIR"
-
-# One at a time: a second editor doubles the load and neither one is the one you are looking at.
-pkill -x UnrealEditor 2>/dev/null
-sleep 3
-if [ "$(pgrep -c -x UnrealEditor 2>/dev/null || echo 0)" != "0" ]; then
-	# Unreal ignores SIGTERM mid-round; without this the old build keeps the screen.
-	pkill -9 -x UnrealEditor 2>/dev/null
-	sleep 2
-fi
+hi_require_editor || exit 1
+hi_require_gpu || exit 1
+hi_detect_session
+hi_kill_stale_editor
 
 LOG=/tmp/hi_play.log
 setsid nohup "$UE" "$PROJ" -game -windowed -ResX=1600 -ResY=900 -HIThieves=3 "$@" \
