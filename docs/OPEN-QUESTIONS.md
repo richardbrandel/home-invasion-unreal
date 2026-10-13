@@ -9,26 +9,39 @@ Ordered by how much each one unblocks. Status is as of 2026-10-13.
 
 ---
 
-## 1. Camera framing — centre vs seeing your own gun — **DECIDED 2026-10-13**
+## 1. Camera framing — centre vs seeing your own gun — **DECIDED, and then MEASURED**
 
 **The decision (Richard, 2026-10-13):** *"position the camera exactly behind the defender, but
 move it back and up a little bit so that we can see the gun. We did something similar in the Godot
-version."* Four settings were rendered and he picked **back 1.60 / up 0.44**, which is now the
-default in `HISim.h` (the camera sits at 2.12 m).
+version."* He picked **back 1.60 / up 0.44** from a four-way rendered comparison.
+
+**Then he asked for the minimum rather than another round trip:** *"why don't you vary the back and
+up distances, run it and find what the minimum back and up values are that will still allow you to
+see the gun."* The measurement overturned the premise and the default is now **back 1.30 / up
+0.44**:
+
+- **UP DOES NOTHING ON ITS OWN.** At back 0.90, rendered with up 0.22, 0.30, 0.38 and 0.44, the gun
+  is invisible at **every** value. Raising the camera on his own axis does not move the sight line
+  past his chest — it pushes the whole man, and the gun with him, down out of the bottom of the
+  frame.
+- **BACK IS THE LEVER.** Swept at fixed up 0.44: nothing at 1.10, the arm and pistol separating
+  from his silhouette at **1.30**. That is the smallest value that works in the **worst** pose —
+  standing, pistol tucked against the chest — so it holds in motion.
+- The camera sits at 2.05 m against 3.0 m walls.
 
 `CamSide` stays **0** — the camera remains on his own line, so the crosshair is in front of him.
 
-**Why "up" is the dimension that matters:** moving straight back along his own axis does not
-change the occlusion — his torso is between the camera and anything held in front of his chest.
-Raising the camera does, because the sight line then passes over his head and shoulder.
-
 **A correction worth keeping, because it nearly ruled out the answer.** This file first warned that
 `CamUp` was capped at about **+0.38 m** by 2.0 m walls — a number INHERITED FROM THE GODOT PROJECT.
-Measured here: `HISim.h` has `WallHeight = 3.0f`. All four candidates were therefore safe, and
-there is still about a metre of headroom. A number from the other project is not a measurement of
-this one.
+Measured here: `HISim.h` has `WallHeight = 3.0f`. Every candidate was safe. A number from the other
+project is not a measurement of this one.
 
-**Still to confirm by eye:** whether the gun now reads as aimed in motion, which no still can show.
+**And the instrument built to answer this numerically does not work.** `-HIProbe`'s `gunSight`
+traces camera → muzzle and asks whether the body is what the ray meets. It reported `muzzle=clear`
+at **every** setting, including 0.90/0.22 where the gun is provably invisible, because the player's
+body carries `Body->SetCollisionEnabled(NoCollision)` — **the trace physically cannot hit it**. It
+is kept only for world occlusion and its log line now states what it cannot see. This was the
+fourth check-that-cannot-fail in this project; the pictures are what settled it.
 
 ## 2. What "working" means — OPEN, the most valuable one
 
