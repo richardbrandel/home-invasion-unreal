@@ -897,7 +897,51 @@ was reachable from it.
    whose verdict cannot pass is the mirror image of the check-that-cannot-fail this file already
    warns about — and a red light nobody believes is worse than no light.
 
+19. **EVERY MAN IN THE GAME FACED A QUARTER TURN TO THE SIDE, AND THREE PROBES AGREED HE DID
+   NOT.** Reported from play 2026-10-13, and precisely: *"The cross hairs are 90 degrees to the
+   right of the player instead of being in front."* That number was right.
+
+   **The rotation put the component's +X on the aim, and the SKELETON faces its own +Y.** The old
+   derivation was not sloppy, it was about the wrong thing: it equated the SIM's yaw 0 (facing +Y)
+   with the ACTOR's yaw 0 (facing +X) and concluded `t = 90 - a`. That genuinely does align the
+   component's +X with the aim -- which is why `-HIProbe` twice reported `camfwd=(0.00,1.00,-0.03)`
+   against `bodyfwd=(0.00,1.00,-0.00)` and looked like a clean bill of health. **The probe was
+   measuring the same +X the code had assumed.** A mannequin mesh faces its own +Y -- it is why
+   the engine's own `ACharacter` carries a -90 yaw on its mesh -- so every man was a quarter turn
+   out while every number agreed with every other number.
+
+   **Measured before it was changed**, by deriving the facing from the SKELETON instead of from an
+   axis the code had already chosen: the line between the two clavicles gives the lateral axis with
+   no sign convention to get wrong, and `right x up` gives the signed forward.
+
+   ```
+   shoulderLateral: |along body +X|=1.00 |along body +Y|=0.00 -> the skeleton faces its own +Y
+   meshFwd=(-1.00,-0.00,0.00) yaw=-180.0  vs  camfwd yaw=90.0  -> the BODY is 90.0 deg off the crosshair
+   ```
+
+   **The test ASSERTED the bug.** `HITests.cpp` pinned `BodyRotation(0) == yaw 90`, justified with
+   *"a body spawned facing +Y really faces +Y"* -- a true statement about the actor's +X and a false
+   one about the man standing on it. It is rewritten as a PROPERTY test against `FHISim::AimDir`,
+   the sim's own independent statement of the direction, so it now fails for any convention that
+   does not actually face the man. Same shape as the wound-size bug, where the guarding assertion
+   was itself written in centimetres.
+
+   `t = -a` now, in BOTH the homeowner's and the intruder's deliberately-duplicated derivation --
+   so **the intruders were walking sideways too**, unremarked only because a man at fifteen metres
+   is easy to get wrong. After the fix the same probe reads **`the BODY is 0.5 deg off the
+   crosshair`**, and 40/40 pass.
+
+   **The lesson is about agreement, not about axes.** Three instruments reported the body's +X
+   pointing correctly, and all three shared the assumption that +X is the way a man faces. An
+   instrument that shares the bug's assumption cannot find the bug, however many of them there are.
+   The fourth measured the skeleton, and that is the one that counted.
+
+   **One caveat on the new instrument**, kept because it nearly misled the fix: the clavicle line is
+   purely lateral only in a neutral pose. A later sample in the same run read `0.73/0.68` and
+   reported 43 deg, which was an arm mid-swing. Read the clean sample.
+
 Also fixed in the same pass, and smaller:
+
  **`-HIShotNoUI` did nothing.** It was read and
 handed to `FScreenshotRequest::RequestScreenshot(bShowUI=...)`, and that flag suppresses
 SLATE, not the canvas the HUD is drawn on — the engine's own `UGameViewportClient::

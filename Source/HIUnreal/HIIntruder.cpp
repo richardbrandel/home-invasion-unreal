@@ -254,7 +254,12 @@ void AHIIntruder::GoLimp()
 
 FRotator AHIIntruder::BodyRotation(float SimYaw)
 {
-	return FRotator(0.0f, 90.0f - FMath::RadiansToDegrees(SimYaw), 0.0f);
+	// t = -a, NOT 90 - a. See `AHIPlayerCharacter::BodyRotation` for the measurement: a mannequin
+	// skeleton faces its own +Y, so a rotation that puts the component's +X on the aim leaves the
+	// man a quarter turn out. This is the same convention as the homeowner's, deliberately
+	// duplicated, and it was wrong in the same way -- so the intruders were walking sideways too,
+	// unremarked only because a man at fifteen metres is easy to get wrong.
+	return FRotator(0.0f, -FMath::RadiansToDegrees(SimYaw), 0.0f);
 }
 
 void AHIIntruder::SyncFromSim(const FHISim::FHIThief& T, float Dt)

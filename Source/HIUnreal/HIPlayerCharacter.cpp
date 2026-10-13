@@ -176,7 +176,24 @@ void AHIPlayerCharacter::ViewTransform(const FHISim::FHIPlayer& P, FVector& OutL
 
 FRotator AHIPlayerCharacter::BodyRotation(float SimYaw)
 {
-	return FRotator(0.0f, 90.0f - FMath::RadiansToDegrees(SimYaw), 0.0f);
+	// THE MESH FACES ITS OWN +Y, NOT ITS +X, AND EVERY ROTATION HERE ASSUMED OTHERWISE.
+	//
+	// Reported from play 2026-10-13: *"The cross hairs are 90 degrees to the right of the player
+	// instead of being in front."* Exactly right, and measured before it was changed: `-HIProbe`
+	// printed `the BODY is 90.0 deg off the crosshair`, derived from the line between the two
+	// clavicles rather than from any axis the code had already assumed.
+	//
+	// The old derivation was not sloppy, it was about the wrong thing. It equated the SIM's yaw 0
+	// (facing +Y) with the ACTOR's yaw 0 (facing +X) and concluded t = 90 - a, which does put the
+	// component's +X on the aim -- and the probe happily confirmed that, twice, because it was
+	// measuring the same +X. But a mannequin SKELETON faces its own +Y: it is why the engine's own
+	// `ACharacter` carries a -90 yaw on its mesh, and it is why aligning the component's +X left
+	// every man in the game facing a quarter turn to the side while every number agreed.
+	//
+	// So the rotation has to put the component's **+Y** on the aim. A UE yaw t sends its local +Y
+	// to (-sin t, cos t), and the sim's direction for yaw a is (sin a, cos a); equating them gives
+	// t = -a. One sign flip from the old expression, and the whole game faces forwards.
+	return FRotator(0.0f, -FMath::RadiansToDegrees(SimYaw), 0.0f);
 }
 
 FRotator AHIPlayerCharacter::WeaponAimRotation(const FVector& Aim)
@@ -370,6 +387,56 @@ void AHIPlayerCharacter::SyncFromSim(const FHISim::FHIPlayer& P)
 				BodyFwd.X, BodyFwd.Y, BodyFwd.Z,
 				Barrel.X, Barrel.Y, Barrel.Z,
 				GunUp.X, GunUp.Y, GunUp.Z);
+
+			// ---- WHICH WAY DOES THE MESH ACTUALLY FACE?
+			//
+			// `bodyfwd` above is the COMPONENT's +X, and every rotation in this port is built on
+			// "+X is forward". That is only true if the SKELETON faces its +X, which is a property
+			// of the ASSET and not of the arithmetic -- and if it does not, every man in the game
+			// is a quarter turn out while every number the probe prints agrees with every other
+			// number. Reported from play 2026-10-13: *"The cross hairs are 90 degrees to the right
+			// of the player instead of being in front."*
+			//
+			// The shoulders settle it WITHOUT any sign convention, which is why this is measured
+			// this way: a humanoid's lateral axis is the line between its clavicles, so if that
+			// line lies along the component's X then the man faces ±Y and the assumption is a
+			// quarter turn wrong. Absolute values, because which clavicle is which is exactly the
+			// kind of detail that has already produced three confident wrong answers.
+			if (Body != nullptr && Body->DoesSocketExist(TEXT("clavicle_l")) && Body->DoesSocketExist(TEXT("clavicle_r")))
+			{
+				const FVector ClavL = Body->GetSocketLocation(TEXT("clavicle_l"));
+				const FVector ClavR = Body->GetSocketLocation(TEXT("clavicle_r"));
+				const FVector Lateral = (ClavR - ClavL).GetSafeNormal();
+				const float AlongX = FMath::Abs(FVector::DotProduct(Lateral, Body->GetForwardVector()));
+				const float AlongY = FMath::Abs(FVector::DotProduct(Lateral, Body->GetRightVector()));
+				// Factual rather than alarming on purpose: a mannequin facing its own +Y is a
+				// property of the ASSET, and `BodyRotation` is now built around it. What was alarming
+				// is the opposite, because that is what this code assumed for its first day and it
+				// put every man in the game a quarter turn out.
+				//
+				// READ THE CLEAN SAMPLE. The line between the clavicles is purely lateral only in a
+				// neutral pose: a second sample in one run read 0.73/0.68 and reported 43 deg,
+				// which was the arm mid-swing and nothing about the mesh at all.
+				UE_LOG(LogTemp, Display,
+					TEXT("HI: probe   shoulderLateral: |along body +X|=%.2f |along body +Y|=%.2f -> the skeleton faces %s"),
+					AlongX, AlongY,
+					(AlongX > AlongY)
+						? TEXT("its own +Y, which is what BodyRotation now assumes")
+						: TEXT("its own +X -- WHICH IS WHAT THE CODE USED TO ASSUME, a quarter turn out"));
+
+				// AND THE SIGN, which the absolute values above deliberately cannot give. Deriving
+				// it is not a guess: a character's RIGHT is `clavicle_l -> clavicle_r`, and in this
+				// engine's Z-up left-handed frame forward = right x up. So this line names the
+				// direction the man is actually facing, and the angle it makes with the crosshair is
+				// the number the fix has to cancel.
+				const FVector MeshFwd = Lateral.Cross(FVector::UpVector).GetSafeNormal();
+				const float MeshVsAimDeg = FMath::RadiansToDegrees(FMath::Acos(
+					FMath::Clamp(FVector::DotProduct(MeshFwd, CamFwd), -1.0f, 1.0f)));
+				UE_LOG(LogTemp, Display,
+					TEXT("HI: probe   meshFwd=(%.2f,%.2f,%.2f) yaw=%.1f  vs  camfwd yaw=%.1f  -> the BODY is %.1f deg off the crosshair"),
+					MeshFwd.X, MeshFwd.Y, MeshFwd.Z,
+					MeshFwd.Rotation().Yaw, CamFwd.Rotation().Yaw, MeshVsAimDeg);
+			}
 		}
 	}
 }

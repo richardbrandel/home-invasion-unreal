@@ -61,24 +61,29 @@ bool FHIUnrealSizing::RunTest(const FString& Parameters)
 			FMath::IsNearlyEqual(Tall.GetLocation().Z, 1.5f * HI_METERS_TO_UU, 0.01f));
 	}
 
-	// ---- an intruder's facing: the sim's yaw 0 faces +Y, Unreal's faces +X
+	// ---- a body's facing: the sim's yaw 0 faces +Y, AND THE MESH FACES ITS OWN +Y, NOT ITS +X
+	//
+	// THIS TEST USED TO ASSERT THE BUG. It pinned `BodyRotation(0) == yaw 90`, justified with "a
+	// body spawned facing +Y really faces +Y" -- and that reasoning is about the ACTOR's +X axis.
+	// A mannequin skeleton faces its own +Y (which is why the engine's own `ACharacter` carries a
+	// -90 yaw on its mesh), so putting the component's +X on the aim left every man in the game a
+	// quarter turn out. Reported from play 2026-10-13: *"The cross hairs are 90 degrees to the right
+	// of the player instead of being in front"*, and measured at exactly 90.0 deg with `-HIProbe`.
+	//
+	// So it asserts the PROPERTY rather than two magic numbers, and against `FHISim::AimDir`, which
+	// is the sim's own independent statement of the direction: whatever the yaw, the rotation's +Y
+	// -- the axis the mesh actually faces -- must land on it.
 	{
-		const FRotator AtZero = AHIIntruder::BodyRotation(0.0f);
-		TestTrue(FString::Printf(TEXT("sim yaw 0 maps to world yaw 90, so a body spawned facing +Y really faces +Y (%.1f)"),
-			AtZero.Yaw),
-			FMath::IsNearlyEqual(AtZero.Yaw, 90.0f, 0.01f));
-
-		const FRotator AtQuarter = AHIIntruder::BodyRotation(UE_PI * 0.5f);
-		TestTrue(FString::Printf(TEXT("and a quarter turn maps to 0 (%.1f)"), AtQuarter.Yaw),
-			FMath::IsNearlyEqual(AtQuarter.Yaw, 0.0f, 0.01f));
-
-		// The mapping must actually turn: a constant would pass both of the above only if
-		// they happened to agree, so check a third angle that is neither.
-		const FRotator AtHalf = AHIIntruder::BodyRotation(UE_PI);
-		TestTrue(FString::Printf(TEXT("and it is a real rotation, not a constant (%.1f at a half turn)"),
-			AtHalf.Yaw),
-			!FMath::IsNearlyEqual(AtHalf.Yaw, AtZero.Yaw, 1.0f)
-			&& !FMath::IsNearlyEqual(AtHalf.Yaw, AtQuarter.Yaw, 1.0f));
+		const float SimYaws[] = { 0.0f, UE_PI * 0.5f, UE_PI, -UE_PI * 0.5f, 1.1f };
+		for (const float SimYaw : SimYaws)
+		{
+			const FVector Want = FHISim::AimDir(SimYaw, 0.0f).GetSafeNormal();
+			const FRotationMatrix M(AHIIntruder::BodyRotation(SimYaw));
+			const float OnAim = FVector::DotProduct(M.GetUnitAxis(EAxis::Y), Want);
+			TestTrue(*FString::Printf(
+				TEXT("a body at sim yaw %.2f faces where the sim says (its +Y . aim = %.4f)"), SimYaw, OnAim),
+				OnAim > 0.9999f);
+		}
 	}
 
 	// ---- the view: behind the player, above him, and looking where he looks
