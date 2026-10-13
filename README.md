@@ -135,6 +135,7 @@ ssh ubuntu-dev 'cd /data/projects/HIUnreal && \
 | `-HIGunScale=S` | scale it -- `-HIGunScale=3` is how "is this even rendering" was settled in one frame |
 | `-HIAuto` | drive the homeowner from the autopilot |
 | `-HINoAuto` | force the autopilot off |
+| `-HIProbe` | once a second (and on every weapon swap), log what the camera, the body and the gun are actually doing: barrel-vs-aim angle, gun roll, distances, visibility. See bug 15 |
 | `-HINoThiefDamage` | **diagnostic**: withhold the intruders' damage (see below) |
 | `-HISoak=SEC` | run a round and print `HISOAK RESULT=…`, then quit |
 | `-HIThieves=N` | how many intruders (default 3) |
@@ -653,6 +654,69 @@ was reachable from it.
    alone. Negative-controlled: with the old negation restored it fails with
    `and he walks FORWARD, not backwards (dY=-0.0056, dX=0.0000)`.
 
+15. **THE GUN WAS AIMED BY THE ARM, AND THE ARM WAS WALKING.** Reported from play 2026-10-12:
+   *"The cross hairs still point to the side and sometimes there is a gun in the defender's hand
+   and sometimes not ... Also, hitting the 1 and 2 buttons doesn't switch guns."* All three had
+   survived the previous round, and **the previous round's instruments could not have caught
+   them**, which is why this one is written down at this length.
+
+   **The [1]/[2] keys are not broken, and this is now proven rather than argued.** The live
+   play log carries
+
+   ```
+   LogStaticMesh: Waiting on static mesh /Game/Weapons/Rifle/Meshes/SM_Rifle.SM_Rifle being ready
+   ```
+
+   at 23:20:52, exactly when the keys were pressed, and `SM_Rifle` is the shotgun's stand-in.
+   Nothing else in the port can put that mesh on the weapon component: `SetWeaponVisual` is
+   driven from `Round.Player.Weapon`, and the only writers of that are `SwitchWeapon` (a key)
+   and `-HIWeapon` (not passed on that launch). So the sim switched, the mesh swapped, and the
+   HUD would have read `SHOTGUN 6/18`. **What the player could not see was the change**, because
+   of the pose below -- a gun that stays pointing at the wall looks the same whichever one it is.
+
+   **The measurement.** `-HIProbe` was added for this: it logs, once a second, the angle between
+   the weapon's barrel and the aim, the gun's roll off the world's up, the body's and camera's
+   forward, distances and the visibility flags. Same build, same player, only the pose differing:
+
+   ```
+   standing (MF_Pistol_Idle_ADS):  barrel  3.3 deg off the aim,  rolled  8.2 deg
+   walking  (MF_Pistol_Walk_Fwd):  barrel 49.4 then 26.2 deg off, rolled 73.5 then 26.7 deg
+   ```
+
+   **The pistol-pose LOCOMOTION clips are walk cycles.** The arm swings because the man is
+   walking, not because he is aiming, so the barrel wanders up to fifty degrees off the crosshair
+   and the pistol rolls up to seventy-four degrees onto its side. That is both reports at once: a
+   gun carried forty degrees off *is* the crosshair pointing one way and the gun another, and a
+   pistol rolled seventy degrees and swung behind the forearm is what *"sometimes there is a gun
+   in his hand and sometimes not"* looks like from over his shoulder. **The old instrument was a
+   still frame, and every still was taken standing still**, where the pose is the one pose that
+   happens to be right.
+
+   **The fix is `AHIPlayerCharacter::WeaponAimRotation`, and it aims the WEAPON, not the arm.**
+   The props hang off the hand socket, so the pose decides where the gun points; the correction
+   therefore drives the weapon component's **world rotation** from the aim every frame, and only
+   its rotation -- its position still comes from the hand, so the grip stays in the palm however
+   the arm swings, and the arm is left alone to animate a walk. A static mesh's local axes are
+   its component's axes, so it is the component's **+Y** that must be put on the aim (the barrel),
+   not its +X; the roll is pinned separately, because a pistol on the aim but lying on its side is
+   still wrong. `HI.Unreal.Weapons` now asserts both as a pure function -- the +Y lands on the aim
+   to 1e-5 and the +Z keeps its up -- plus the straight-up degenerate case, which has no meaningful
+   "upright" and would otherwise put a NaN into a component transform.
+
+   **After the fix, the same walking pose reads `barrelVsAim=0.0deg`, `gunRollFromUp=0.5-2.0deg`.**
+
+   The honest fix is an upper-body aim offset, and that needs an animation BLUEPRINT, which this
+   port deliberately does not have. So the arm still swings wide of the aim while walking and the
+   gun is corrected on top of it. It reads correctly from behind, which is the only view the game
+   has, but it is a compensation and it should be deleted if an AnimBP ever arrives.
+
+   **Two instrument notes worth keeping.** (1) `-HIShot` together with `-HIAuto` did not capture
+   or quit in two runs of up to 75 s; `-HIShot` with `-HIShotPos` (autopilot off) captures and
+   exits in about 40 s, so the probe was read from the log instead. (2) The probe's own first
+   version would have been useless in the same way the still frames were: it logged the barrel
+   against the **camera** forward, which is the aim, so it can distinguish "the gun is off the
+   aim" -- but not "the gun is behind the man", which is the other half of the report.
+
 Also fixed in the same pass, and smaller: **`-HIShotNoUI` did nothing.** It was read and
 handed to `FScreenshotRequest::RequestScreenshot(bShowUI=...)`, and that flag suppresses
 SLATE, not the canvas the HUD is drawn on — the engine's own `UGameViewportClient::
@@ -775,8 +839,15 @@ receiving one needs no GUI.
 - **Crouching does not make you harder to SEE**, only lower and slower. Every solid's vertical
   span is a full storey by design (see item 18), so no furniture is short enough to hide
   behind. That is the same open decision, and the same one a person has to make.
-- **Nothing has been played by a person.** Everything above is compile, test, and captured
-  frames looked at by an agent. No human has held the controls.
+- **A person IS playing it, and this list was behind that.** ~~Nothing has been played by a
+  person.~~ Corrected 2026-10-12: the Unreal port has been in Richard's hands, and bugs 11
+  through 15 below are all *"reported from play"* — so the old line was false for as long as
+  those bugs have existed. What is still true, and worth keeping: every change here is verified
+  by compile, headless test and captured frames looked at by an **agent**, so "it builds and the
+  captures look right" is the strongest claim the automation can make on its own. Feel
+  judgements — camera distance in motion, the thief's aim delay, whether a walk reads with
+  urgency — still need a person, and bug 15 is the standing proof of how far a still frame can
+  mislead.
 - ~~**A RUG LIES ON THE FRONT LAWN**~~ — **FIXED 2026-10-09, in both projects.** The
   living-room rug was `Rect2(-7.60, -8.60, 4.40, 1.80)` against a house of `Rect2(-8, -19, 16,
   11)`, so 1.2 m of it lay on the drive. It went unnoticed for the life of both projects

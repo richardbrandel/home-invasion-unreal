@@ -1202,6 +1202,45 @@ bool FHIUnrealWeapons::RunTest(const FString& Parameters)
 		}
 	}
 
+	// ---- 1c. THE WEAPON IS AIMED, WHATEVER THE ARM IS DOING.
+	//
+	// The props hang off the hand socket, so the POSE decides where the gun points, and the
+	// pistol-pose locomotion clips are walk cycles. Measured with `-HIProbe`: standing, the
+	// barrel is 3.3 deg off the aim; walking, it is 26-49 deg off and rolled up to 74 deg onto
+	// its side. `WeaponAimRotation` corrects the weapon's world rotation to compensate, and this
+	// is the property that correction has to hold -- asserted as a pure function, because that
+	// is the part that can be checked without a world, a pose or a frame of animation.
+	{
+		const float Yaws[] = { 0.0f, 0.7f, -1.3f, 3.0f, -2.9f };
+		const float Pitches[] = { 0.0f, 0.35f, -0.3f };
+		for (const float Yaw : Yaws)
+		{
+			for (const float Pitch : Pitches)
+			{
+				const FVector Aim = FHISim::AimDir(Yaw, Pitch);
+				const FVector AimUnit = Aim.GetSafeNormal();
+				const FRotationMatrix M(AHIPlayerCharacter::WeaponAimRotation(Aim));
+				// The BARREL is the mesh's +Y, so it is the rotation's Y axis that must land on
+				// the aim. Checking the X axis here would pass while the gun pointed sideways.
+				const FVector AxisY = M.GetUnitAxis(EAxis::Y);
+				const FVector AxisZ = M.GetUnitAxis(EAxis::Z);
+				const float OnAim = FVector::DotProduct(AxisY, AimUnit);
+				TestTrue(*FString::Printf(
+					TEXT("the weapon's +Y (its barrel) lies on the aim at yaw %.2f pitch %.2f (dot %.5f)"),
+					Yaw, Pitch, OnAim), OnAim > 0.99999f);
+				TestTrue(*FString::Printf(
+					TEXT("and rolls it upright rather than onto its side at yaw %.2f pitch %.2f (up.Z %.4f, off-axis %.5f)"),
+					Yaw, Pitch, AxisZ.Z, FVector::DotProduct(AxisZ, AimUnit)),
+					AxisZ.Z > 0.0f && FMath::Abs(FVector::DotProduct(AxisZ, AimUnit)) < 1e-4f);
+			}
+		}
+		// The degenerate case, because "upright" has no meaning looking straight up or down and
+		// a NaN there would propagate into the component transform rather than fail loudly.
+		const FRotationMatrix StraightUp(AHIPlayerCharacter::WeaponAimRotation(FVector(0.0f, 0.0f, 1.0f)));
+		TestTrue(TEXT("straight up still yields a finite, unit rotation"),
+			StraightUp.GetUnitAxis(EAxis::Y).Equals(FVector(0.0f, 0.0f, 1.0f), 1e-4f));
+	}
+
 	// ---- 3. THE GRIP EXISTS. The attachment is by the `hand_r` socket, which is resolved
 	// against the mesh and its skeleton; the BONE is the thing that must be there, because a
 	// swap to a mesh without one leaves the weapon at the man's feet with only a log line.

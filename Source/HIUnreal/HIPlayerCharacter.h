@@ -74,6 +74,19 @@ public:
 	 */
 	static FRotator BodyRotation(float SimYaw);
 
+	/**
+	 * The world rotation that puts the weapon's BARREL on `Aim`, and keeps it upright.
+	 *
+	 * The weapon hangs off the hand SOCKET, so the animation pose decides which way it points,
+	 * and the pistol-pose locomotion clips are walk cycles: the arm swings because the man is
+	 * walking, not because he is aiming. Measured, that swings the barrel up to 49 degrees off
+	 * the crosshair and rolls the pistol up to 74 degrees onto its side.
+	 *
+	 * Pure and static so the property can be asserted without a world: the returned rotation's
+	 * +Y must equal `Aim` and its +Z must be as close to the world's up as that allows.
+	 */
+	static FRotator WeaponAimRotation(const FVector& Aim);
+
 	UPROPERTY(VisibleAnywhere, Category = "Home Invasion")
 	TObjectPtr<class UCameraComponent> Camera;
 
@@ -94,4 +107,10 @@ private:
 	void BuildVisuals();
 
 	bool bVisualsBuilt = false;
+
+	/** `-HIProbe`: seconds since the last geometry line (see SyncFromSim). */
+	float ProbeTime = 0.0f;
+
+	/** The weapon the last geometry line described, so a swap logs immediately. */
+	FString LastProbeWeapon;
 };
