@@ -1011,15 +1011,39 @@ they are no longer the difference between a game that talks and one that beeps.
 
 ### Open work items, not assets
 
-- **Retargeting Mixamo animations.** `assets/mixamo/` has 28 clips across `player/` and
-  `thief/` -- including `crouch_idle` and `look_around`, which are exactly the *idle variation*
-  item 15 asks for. Measured: an animation-only FBX imports to **nothing** without a target
-  skeleton, and setting `task.skeleton` on the import task makes the run stop part-way through
-  with no error. So this needs an IK Retargeter or an Interchange user-defined pipeline, and it
-  is a job rather than a file. **This is the highest-value open item**, because item 15 and
-  half of item 14 are waiting behind it.
-- **The Mixamo characters are on the Mixamo skeleton**, so the engine's own animations do not
-  apply to them without the same retargeting work.
+- **~~Retargeting Mixamo animations.~~ SOLVED 2026-10-13 — THERE WAS NEVER ANYTHING TO RETARGET.**
+  This item called itself *"the highest-value open item"* and concluded that landing Mixamo clips
+  *"needs an IK Retargeter or an Interchange user-defined pipeline, and it is a job rather than a
+  file."* **That was wrong, and the evidence for it was a misread error message.**
+
+  Two separate things had been conflated:
+
+  1. **Retargeting a Mixamo clip onto the ENGINE's skeleton** (`SK_Mannequin`). This genuinely does
+     not work this way, and it is what the old attempt did.
+  2. **Binding a Mixamo clip to the skeleton its OWN mesh-carrying export created.** Same rig, same
+     joint names, nothing to translate. This is the case the port actually needed, and it works.
+
+  The recorded symptom — *"the run stops part-way through with no error"* — was a thrown exception
+  nobody was reading the log for:
+
+  ```
+  Exception: AssetImportTask: Failed to find property 'skeleton' for attribute 'skeleton'
+  on 'AssetImportTask'
+  ```
+
+  **`AssetImportTask` has no `skeleton` property in UE 5.8.** The skeleton belongs on
+  `FbxImportUI`, passed as `task.options`. Found by asking the engine with an introspection probe
+  rather than guessing a second time.
+
+  `tools/import-assets.py` now does exactly that, only for animation-only clips, and derives the
+  target from the folder layout. Measured on `characters/louise/`: **43 imported, 0 failed,
+  `done`, zero Python errors**, including all nine clips, the mesh, the skeleton, the physics
+  asset and eight textures. A rigged character is now a copy of files and no edit.
+
+  This also releases item 15 and half of item 14, which were waiting behind it.
+- **The Mixamo characters are on the Mixamo skeleton**, so the engine's own animations still do not
+  apply to them. That is the one part of the old item that survives — and it is a non-issue while
+  every character in the game is a Mixamo character carrying its own Mixamo clips.
 
 ### How to add a source file
 
