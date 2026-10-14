@@ -101,9 +101,13 @@ TArray<FString> AHIHUD::RoundLines(const FHISim::FHIRound& Round)
 
 	// The stance, which is worth a line because crouching now genuinely changes the view --
 	// see AHIPlayerCharacter::EyePivot. Before that fix this would have read STANDING
-	// forever, and a readout that never changes is worse than none.
-	const TCHAR* Stance = P.bCrouching ? TEXT("CROUCHING")
-		: (P.bSprinting ? TEXT("SPRINTING") : TEXT("STANDING"));
+	// forever, and a readout that never changes is worse than none. DOWN heads the list for
+	// the same reason: a stance line that keeps calling a corpse STANDING -- measured on the
+	// 2026-10-14 death frames, reading STANDING beside "You were killed defending the
+	// house" -- is a readout arguing with the screen it is drawn on.
+	const TCHAR* Stance = !P.bAlive ? TEXT("DOWN")
+		: (P.bCrouching ? TEXT("CROUCHING")
+		: (P.bSprinting ? TEXT("SPRINTING") : TEXT("STANDING")));
 	Lines.Add(FString::Printf(TEXT("%s"), Stance));
 
 	// The police clock, once the first shot has been fired. Reported as a countdown because

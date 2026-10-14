@@ -273,6 +273,12 @@ void FHICharAnim::PlayDeath(USkeletalMeshComponent* Mesh, const TCHAR* Tag)
 	UAnimationAsset* Asset = LoadObject<UAnimationAsset>(nullptr, *ClipPathFor(Tag, ClipDeath()));
 	if (Asset == nullptr)
 	{
+		// SAY SO. A missing death clip leaves the body standing in its last living pose,
+		// which from the player's chair is indistinguishable from "the death was never
+		// triggered" -- the exact ambiguity that made the 2026-10-14 empty-hands report
+		// cost two days of camera and asset checks before anyone looked at the corpse.
+		UE_LOG(LogTemp, Warning, TEXT("HI: no death clip for '%s' at %s -- the body will NOT fall"),
+			Tag, *ClipPathFor(Tag, ClipDeath()));
 		return;
 	}
 	// A death cancels any action latch: the corpse must not be "still reloading" as far
@@ -282,6 +288,7 @@ void FHICharAnim::PlayDeath(USkeletalMeshComponent* Mesh, const TCHAR* Tag)
 	Mesh->SetAnimationMode(EAnimationMode::AnimationSingleNode);
 	Mesh->SetAnimation(Asset);
 	Mesh->Play(false);
+	UE_LOG(LogTemp, Display, TEXT("HI: death clip started for '%s'"), Tag);
 }
 
 // ---------------------------------------------------------------- facing

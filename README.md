@@ -126,6 +126,7 @@ ssh ubuntu-dev 'cd /data/projects/HIUnreal && \
 | `-HIShot=NAME` | capture one frame, then quit |
 | `-HIShotAfter=SEC` | how much round time first (default 1.5). Ignored when `-HIShotSeries` is given |
 | `-HIShotSeries=t1,t2,...` | **capture at each of these SIM seconds, in ONE run** — `NAME_01.png`, `NAME_02.png`, … Then quit. See `tools/capture.sh` and bug 16 |
+| `-HISnap=NAME` | **the same captures from the PLAYER'S CHAIR**: no autopilot, no scripted movement — the homeowner idles at the spawn and the frames are what a manual session shows. See bug 21 |
 | `-HIShotPos=X,Y` | stand the homeowner at a sim coordinate. Also turns the autopilot OFF, so a posed frame stays posed |
 | `-HIShotYaw=DEG`, `-HIShotPitch=DEG` | aim it |
 | `-HIShotNoUI` | capture without the HUD |
@@ -263,7 +264,7 @@ toolchain, which is a separate job from making the game work.
 | `tools/make-voices.sh` | renders the bark lines on the Mac's own speech synthesiser (macOS `say`, the OLD take) |
 | `tools/make-voices-neural.sh` | renders the same nine lines with **Kokoro**, an offline neural TTS on this Mac -- **this is what the game ships** |
 | `tools/play.sh` | **launch the game for a person**, with the session environment and a driver check. See the hazards below |
-| `tools/capture.sh` | **several frames from ONE launch, and it always ends**: `tools/capture.sh walk 1,2,3,4,5`. See bug 16 |
+| `tools/capture.sh` | **several frames from ONE launch, and it always ends**: `tools/capture.sh walk 1,2,3,4,5`. **`--manual` photographs the PLAYER'S CHAIR** — same frames, no autopilot, no scripted movement (`tools/capture.sh seat 3,9,14 --manual`). See bugs 16 and 21 |
 | `tools/session-env.sh` | the session environment, the editor path and the one-editor rule, **sourced by both scripts above** so they cannot drift |
 | `tools/iterate.sh` | **sync + build + test in ONE command**, with the build's own timing and a non-zero exit on failure. `--filter HI.Unreal.Weapons` for a focused check, `--no-test` to build only |
 | `tools/contact-sheet.py` | tile a capture series into ONE image, so a whole sweep is judged in one look instead of sampled three frames at a time |
@@ -437,7 +438,8 @@ no reload, no weapon switch, no shove, intruders who could not hurt anybody, and
 who could not move**. Each was found by launching the thing, and each is now pinned by a
 test that would have failed.
 
-The **last three entries** were found by an adversarial pass over captures on 2026-10-09,
+**Three of these entries** — the last three at the time — were found by an adversarial pass over
+captures on 2026-10-09,
 after the port was already building with everything green. The method was to stand the camera
 at known sim coordinates, look at the frame, and ask what was wrong with it rather than
 whether the tests passed. None of the three is a behaviour the suite asserts, so none of them
@@ -1018,6 +1020,95 @@ Godot original draws, clipped to the panel.
     the camera moved; nothing re-ran it; and the number kept being quoted — in this very README
     — as if it were current. Any figure in these pages with no date next to it is a figure
     waiting to become this kind of lie.
+
+21. **"THE HOME DEFENDER DOES NOT HAVE A GUN. HER HANDS ARE EMPTY." SHE HAD BEEN SHOT DEAD,
+    AND NOTHING IN THE GAME HAD SAID SO.** Reported from play 2026-10-14. The session had gone
+    like this: the homeowner died on the front lawn within about twelve seconds of the round —
+    idle at the spawn, three intruders — and the round never ended. No FAILURE banner, no
+    `[ENTER]`, input kept working, the weapon-swap HUD kept logging swaps, and the heist carried
+    on over her corpse ("They grabbed the TV!" twelve seconds after her death). What the player's
+    chair showed for the rest of that session: a standing woman with empty hands.
+
+    **Every instrument contradicted the report, because every instrument sat in the autopilot's
+    chair.** The gun-visibility sweep, the pixel diff (65x the noise floor), the neutral-name
+    vision review, the barrel-vs-aim probes: all ran on `-HIShot` captures, and `-HIShot` turns
+    the autopilot ON and moves the player off the spawn. Not one frame in two days of
+    verification was a photograph of a manual session. `capture.sh --manual` / `-HISnap=NAME`
+    exists now for exactly that: same frames, same series, same quitting — no autopilot, no
+    scripted movement, the player's chair. Bug 16's lesson for the third time: an instrument
+    that shares the harness's assumptions cannot see the harness's blind spot, however many
+    agreeing instruments you point through it.
+
+    **The first manual capture reproduced the report in one run.** The homeowner takes 43 damage
+    by t=3.0 s standing at the spawn (HP 57 on the frame; every run), dies between 8.1 and
+    12.5 s, and the probe flips to `gunVis=0`: the dead-player rule — a corpse does not aim —
+    hid the gun, and from behind a frozen aim pose, a hidden gun is what empty hands look like.
+    Three defects stacked under that one death:
+
+    **1. The round never decided, because the decision raced the frame rate.** The killing blow
+    resolves in the actor layer during the drain-and-process phase: the trace runs there, and
+    `DamagePlayer` queues `playerDown` into the round's event list. The loss rule lives at the
+    end of `FHIRound::Step` — and Step runs only when the accumulator is ready, which at the
+    observed 2.7-3.0x realtime (~180 fps) is fewer than half the frames, while the event drain
+    runs EVERY frame. A no-step frame's drain ate `playerDown` before any rule scan saw it.
+    Measured over three manual runs: drained at 8.08 s (no decision; clock ran to 20 s),
+    stepped (decided at 8.10 s; FAILURE banner), drained at 9.42 s (no decision). Same code,
+    different frame timing, different outcomes.
+
+    **The wrong guess is part of the record.** Between runs two and three the failure looked
+    like a stale build artifact: the rule's own unit test — including a NEW test replicating the
+    exact runtime event order (step, drain, actor-layer kill, next step must decide) — passed on
+    the same binary that misbehaved, so suspicion fell on `libUnrealEditor-HISim.so`, and the
+    box got a full clean rebuild (`rm -rf Binaries Intermediate/Build`, 41/41 green). The first
+    manual run on the pristine binary failed identically, and the artifact theory died with it.
+    The nondeterminism across runs of ONE binary was the race's signature the whole time. The
+    generalized lesson: **a green unit test on the failing binary exonerates the code you can
+    see and indicts the timing you cannot — count the frames between the event and the scan
+    before blaming artifacts.** The instrumentation that caught it stays: a line at the killing
+    blow, a canary if a `playerDown` is ever still pending before a step, the rule scan saying
+    what it saw, and the transition itself. The transition log also MOVED, from before the drain
+    to the end of the frame, because two of the three decision paths — the win (decided inside
+    `DamageIntruder`, resolved by a player-shot trace during processing) and the death (the new
+    end-of-frame scan) — happen after the old watch point, and the next frame returns through
+    the decided branch before reaching it: the old placement could print neither. A decision
+    nobody writes down is indistinguishable from a round that never decided, which is how a
+    homeowner who died at 12 s got "verified" alive at 20 s.
+
+    **The fix ports Godot's own structure.** `game.gd:1239` sets `state = "lose"` while
+    consuming the event, in the actor layer — never inside the physics step. Tick now runs
+    `Round.ApplyRoundRules()` at the end of every frame (the scan is idempotent by its own
+    contract, and the win is decided where the damage is applied, so the extra call can only
+    catch what no step has caught yet), and the substep loop stops at a decided round
+    mid-frame included — restoring bug 16's written assumption that "the clock stops when the
+    round is decided", which had been quietly counting inert steps: up to eight a frame past
+    the decision, enough to overshoot a capture target and suppress the gate's own warning.
+
+    **2. She died standing.** `PlayDeath` was only ever called for intruders; the player pawn
+    never called it, and `DriveCharacter` refuses to animate a corpse — so Louise froze in her
+    aim pose while the HUD still read `STANDING` (now `DOWN`, because a stance line that calls
+    a corpse STANDING beside "You were killed defending the house" is a readout arguing with
+    the screen it is drawn on). The original is first-person: you never see your own body, and
+    death was state plus overlay in one frame; a standing corpse was a failure mode that could
+    not exist there. The port's third-person body made the missing call visible. The pawn now
+    carries the intruder's exact latch — one-shot, cleared when the sim says alive again so a
+    restarted round can die properly — and `PlayDeath` logs both a started clip and a MISSING
+    one, because a body that stays standing is indistinguishable from a death that was never
+    triggered.
+
+    **3. The lethality itself is a design fact, not a defect, and it is now written down**:
+    an idle homeowner is at HP 57 by t=3.0 s and dead by 8-12.5 s. In family with the historical
+    passive-death measurement of 6.6 s — and handed to Richard as OPEN-QUESTIONS item 6.5
+    rather than silently "fixed".
+
+    **Verified on the final binary (2026-10-14, after the clean rebuild):** THREE consecutive
+    manual captures decided on the killing-blow frame itself — `round rules saw 1 playerDown`,
+    `round decided -> LOST` at 10.78 / 9.42 / 10.78 s, same frame number as the blow, clock
+    frozen at it, the capture gate taking the last frame AT the decision; frames read `HP 0`,
+    `DOWN`, `ROUND LOST / FAILURE / You were killed defending the house. / [ENTER] to play
+    again`, with `death clip started for 'louise'` in every run; and the passive soak ends
+    `RESULT=LOST ended=round sim_seconds=8.1 player_hp=0` — on the death, not on the budget,
+    with `sim_steps=483` = 8.05 s proving the clock stops when the round does. The pending-death
+    canary did not fire in any run: the gap it watches for no longer exists.
 
 ## The fix list, item by item
 

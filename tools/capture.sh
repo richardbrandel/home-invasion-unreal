@@ -4,8 +4,20 @@
 #   tools/capture.sh walk 1,2,3,4,5                 # five frames as the autopilot plays
 #   tools/capture.sh gun 2 -- -HIWeapon=shotgun     # one frame holding the long gun
 #   tools/capture.sh posed 5 --offscreen -- -HIShotPos=0,-10.6 -HIShotYaw=0 -HIShotPitch=2
+#   tools/capture.sh seat 3,10 --manual             # frames from the MANUAL game: what the
+#                                                   # person at the keyboard actually sees
 #
 # Run it from the project root; the frames land in `shots/`.
+#
+# `--manual` EXISTS BECAUSE THE OTHER FRAMES ARE NOT THE PLAYER'S VIEW, and that gap cost a
+# whole investigation on 2026-10-14. "The homeowner has no gun -- her hands are empty" was
+# reported from a real session; every frame the harness could produce showed the gun plainly.
+# Both were true: a `-HIShot` run turns the AUTOPILOT on (which aims, and aiming pitches the
+# camera down) and MOVES the player off the spawn, so a scripted frame photographs a scene
+# nobody ever sits inside. `--manual` sends `-HISnap` instead: same frames, same series, same
+# quit, but the round runs exactly as it does for a person -- spawn, idle, no input -- and the
+# only additions are the shutter and the exit. When a report and a frame disagree, the frame
+# has to come from the reporter's chair.
 #
 # WHY THIS EXISTS, and both reasons were measured today rather than imagined:
 #
@@ -59,6 +71,7 @@ MODE=windowed
 THIEVES=3
 MAXW=300
 TAKEOVER=0
+MANUAL=0
 PASSTHRU=""
 
 while [ $# -gt 0 ]; do
@@ -66,6 +79,7 @@ while [ $# -gt 0 ]; do
 		--offscreen) MODE=offscreen; shift ;;
 		--windowed)  MODE=windowed; shift ;;
 		--take-over) TAKEOVER=1; shift ;;
+		--manual)    MANUAL=1; shift ;;
 		--thieves)   THIEVES="${2:-3}"; shift 2 ;;
 		--thieves=*) THIEVES="${1#*=}"; shift ;;
 		--timeout)   MAXW="${2:-300}"; shift 2 ;;
@@ -90,7 +104,7 @@ while [ $# -gt 0 ]; do
 done
 
 if [ -z "$NAME" ]; then
-	echo "usage: capture.sh NAME [t1,t2,...] [--offscreen] [--thieves N] [--timeout SEC] [-- game args]" >&2
+	echo "usage: capture.sh NAME [t1,t2,...] [--offscreen] [--manual] [--thieves N] [--timeout SEC] [-- game args]" >&2
 	exit 2
 fi
 [ -n "$TIMES" ] || TIMES=2
@@ -136,9 +150,18 @@ fi
 # FIXED collision bug look unfixed, and it would have been invisible on the sheet.
 rm -f "$SHOTDIR/${NAME}_"*.png "$SHOTDIR/${NAME}.png"
 
+# --manual swaps the SHUTTER, not the run: -HISnap takes the same frames on the same schedule
+# without the scripted player and without the autopilot (see the header for why that matters).
+if [ "$MANUAL" = 1 ]; then
+	SHOTARG="-HISnap=$NAME"
+	echo "capture: MANUAL -- frames from an unscripted session; the player idles at the spawn"
+else
+	SHOTARG="-HIShot=$NAME"
+fi
+
 # shellcheck disable=SC2086
 setsid nohup "$UE" "$PROJ" -game $VIDEO -ResX=1600 -ResY=900 -unattended -nopause -nosplash \
-	-HIThieves="$THIEVES" -HIShot="$NAME" -HIShotSeries="$TIMES" \
+	-HIThieves="$THIEVES" "$SHOTARG" -HIShotSeries="$TIMES" \
 	-log -abslog="$LOG" $PASSTHRU >/tmp/hi_capture.out 2>&1 < /dev/null &
 disown 2>/dev/null || true
 
@@ -173,7 +196,7 @@ for f in "$SHOTDIR"/${NAME}_*.png "$SHOTDIR"/${NAME}.png; do
 done
 
 echo "--- what the game said ---"
-grep -h "HI: shot \|round decided at\|HI: scripted run\|screenshot" "$LOG" 2>/dev/null | cut -c1-220
+grep -h "HI: shot \|round decided at\|HI: capture run\|HI: scripted run\|screenshot" "$LOG" 2>/dev/null | cut -c1-220
 
 echo "--- frames ---"
 if [ "$COPIED" = "0" ]; then

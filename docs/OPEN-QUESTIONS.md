@@ -131,6 +131,14 @@ ever played this. Three sentences of "this annoyed me" are worth more than a day
    bone child-directions, not from looking at each body). Do any sit inside the body or float off it?
 4. **The intruders' gait**: stride-matching is per character (Brute's clips travel 25% further —
    measured), but only a human can say whether all three walk believably at ThiefSpeed 1.3 m/s.
+5. **The spawn kill zone** (measured 2026-10-14, while chasing bug 21): a homeowner who does
+   NOTHING is at **HP 57 by t=3.0 s** and dead between **8 and 12.5 s** of the round — in every
+   manual capture run, with three intruders. The historical passive-death measurement was 6.6 s,
+   so this is in family, and "standing still gets you shot" is the game's whole thesis. But the
+   spawn lawn being a kill zone within seconds of the round starting is a design fact Richard has
+   never been handed: too brutal for the opening seconds, or exactly the shove-he-into-cover
+   pressure the original intends? Numbers to judge with: ThiefHitChance, the 0.45 s aim delay,
+   and the intruders' opening positions are all one-line constants.
 
 ## 7. The mouse — OPEN, and possibly already fixed
 

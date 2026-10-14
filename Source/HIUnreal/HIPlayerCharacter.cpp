@@ -343,6 +343,27 @@ void AHIPlayerCharacter::SyncFromSim(const FHISim::FHIPlayer& P)
 	}
 	bWasReloading = bReloading;
 
+	// THE DEAD WOMAN FALLS. `DriveCharacter` above refuses to pose a body the sim has marked
+	// dead, and `PlayDeath` is the call meant to replace it -- the intruders have had it since
+	// the ragdoll work and the player pawn never did, so Louise died STANDING: frozen in her
+	// aim pose, gun hidden by the dead-player rule below, hands empty while the heist carried
+	// on around her. "The home defender does not have a gun" -- reported from play and chased
+	// through two days of camera and asset checks on 2026-10-14 -- was this freeze, seen from
+	// behind. The latch is the intruder's exactly: SetAnimation restarts the clip, and a death
+	// replayed every frame is a body that never finishes falling.
+	if (!P.bAlive)
+	{
+		if (!bDeathPlayed)
+		{
+			bDeathPlayed = true;
+			FHICharAnim::PlayDeath(Body, *CastTag);
+		}
+	}
+	else
+	{
+		bDeathPlayed = false;
+	}
+
 	// Dying puts the gun away, so a man on the floor is not still aiming at you.
 	Gun->SetVisibility(P.bAlive && Body->IsVisible() && Gun->GetStaticMesh() != nullptr);
 

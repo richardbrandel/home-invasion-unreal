@@ -121,6 +121,13 @@ private:
 	/** Reload-anim edge detector: `Reloading` is a countdown, and a one-shot is an event. */
 	bool bWasReloading = false;
 
+	/**
+	 * Death-clip latch, the player's copy of the intruder's `bDeathPlayed`: dying is an edge,
+	 * and a one-shot replayed every frame is a body that never finishes falling. Reset when
+	 * the sim says she is alive again, so a restart can die properly a second time.
+	 */
+	bool bDeathPlayed = false;
+
 	/** `-HIProbe`: seconds since the last geometry line (see SyncFromSim). */
 	float ProbeTime = 0.0f;
 

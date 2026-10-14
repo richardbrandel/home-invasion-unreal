@@ -565,10 +565,24 @@ struct HISIM_API FHISim
 		/** True once the police have been called by any means. */
 		bool bPoliceCalled = false;
 
+		/**
+		 * Scan the pending events for a way to LOSE and set the state. Public, and it had to
+		 * become public on 2026-10-14, because the actor layer now runs it at THE END OF EVERY
+		 * FRAME as well as Step running it at the end of every step: Step only runs when the
+		 * accumulator is ready -- at 2.7-3.0x realtime most frames run no step at all -- while
+		 * the actor layer's event drain runs every frame. A `playerDown` queued by a killing
+		 * blow resolved during the drain-and-process phase was therefore eaten by the next
+		 * no-step frame's drain before any rule scan could see it, and the round played on over
+		 * the homeowner's corpse (measured in two of three manual runs; the third decided only
+		 * because its next frame happened to step). Godot's original cannot have the race:
+		 * game.gd decides `state = "lose"` while consuming the event, in the actor layer. The
+		 * idempotence promise below is what makes the extra call safe.
+		 */
+		void ApplyRoundRules();
+
 	private:
 		/** Spend a round, start the cooldown, and tell every intruder he heard it. */
 		void FireWeapon();
-		void ApplyRoundRules();
 	};
 
 	/**

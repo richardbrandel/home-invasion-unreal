@@ -321,6 +321,26 @@ public:
 	bool bScripted = false;
 
 	/**
+	 * `-HISnap=NAME`: a capture of the MANUAL game -- frames on a schedule, quit at the end,
+	 * but NO scripted player and NO autopilot. Added 2026-10-14 for a dispute only it can
+	 * settle: "the homeowner has no gun in her hands" was reported from a real play session,
+	 * and every frame the harness could take contradicted it -- because `-HIShot` runs are
+	 * never manual: they enable the autopilot (which aims, and pitch-aims the camera down)
+	 * and they move the player off the spawn. The harness could not photograph the view the
+	 * report came from, so the report and the frames were answering different questions.
+	 * A snap run is the play session with a camera shutter: same spawn, same input-less
+	 * idle, same clips, same camera, the only additions being the frames and the quit.
+	 */
+	bool bSnapRun = false;
+
+	/**
+	 * The round state as last PRINTED, so the transition log in Tick fires once per decision
+	 * rather than every frame, and so a restart back to Play is itself announced. Exists
+	 * because a round that never decided once passed for a round nobody wrote down.
+	 */
+	FHISim::EHIRoundState LastLoggedState = FHISim::EHIRoundState::Play;
+
+	/**
 	 * Diagnostic only: do not apply the intruders' damage to the homeowner.
 	 *
 	 * This is the Unreal equivalent of a decision `probe_heist.gd` already made and recorded,

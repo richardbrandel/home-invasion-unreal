@@ -629,8 +629,21 @@ void FHISim::FHIRound::ApplyRoundRules()
 	// an event the caller has not drained yet cannot double-count anything. The fourth
 	// outcome, thiefDown, is handled where the damage is applied (DamageIntruder), because
 	// a hit is resolved by the actor layer rather than inside Step.
+	//
+	// WITNESS LINE (earned its place 2026-10-14): a runtime round once refused to end with a
+	// `playerDown` demonstrably pending in this list before the step -- logged by the actor
+	// layer at the killing blow AND by the pre-step watch in Tick -- while the unit test of
+	// the same sequence passed on the same binary. The disagreement was never explained to
+	// the last decimal (the suspect was a stale HISim build artifact, replaced by the next
+	// relink; a clean rebuild followed), and a scan that has once been doubted gets to say
+	// what it saw. One line per death, not one per scan.
+	int32 Downs = 0;
 	for (const FHIEvent& Ev : Events)
 	{
+		if (Ev.Type == TEXT("playerDown"))
+		{
+			++Downs;
+		}
 		if (Ev.Type == TEXT("allStolen") || Ev.Type == TEXT("escaped")
 			|| Ev.Type == TEXT("playerDown"))
 		{
@@ -638,6 +651,12 @@ void FHISim::FHIRound::ApplyRoundRules()
 			// but the round state is the same for all of them.
 			State = EHIRoundState::Lost;
 		}
+	}
+	if (Downs > 0)
+	{
+		UE_LOG(LogTemp, Warning,
+			TEXT("HI: the round rules saw %d playerDown among %d event(s) -- state is now %d"),
+			Downs, Events.Num(), static_cast<int32>(State));
 	}
 }
 

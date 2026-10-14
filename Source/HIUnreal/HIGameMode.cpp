@@ -106,6 +106,29 @@ void AHIGameMode::HandleCommandLine()
 	}
 
 	FParse::Value(Cmd, TEXT("HIShot="), ShotName);
+
+	// `-HISnap=NAME`: the MANUAL capture -- the same frames, series and quit as `-HIShot`,
+	// with no scripted player and no autopilot. See `bSnapRun` in the header for the dispute
+	// that made it: a "no gun in her hands" report from a real session that NO scripted frame
+	// could reproduce, because a scripted frame is never what a person at the keyboard sees.
+	// Parsed BEFORE the -HIShotSeries check below so a series has a name to write to.
+	{
+		FString SnapName;
+		if (FParse::Value(Cmd, TEXT("HISnap="), SnapName) && !SnapName.IsEmpty())
+		{
+			if (!ShotName.IsEmpty())
+			{
+				UE_LOG(LogTemp, Warning,
+					TEXT("HI: -HISnap=%s ignored -- -HIShot=%s already named this run, and one run cannot be both scripted and manual"),
+					*SnapName, *ShotName);
+			}
+			else
+			{
+				ShotName = SnapName;
+				bSnapRun = true;
+			}
+		}
+	}
 	bPlaytest = FParse::Param(Cmd, TEXT("HIPlaytest"));
 	FParse::Value(Cmd, TEXT("HIShotAfter="), ShotAfterSeconds);
 
@@ -222,18 +245,23 @@ void AHIGameMode::HandleCommandLine()
 	FString PositionArg;
 	RawCommandValue(TEXT("HIShotPos="), PositionArg);
 	const bool bPosed = !PositionArg.IsEmpty();
-	bScripted = !ShotName.IsEmpty() || SoakSeconds > 0.0f;
-	bAuto = bAutoAsked || (SoakSeconds > 0.0f && !bAutoOff) || (!ShotName.IsEmpty() && !bPosed);
+	// A snap run is NOT scripted and must not turn the autopilot on either: its whole value is
+	// that nothing but the shutter differs from the session the report came from.
+	bScripted = (!ShotName.IsEmpty() && !bSnapRun) || SoakSeconds > 0.0f;
+	bAuto = bAutoAsked || (SoakSeconds > 0.0f && !bAutoOff) || (!ShotName.IsEmpty() && !bPosed && !bSnapRun);
 	if (bAutoOff)
 	{
 		bAuto = false;
 	}
 
-	if (bScripted || bAuto)
+	if (bScripted || bAuto || bSnapRun)
 	{
-		UE_LOG(LogTemp, Display, TEXT("HI: scripted run -- thieves=%d shot='%s' after=%.1f series=%d soak=%.1f auto=%d posed=%d no_thief_damage=%d"),
+		// "capture run", not "scripted run": a snap run is captured but NOT scripted, and the
+		// line that says which kind it was is the line a reader trusts to know what drove the
+		// player. capture.sh greps both spellings.
+		UE_LOG(LogTemp, Display, TEXT("HI: capture run -- thieves=%d shot='%s' after=%.1f series=%d soak=%.1f auto=%d posed=%d snap=%d no_thief_damage=%d"),
 			IntruderCount, *ShotName, ShotAfterSeconds, ShotSeries.Num(), SoakSeconds, bAuto ? 1 : 0, bPosed ? 1 : 0,
-			bNoThiefDamage ? 1 : 0);
+			bSnapRun ? 1 : 0, bNoThiefDamage ? 1 : 0);
 		// Printed rather than assumed: the screenshot path is the difference between seeing
 		// a frame and believing one exists, and this project has already been bitten once by
 		// a file that was never written.
@@ -1274,7 +1302,21 @@ void AHIGameMode::ResolveThiefShot(const FHISim::FHIEvent& Shot)
 		// the wound is withheld, so the probe exercises the same code path a real hit does.
 		if (!bNoThiefDamage)
 		{
-			FHISim::DamagePlayer(Round.Player, Shot.Damage, Round.Events);
+			const bool bKilled = FHISim::DamagePlayer(Round.Player, Shot.Damage, Round.Events);
+			if (bKilled)
+			{
+				// DEATH IS A FACT, AND IT ONCE FAILED TO BECOME ONE. Measured 2026-10-14 from
+				// a manual session: the homeowner reached 0 hp, her gun vanished with the
+				// dead-player rule, and the round simply KEPT GOING -- no decision, no banner,
+				// intruders robbing the house over her corpse for as long as anyone watched.
+				// The playtester's report was "the home defender does not have a gun": he was
+				// watching a dead woman who had never been told to die. This line and the two
+				// watches in Tick (pending playerDown, state transitions) print the whole
+				// chain, so the next disagreement is a grep instead of an investigation.
+				UE_LOG(LogTemp, Warning,
+					TEXT("HI: KILLING BLOW at %.2f s -- playerDown queued, %d round event(s) pending, state %d"),
+					RoundSeconds, Round.Events.Num(), static_cast<int32>(Round.State));
+			}
 			LastDamageTime = RoundSeconds;
 			FHIAudio::Impact(World, ToW, /*bFlesh=*/true);
 		}
@@ -1487,6 +1529,24 @@ void AHIGameMode::Tick(float DeltaSeconds)
 	// every frame and a cue written straight into it is lost on a frame with no sim step.
 	ApplyScheduledWeapon();
 
+	// THE PENDING-DEATH WATCH. A killing blow is resolved by the actor layer DURING event
+	// processing -- after this frame's drain, and after the rule scan inside the last Step --
+	// so `playerDown` spends exactly one frame boundary sitting in the round's event list
+	// before the NEXT step's ApplyRoundRules has to see it and end the round. Printing it
+	// here turns "the rules and the runtime disagree" from an afternoon of code reading into
+	// one grep: this line appearing ONCE is the healthy handover; appearing EVERY FRAME is
+	// the round refusing to end, which is exactly what it was written for (2026-10-14).
+	for (const FHISim::FHIEvent& Pending : Round.Events)
+	{
+		if (Pending.Type == TEXT("playerDown"))
+		{
+			UE_LOG(LogTemp, Warning,
+				TEXT("HI: playerDown PENDING before the step at %.2f s (%d event(s) in the round list, state %d)"),
+				RoundSeconds, Round.Events.Num(), static_cast<int32>(Round.State));
+			break;
+		}
+	}
+
 	// ---- THE FIXED TIMESTEP, and this is not polish. It is what makes the port playable on
 	// anything slower than the machine it was written on.
 	//
@@ -1511,7 +1571,15 @@ void AHIGameMode::Tick(float DeltaSeconds)
 
 	int32 StepsThisFrame = 0;
 	FString SwitchDelivered;
-	while (SimAccumulator >= SimFixedDt && StepsThisFrame < SimMaxStepsPerFrame)
+	// THE LOOP STOPS AT A DECIDED ROUND, MID-FRAME INCLUDED. `Step` itself refuses a decided
+	// round, but this counter did not: inert steps still counted, and `RoundSeconds` below
+	// still counted them, so the clock ran on past the moment of the decision -- up to eight
+	// steps a frame past it. That quietly breaks the harness contract the whole capture gate
+	// is written around ("the clock stops when the round is decided"), and a decision landing
+	// mid-frame could even overshoot a capture target and suppress the very warning that is
+	// supposed to say the round ended early.
+	while (Round.State == FHISim::EHIRoundState::Play
+		&& SimAccumulator >= SimFixedDt && StepsThisFrame < SimMaxStepsPerFrame)
 	{
 		// THE CUE IS DELIVERED HERE, NOT INTO `In` EARLIER, and that is the whole fix. `In` is
 		// rebuilt by `ReadInput()` every Tick, so a cue that came due on a frame where the
@@ -1723,6 +1791,46 @@ void AHIGameMode::Tick(float DeltaSeconds)
 		}
 	}
 
+	// THE RULES RUN AT THE END OF EVERY FRAME, NOT ONLY AT THE END OF A STEP.
+	//
+	// A killing blow is resolved above, inside the drain-and-process phase: the trace runs in
+	// the actor layer, `DamagePlayer` queues `playerDown`, and the loss rule that ends the
+	// round lives at the end of `FHIRound::Step`. But steps do not run every frame -- at the
+	// observed 2.7-3.0x realtime (~180 fps) the accumulator is usually below 1/60 s -- while
+	// the drain above runs EVERY frame. So the round's decision raced the frame rate: when the
+	// next frame stepped, the rule saw `playerDown` and the round ended; when it did not, the
+	// drain ate the event and the heist played on over the homeowner's corpse -- no banner, no
+	// restart, `STANDING` on the HUD, "They grabbed the TV!" twelve seconds after her death.
+	// Measured in three manual runs on 2026-10-14: drained at 8.08 s (no decision, clock ran
+	// to 20 s), stepped (decided at 8.10 s, FAILURE banner), drained at 9.42 s (no decision)
+	// -- same code, different frame timing, different outcomes. A stale-build-artifact theory
+	// born between runs two and three was disproved by run three landing on a from-scratch
+	// binary; the nondeterminism across runs of one binary was the race's signature all along.
+	// Godot's original cannot have the race: game.gd sets `state = "lose"` while consuming the
+	// event, in the actor layer (scripts/game.gd:1239). This is that, ported. The scan is
+	// idempotent by its own contract, and the win is decided where the damage is applied
+	// (`DamageIntruder`), so re-running it here can only catch what no step has caught yet.
+	Round.ApplyRoundRules();
+
+	// A ROUND DECISION IS A FACT AND GETS SAID OUT LOUD -- and it is said HERE, at the end of
+	// the frame, because decisions are made in three places and two of them happen after the
+	// substep loop: `DamageIntruder` (the win, resolved by a player-shot trace in the
+	// processing loop above) and the rules scan just before this line (the loss by death). A
+	// watch placed before the drain -- where this one lived until 2026-10-14 -- could never
+	// print either, because the NEXT frame returns through the decided branch near the top of
+	// Tick before reaching it. A round that never printed its decision is indistinguishable in
+	// the log from one that never decided, which is how a homeowner who died at 12 s got
+	// "verified" alive at 20 s. The clock reads the same here as before the drain; nothing
+	// advances it in between. The name is spelled out rather than printed as a number for the
+	// same reason the soak spells out its result.
+	if (Round.State != LastLoggedState)
+	{
+		LastLoggedState = Round.State;
+		const TCHAR* What = Round.State == FHISim::EHIRoundState::Won ? TEXT("WON")
+			: (Round.State == FHISim::EHIRoundState::Lost ? TEXT("LOST") : TEXT("PLAY"));
+		UE_LOG(LogTemp, Warning, TEXT("HI: round decided -> %s at %.2f s of round"), What, RoundSeconds);
+	}
+
 	// Pull every view into place AFTER the step, from the same Tick. Nothing else writes an
 	// actor transform for this round, so there is no frame where a body is drawn from a
 	// half-updated model.
@@ -1799,7 +1907,9 @@ void AHIGameMode::Tick(float DeltaSeconds)
 
 void AHIGameMode::TickHarness(float DeltaSeconds)
 {
-	if (!bScripted && !bAuto)
+	// A snap run enters the harness for the shutter and the quit ONLY -- everything above the
+	// capture block (the soak report) is inert in it, and the player stays manual below.
+	if (!bScripted && !bAuto && !bSnapRun)
 	{
 		return;
 	}

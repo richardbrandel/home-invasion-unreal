@@ -1610,6 +1610,33 @@ bool FHISimRound::RunTest(const FString& Parameters)
 			L.State == FHISim::EHIRoundState::Lost);
 	}
 
+	// ---- and it STILL loses when the blow lands the way the RUNTIME lands it.
+	//
+	// The test above appends the event and steps. The game cannot do that: a hit is resolved
+	// by the actor layer's trace, which runs while the frame's drained events are being
+	// processed -- AFTER this frame's Step and its rule scan, and AFTER the drain. So the
+	// `playerDown` spends one frame boundary sitting in the round's list before any rule sees
+	// it, alongside the non-lethal `playerHit`s from the same volley. On 2026-10-14 that
+	// runtime sequence left a homeowner at 0 hp with the round playing on for ever -- no
+	// decision, no banner, a heist over her corpse -- while the test above passed, because
+	// the test above is not the sequence the game runs. This one is: three shots, one kill,
+	// queued after a step and a drain, and the NEXT step's scan has to end the round.
+	{
+		FHISim::FHIRound R = FHISim::FHIRound::Start(3);
+		FHISim::FHIInput In;
+		R.Step(In, Dt);                       // frame N: the sim announces the volley ...
+		R.ConsumeEvents();                    // ... the actor layer drains it ...
+		FHISim::DamagePlayer(R.Player, 5.0f, R.Events);      // ... traces land two wounds ...
+		FHISim::DamagePlayer(R.Player, 5.0f, R.Events);
+		const bool bKilled = FHISim::DamagePlayer(R.Player, 100000.0f, R.Events);   // ... and the kill.
+		TestTrue(TEXT("the killing blow empties the homeowner"), bKilled && !R.Player.bAlive);
+		TestTrue(FString::Printf(TEXT("and leaves playerDown pending in the round's list (%d event(s))"),
+			R.Events.Num()), R.Events.Num() == 3);
+		R.Step(In, Dt);                       // frame N+1: the rule scan must see it
+		TestTrue(TEXT("a killing blow resolved after the drain still loses the round on the next step"),
+			R.State == FHISim::EHIRoundState::Lost);
+	}
+
 	// ---- a finished round stops ticking
 	{
 		FHISim::FHIRound Z = FHISim::FHIRound::Start(1);
