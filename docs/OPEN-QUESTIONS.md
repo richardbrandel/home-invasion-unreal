@@ -65,11 +65,32 @@ The README's *"What is still open"* has about ten items. "The game is playable" 
 the first finish-line signal the project has had. Without a stated line, effort goes into polish
 that may not matter. **Needs one sentence: working means X, Y and Z and nothing else matters.**
 
-## 3. The shotgun mesh — OPEN, a purchase or a keep
+## 3. The shotgun mesh — the stand-in is RETIRED 2026-10-14; what remains is a keep-or-replace judgement
 
-Upstream's `Game/Weapons/Rifle/.../SM_Rifle` stands in for it and the code says so. Either a real
+~~Upstream's `Game/Weapons/Rifle/.../SM_Rifle` stands in for it and the code says so. Either a real
 `.fbx`/`.glb` arrives, or the stand-in is accepted and the item is struck off. The README calls
-this the only asset genuinely still needed.
+this the only asset genuinely still needed.~~
+
+A real `.glb` arrived — written, not bought. `tools/make-shotgun-glb.py` composes eight boxes and
+two cylinders into a plain glTF binary (stdlib Python, deterministic, self-verifying) and the
+ordinary import turnstile turns it into `/Game/HIImported/weapons/shotgun`: 100.5 cm overall,
+grip-centre pivot, flat gunmetal/wood/synthetic colours in the same visual language as every
+primitive prop in the port. Measured at import: bounds origin (0.0, 7.2, 3.6), extent
+(2.8, 50.2, 9.6) cm — longest along +Y, muzzle positive, exactly the `HI.Unreal.Weapons`
+contract, 41/41 green. Frame review 2026-10-14 (`shots/shotgun-sheet.png`): grip seated in the
+palm, barrel along the aim, proportions believable, no defects — and the pistol aim clip's raised
+left hand lands on the forend, so it reads as a proper two-handed hold by accident.
+
+The first version was wrong and the contract caught it: the importer's axis mapping was guessed
+(barrel along glTF +X) and the mesh landed longest along UE **+X**; the answer was then read out
+of the engine's own `InterchangeGltfTranslator.cpp` (X→X, Y→Z, Z→Y, no sign flips) instead of
+guessed twice, and the generator carries the rotation — and the reason the det+1 rotation was
+used rather than the mirror that maps just as well (winding, i.e. an inside-out invisible gun).
+
+**What remains is Richard's call:** keep the primitive, or replace it with an artist's mesh. The
+upgrade path needs no GUI and has not changed: a better `.fbx`/`.glb` dropped into
+`SourceAssets/weapons/`, one run of `tools/import-assets.sh`, one path in `SetWeaponVisual`. See
+it with `-HIWeapon=shotgun` (or [2] in-game) before deciding.
 
 ## 4. Mixamo retargeting — **RESOLVED 2026-10-13: there was nothing to retarget**
 

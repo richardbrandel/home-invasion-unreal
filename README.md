@@ -1065,11 +1065,15 @@ synthesise -- so before asking anyone for anything, check the three places below
 | Wall, floor and door textures | `assets/textures/` -- `ceiling_plaster`, `floor_tile`, `floor_wood`, `driveway`, `lawn`, `roof_shingle`, `bullet_hole`, `muzzle_flash`, `smoke_puff` | **Imported.** There is no wall texture in either project, but `ceiling_plaster` is plaster and serves |
 | Furniture meshes | `assets/kaykit/furniture/*.gltf` -- **the exact KayKit models the Godot original places**, 40 of them | **Proven**: `couch.gltf` imported headlessly to `StaticMeshes/couch` with its material and texture. glTF needs no editor |
 | A clothed character mesh | `assets/characters/*.fbx` -- eight rigged Mixamo characters | **Reachable**: `Female_Casual.fbx` imports as a SkeletalMesh. See the open item below |
-| A shotgun mesh | Nowhere -- KayKit has no weapons and the engine ships only a pistol and a rifle | **Build it in code.** Every prop in this port is already composed from primitives, and `HILootProp` is the pattern. A shotgun from three boxes is free; only the last 10% needs an artist |
+| A shotgun mesh | Nowhere -- KayKit has no weapons and the engine ships only a pistol and a rifle | **BUILT IN CODE, 2026-10-14.** `tools/make-shotgun-glb.py` writes eight boxes and two cylinders as a plain glTF binary -- 100.5 cm overall, grip-centre pivot, barrel along the mesh's +Y per the `HI.Unreal.Weapons` contract -- and the ordinary import turnstile turns it into `/Game/HIImported/weapons/shotgun`. The engine rifle stand-in is retired. Only the last 10% still needs an artist, and only if the primitive is judged not good enough |
 
-### The one thing still genuinely needed
+### Nothing is needed any more
 
-**A shotgun mesh**, if the primitive one is not good enough. `.fbx` or `.glb`.
+The list is empty. The last item — the shotgun mesh — was built in code on 2026-10-14 (the row
+above), so there is no longer anything to ask anybody for. The upgrade path stays open and needs
+no GUI: an artist's `.fbx`/`.glb` dropped into `SourceAssets/weapons/`, one run of
+`tools/import-assets.sh`, and one changed path in `SetWeaponVisual`. Whether the code-built gun
+should ever be replaced is a judgement, not a need — OPEN-QUESTIONS item 3.
 
 **Voice recordings came off this list on 2026-10-12.** It asked for a human in a booth; the
 answer was `tools/make-voices-neural.sh` and Kokoro, which Richard listened to and approved

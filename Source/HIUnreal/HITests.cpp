@@ -1658,7 +1658,10 @@ bool FHIUnrealWeapons::RunTest(const FString& Parameters)
 	};
 	const FMesh Meshes[] = {
 		{ TEXT("/Game/Weapons/Pistol/Meshes/SM_Pistol.SM_Pistol"), TEXT("the pistol") },
-		{ TEXT("/Game/Weapons/Rifle/Meshes/SM_Rifle.SM_Rifle"), TEXT("the shotgun's stand-in (the engine rifle)") },
+		// Code-built since 2026-10-14 (tools/make-shotgun-glb.py); before that it was the
+		// engine's rifle standing in. The assertions below are unchanged by the swap -- that
+		// is the point of having written them as a contract instead of as a description.
+		{ TEXT("/Game/HIImported/weapons/shotgun/StaticMeshes/shotgun.shotgun"), TEXT("the shotgun (code-built)") },
 	};
 	for (const FMesh& M : Meshes)
 	{

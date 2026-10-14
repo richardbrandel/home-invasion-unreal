@@ -16,12 +16,18 @@
 
 namespace
 {
-	// The shotgun is still the engine's rifle mesh standing in for one. The BODY is not the
-	// engine's mannequin any more: the cast became the Mixamo characters on 2026-10-13, and
-	// Louise is the homeowner -- the same woman the Godot version used, chosen by Richard.
-	// Her mesh and clips resolve per character through FHICharAnim, because each character's
-	// clips bind ONLY to the skeleton its own mesh-carrying export created.
-	const TCHAR* ShotgunMeshPath = TEXT("/Game/Weapons/Rifle/Meshes/SM_Rifle.SM_Rifle");
+	// The shotgun is CODE-BUILT, and has been since 2026-10-14: tools/make-shotgun-glb.py
+	// writes eight boxes and two cylinders into a .glb -- barrel along the mesh's +Y, pivot
+	// at the grip centre, the exact contract HI.Unreal.Weapons asserts -- and the ordinary
+	// import turnstile (drop it in SourceAssets/, run tools/import-assets.sh) makes this
+	// asset. It replaced the engine's rifle mesh, which stood in for the shotgun and was
+	// disclosed as a stand-in everywhere until the day it stopped being true. The BODY is
+	// not the engine's mannequin any more either: the cast became the Mixamo characters on
+	// 2026-10-13, and Louise is the homeowner -- the same woman the Godot version used,
+	// chosen by Richard. Her mesh and clips resolve per character through FHICharAnim,
+	// because each character's clips bind ONLY to the skeleton its own mesh-carrying
+	// export created.
+	const TCHAR* ShotgunMeshPath = TEXT("/Game/HIImported/weapons/shotgun/StaticMeshes/shotgun.shotgun");
 }
 
 AHIPlayerCharacter::AHIPlayerCharacter()
@@ -117,10 +123,12 @@ void AHIPlayerCharacter::SetWeaponVisual(const FString& Weapon)
 {
 	ShownWeapon = Weapon;
 
-	// The shotgun is the engine's rifle mesh standing in for one: this project has no
-	// shotgun asset, and a long gun in the hand reads as a long gun. Disclosed rather than
-	// hidden, because "the shotgun is a rifle" is the kind of thing that should be a line in
-	// a file and not a surprise in a screenshot.
+	// The shotgun is this project's own code-built mesh (tools/make-shotgun-glb.py ->
+	// SourceAssets/weapons/shotgun.glb -> import-assets.sh): boxes and cylinders with flat
+	// materials, in the same visual language as every primitive prop in the port. Only the
+	// last 10% needs an artist, and that door stays open -- any .fbx/.glb dropped into
+	// SourceAssets/weapons/ imports the same way and only this path changes. The pistol is
+	// still the engine's own; it was never a stand-in, it is a pistol.
 	const TCHAR* Path = (Weapon == TEXT("shotgun")) ? ShotgunMeshPath
 		: TEXT("/Game/Weapons/Pistol/Meshes/SM_Pistol.SM_Pistol");
 
