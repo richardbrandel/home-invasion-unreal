@@ -18,8 +18,9 @@ class UStaticMeshComponent;
  * mannequins, whose skeleton those assets are authored for.
  *
  * Then the cast became REAL CHARACTERS (2026-10-13): Louise the homeowner and James,
- * Brute and Martha the intruders, fetched from Mixamo with nine clips each and imported
- * by `tools/import-assets.py`. Two facts from that import drive everything below:
+ * Brute and Martha the intruders, fetched from Mixamo with nine clips each (a tenth,
+ * `pistol_idle`, added 2026-10-15) and imported by `tools/import-assets.py`. Two facts
+ * from that import drive everything below:
  *
  * 1. EACH CHARACTER HAS ITS OWN SKELETON. They are all the same Mixamo rig, but four
  *    separate `USkeleton` assets, so a clip from `characters_james` binds to James and
@@ -60,14 +61,15 @@ struct FHICharAnim
 	static FString ClipPathFor(const TCHAR* Tag, const TCHAR* Clip);
 
 	// ------------------------------------------------------------- clip names
-	// Nine per character. The mesh-carrying export's own take imports as `idle_Anim`
+	// Ten per character. The mesh-carrying export's own take imports as `idle_Anim`
 	// beside the mesh named `idle` -- the name collision is the importer's, not ours.
-	static const TCHAR* ClipAim();        // "aim"        Mixamo "Aiming Gun", Hips pinned by the tool
+	static const TCHAR* ClipAim();        // "aim"        Mixamo "Aiming Gun", Hips pinned by the tool; imported + asserted but deliberately never PLAYED (see DriveCharacter)
 	static const TCHAR* ClipWalk();       // "walk"       authored 1.69 m/s
 	static const TCHAR* ClipRun();        // "run"        authored 5.61 m/s
 	static const TCHAR* ClipCrouchIdle(); // "crouch_idle"
 	static const TCHAR* ClipCrouchWalk(); // "crouch_walk" authored 0.90 m/s
-	static const TCHAR* ClipIdle();       // "idle_Anim"  the mesh export's own take
+	static const TCHAR* ClipIdle();       // "idle_Anim"  the mesh export's own take; the UNARMED standing pose (an intruder with both hands full)
+	static const TCHAR* ClipPistolIdle(); // "pistol_idle" Mixamo "Pistol Idle", 8.30 s, locomotion-pinned: the calm ARMED ready, pistol gripped up near the chest
 	static const TCHAR* ClipReload();     // "reload"     3.30 s, in place
 	static const TCHAR* ClipShoot();      // "shoot"      2.67 s, Hips rotation pinned by the tool
 	static const TCHAR* ClipDeath();      // "death"      3.03 s, a real fall: Hips 0.96 m -> 0.14 m
@@ -93,8 +95,9 @@ struct FHICharAnim
 
 	// ---------------------------------------------------------------- driving
 	/**
-	 * Put a body into single-node mode on its own character's starting clip (`aim` --
-	 * both the homeowner and the intruders spawn armed).
+	 * Put a body into single-node mode on its own character's starting clip (`pistol_idle`
+	 * -- the homeowner and the intruders all spawn armed and standing, so the very first
+	 * frame is already the calm ready; the first DriveCharacter tick confirms or changes it).
 	 *
 	 * Safe to call with a missing asset: it logs and does nothing, and the caller keeps
 	 * the reference pose rather than crashing. A missing character must degrade, not
@@ -108,6 +111,27 @@ struct FHICharAnim
 	 * cm/s: under 15 stands, under 190 walks, above that runs -- against the sim's own
 	 * numbers (thief 1.3 m/s walks, homeowner 4.2 m/s runs, crouch 2.0 m/s, laden 0.5-0.9).
 	 *
+	 * `bArmed` picks the STANDING clip: a standing gunman holds `pistol_idle` (Mixamo's
+	 * "Pistol Idle", a calm 8.3 s ready with the pistol gripped up near the chest); a
+	 * standing body with both hands full -- an intruder mid-carry -- holds the unarmed
+	 * `idle`. Locomotion is the same walk/run armed or not: there is no pistol-walk clip,
+	 * so the gun rides low in the relaxed walk hand exactly as the Godot original's
+	 * intruders did. Crouch is likewise weapon-agnostic (no pistol-crouch clip).
+	 *
+	 * This is the THIRD pose this code has chosen for a standing gunman, and the reason is
+	 * a report from the player's chair (2026-10-15): "she keeps drawing and holstering her
+	 * gun and when it is drawn she holds it out away from her body, it looks awkward." Both
+	 * halves are the `aim` clip: Mixamo's "Aiming Gun" is a 2.4 s raise-hold-lower SEQUENCE
+	 * (0.735 m of travel and a 143 deg turn before the import tool pins its Hips), and the
+	 * mannequin-era code LOOPED it as the armed standing pose, so it drew and holstered every
+	 * 2.4 s, peaking with the gun out at arm's length. The first fix dropped the standing pose
+	 * to the unarmed `idle` -- calm, no cycle -- but that poses the hand OPEN and carries the
+	 * gun low at the hip, which from the over-the-shoulder camera hid it behind her own body
+	 * and read as the "defender has no gun" bug all over again (the gun WAS rendering;
+	 * `-HIProbe` proved it; it simply was not salient). `pistol_idle` is the real answer:
+	 * calm like `idle`, but the hand grips and the gun is up where the camera can see it.
+	 * `aim` stays imported and asserted by `HI.Unreal.Cast` but is never played. See PARITY.md.
+	 *
 	 * Clips SWITCH only on a change, because `SetAnimation` resets the playhead and a
 	 * switch every frame moonwalks the body in place. Looped clips start at a RANDOM
 	 * PHASE, which is fix-list item 15's phase variation: three men must not breathe or
@@ -118,7 +142,7 @@ struct FHICharAnim
 	 * single-node setup with no montage slots.
 	 */
 	static void DriveCharacter(USkeletalMeshComponent* Mesh, const TCHAR* Tag, float SpeedMps,
-		bool bAlive, bool bArmed, bool bCrouching);
+		bool bAlive, bool bCrouching, bool bArmed);
 
 	/**
 	 * A timed one-shot: `shoot` and `reload`, the two clips that interrupt locomotion

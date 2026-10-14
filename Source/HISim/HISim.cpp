@@ -70,8 +70,22 @@ int32 FHISim::WeaponMag(const FString& Key)
 FHISim::FHIPlayer FHISim::CreatePlayer()
 {
 	FHIPlayer P;
-	P.Pos = FVector2D(0.0f, -10.6f);
-	P.Yaw = 0.0f;
+	// SHE DOES NOT START IN THE DOORWAY. sim.gd -- and this port until 2026-10-15 -- spawned
+	// her at (0, -10.6): front zone, dead-centre on the door axis. That is the far end of a
+	// straight sight channel running from the intruders' Drop (0, 4.5) through the door gap
+	// (x -1..1 at y=-8) and the hall gap (x -2..2 at y=-14), so a man who has not yet crossed
+	// the driveway can put a round on her the instant his opening cooldown lapses -- the spawn
+	// kill zone. Richard's ruling (2026-10-15): the opening is brutal because "the fender ...
+	// is standing in the door way while the intruders are coming at her. I think she should be
+	// more inside the building." So she now starts in the BACK zone, west of the hall, off
+	// that axis and behind the InteriorZ divider. From (-3, -15.5) all three Drop lanes are
+	// stopped by the south-west wall -- their sight lines cross y=-8 at x=-1.6 to -2.2, west
+	// of the door gap -- so the crew must come inside and through the hall to reach her. The
+	// bedroom rug underfoot is `flat` (never solid) and the bed is 2 m west, so the spot is
+	// clear floor beside the bedroom nav node. She faces north-east (yaw +1.0), which looks
+	// through the hall gap toward the front door rather than into the divider wall.
+	P.Pos = FVector2D(-3.0f, -15.5f);
+	P.Yaw = 1.0f;
 	P.Pitch = 0.24f;
 	P.Hp = ThiefMaxHp;
 	P.bAlive = true;
@@ -308,7 +322,9 @@ bool FHISim::DamagePlayer(FHIPlayer& Player, float Damage, TArray<FHIEvent>& Eve
 FHISim::FHIThief FHISim::CreateThief()
 {
 	// sim.gd create_thief(). Every default lives on FHIThief's member initialisers, which
-	// mirror that literal key for key, so nothing here needs to override them. It does NOT
+	// mirror that literal key for key -- with ONE deliberate exception, recorded on the
+	// constant itself: `Cd` opens at ThiefOpeningCd (4.0 s), not Godot's 1.2, because
+	// Richard judged the original's opening seconds too brutal (2026-10-15). It does NOT
 	// stagger the spawn point -- that is create_intruders()'s job, for more than one body.
 	return FHIThief();
 }
@@ -329,6 +345,10 @@ TArray<FHISim::FHIThief> FHISim::CreateIntruders(int32 Count)
 			-FMath::Abs(Lane) * 0.9f);
 		T.Pos = ClampToWorld(Drop + Off + FVector2D(0.0f, 0.5f), ThiefRadius);
 		T.Prev = T.Pos;
+		// The fan-out staggers their BODIES; this staggers their FIRST SHOTS, so a round
+		// opens with one man firing, then another, instead of a three-gun volley inside
+		// the same tenth of a second. See ThiefOpeningCd -- Richard's 2026-10-15 call.
+		T.Cd = ThiefOpeningCd + static_cast<float>(Idx) * ThiefOpeningStagger;
 		Out.Add(T);
 	}
 	return Out;

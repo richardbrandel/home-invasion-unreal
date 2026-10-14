@@ -338,11 +338,12 @@ void AHIIntruder::SyncFromSim(const FHISim::FHIThief& T, float Dt)
 	// Measured from the sim's own previous position rather than read from a speed field:
 	// see the header. Guarded against a zero step so a paused frame cannot divide by zero.
 	const float Speed = (Dt > 1e-5f) ? (T.Pos - T.Prev).Size() / Dt : 0.0f;
-	// ARMED ONLY WITH HIS HANDS FREE, which is the same condition the gun's visibility uses --
-	// a man carrying a television is not in a shooting stance, and the pistol is put away.
+	// The hands-free flag, which drives BOTH the gun's visibility below AND the standing
+	// pose: a man carrying a television has his pistol put away and stands in the unarmed
+	// `idle`, while a man with his hands free is holding his pistol, so he stands in the
+	// armed `pistol_idle` (see DriveCharacter's selection comment).
 	const bool bFree = T.Carry.IsEmpty();
-	FHICharAnim::DriveCharacter(Body, *CastTag, Speed, true, /*bArmed=*/bFree,
-		/*bCrouching=*/false);
+	FHICharAnim::DriveCharacter(Body, *CastTag, Speed, true, /*bCrouching=*/false, /*bArmed=*/bFree);
 
 	// THE RELOAD IS AN EDGE, NOT A STATE: `T.Reloading` counts down (ThiefReload = 1.5 s)
 	// and the one-shot must start once, not restart every frame. The hold is the sim's own

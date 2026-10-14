@@ -131,14 +131,26 @@ ever played this. Three sentences of "this annoyed me" are worth more than a day
    bone child-directions, not from looking at each body). Do any sit inside the body or float off it?
 4. **The intruders' gait**: stride-matching is per character (Brute's clips travel 25% further —
    measured), but only a human can say whether all three walk believably at ThiefSpeed 1.3 m/s.
-5. **The spawn kill zone** (measured 2026-10-14, while chasing bug 21): a homeowner who does
-   NOTHING is at **HP 57 by t=3.0 s** and dead between **8 and 12.5 s** of the round — in every
-   manual capture run, with three intruders. The historical passive-death measurement was 6.6 s,
-   so this is in family, and "standing still gets you shot" is the game's whole thesis. But the
-   spawn lawn being a kill zone within seconds of the round starting is a design fact Richard has
-   never been handed: too brutal for the opening seconds, or exactly the shove-he-into-cover
-   pressure the original intends? Numbers to judge with: ThiefHitChance, the 0.45 s aim delay,
-   and the intruders' opening positions are all one-line constants.
+5. **The spawn kill zone — RESOLVED 2026-10-15 (Richard: too brutal, move her inside).**
+   Measured 2026-10-14 while chasing bug 21: a homeowner who does NOTHING is at **HP 57 by
+   t=3.0 s** and dead between **8 and 12.5 s** with three intruders. The cause was geometry,
+   not tuning — Louise spawned at (0, -10.6), the far end of a straight sight channel from the
+   intruders' Drop (0, 4.5) through the door gap (x -1..1) and the hall gap (x -2..2), so the
+   crew could put rounds on her from the driveway the instant their cooldowns lapsed. Richard's
+   ruling: "the beginning is so brutal ... the fender ... is standing in the door way while the
+   intruders are coming at her. I think she should be more inside the building." Two changes
+   landed, both deliberate divergences from Godot parity recorded in PARITY.md §13:
+   - **Opening hold-fire** — `ThiefOpeningCd 4.0 s` + `ThiefOpeningStagger 0.7 s`, so first
+     shots come at 4.0 / 4.7 / 5.4 s instead of Godot's flat 1.2 s. At the OLD spawn this moved
+     the passive idle-death from 8.1 s to 10.87 s (soak, `shots=0 alive=3`).
+   - **Deeper, off-axis spawn** — Louise now starts at **(-3, -15.5)** in the back zone, facing
+     the hall gap. The InteriorZ divider stops every Drop lane's sight line (they cross y=-8 at
+     x=-1.6 to -2.2, west of the door gap), so the crew must come inside and through the hall to
+     reach her — the driveway snipe is gone by geometry, not by a damage number. The
+     three-intruder heist still clears the house (72.8 s in `HI.Sim.Round`); the passive
+     idle-death soak from the new spawn measured **36.4 s** (up from 10.87 s at the old spawn,
+     and 8.1 s before the hold-fire), all three intruders still alive, no loot delivered,
+     `shots=0` — the crew now walks in and comes through the hall before it gets a line on her.
 
 ## 7. The mouse — OPEN, and possibly already fixed
 

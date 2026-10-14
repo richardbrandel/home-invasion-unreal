@@ -46,6 +46,7 @@ const TCHAR* FHICharAnim::ClipRun()        { return TEXT("run"); }
 const TCHAR* FHICharAnim::ClipCrouchIdle() { return TEXT("crouch_idle"); }
 const TCHAR* FHICharAnim::ClipCrouchWalk() { return TEXT("crouch_walk"); }
 const TCHAR* FHICharAnim::ClipIdle()       { return TEXT("idle_Anim"); }
+const TCHAR* FHICharAnim::ClipPistolIdle() { return TEXT("pistol_idle"); }
 const TCHAR* FHICharAnim::ClipReload()     { return TEXT("reload"); }
 const TCHAR* FHICharAnim::ClipShoot()      { return TEXT("shoot"); }
 const TCHAR* FHICharAnim::ClipDeath()      { return TEXT("death"); }
@@ -128,7 +129,11 @@ void FHICharAnim::SetupCharacter(USkeletalMeshComponent* Mesh, const TCHAR* Tag)
 	{
 		return;
 	}
-	const FString Start = ClipPathFor(Tag, ClipAim());
+	// The starting clip is `pistol_idle` because everyone spawns armed and standing, so the
+	// calm ready is the right first frame (2026-10-15: `aim` was dropped from selection --
+	// see DriveCharacter). The first DriveCharacter tick would replace a different start
+	// anyway; starting in it keeps "aim is deliberately never played" literally true.
+	const FString Start = ClipPathFor(Tag, ClipPistolIdle());
 	UAnimationAsset* Clip = LoadObject<UAnimationAsset>(nullptr, *Start);
 	if (Clip == nullptr)
 	{
@@ -149,7 +154,7 @@ void FHICharAnim::SetupCharacter(USkeletalMeshComponent* Mesh, const TCHAR* Tag)
 }
 
 void FHICharAnim::DriveCharacter(USkeletalMeshComponent* Mesh, const TCHAR* Tag, float SpeedMps,
-	bool bAlive, bool bArmed, bool bCrouching)
+	bool bAlive, bool bCrouching, bool bArmed)
 {
 	if (Mesh == nullptr || Tag == nullptr || !bAlive)
 	{
@@ -179,24 +184,30 @@ void FHICharAnim::DriveCharacter(USkeletalMeshComponent* Mesh, const TCHAR* Tag,
 		}
 	}
 
-	// ---- CLIP SELECTION. Thresholds in cm/s against the sim's own speeds; see the
-	// header. Crouch outranks weapon (a crouched man aims from the crouch), and the
-	// armed standing pose is `aim` -- the pose improvement fix-list item 2 asked for,
-	// with its Hips pinned by the import tool so it cannot spin the body against the
-	// yaw the game sets every frame.
+	// ---- CLIP SELECTION. Thresholds in cm/s against the sim's own speeds; see the header.
+	//
+	// THE ARMED STANDING POSE IS `pistol_idle` (Mixamo "Pistol Idle": a calm 8.3 s ready,
+	// pistol gripped up near the chest, locomotion-pinned so it travels nowhere). The unarmed
+	// standing `idle` is for the one body that stands with both hands full -- an intruder
+	// mid-carry, whose gun is hidden. This is the THIRD pose this choice has had, and the
+	// header plus PARITY.md carry the whole aim(looped) -> idle(gun too low, read as unarmed)
+	// -> pistol_idle history; the point here is only that `aim` is deliberately never played
+	// and that locomotion and crouch are weapon-agnostic, because no pistol-walk or
+	// pistol-crouch clip exists -- the gun rides low in the relaxed walk hand, as the Godot
+	// original's intruders did.
 	const float Cm = SpeedMps * HI_METERS_TO_UU;
 	const TCHAR* Want;
 	if (bCrouching)
 	{
 		Want = (Cm < 15.0f) ? ClipCrouchIdle() : ClipCrouchWalk();
 	}
-	else if (bArmed)
+	else if (Cm < 15.0f)
 	{
-		Want = (Cm < 15.0f) ? ClipAim() : (Cm < 190.0f ? ClipWalk() : ClipRun());
+		Want = bArmed ? ClipPistolIdle() : ClipIdle();
 	}
 	else
 	{
-		Want = (Cm < 15.0f) ? ClipIdle() : (Cm < 190.0f ? ClipWalk() : ClipRun());
+		Want = (Cm < 190.0f) ? ClipWalk() : ClipRun();
 	}
 
 	const FString WantPath = ClipPathFor(Tag, Want);
@@ -219,7 +230,7 @@ void FHICharAnim::DriveCharacter(USkeletalMeshComponent* Mesh, const TCHAR* Tag,
 		{
 			// Item 15's phase variation: three men must not march in step. Random
 			// start inside the loop, and honest about what it is not -- phase
-			// variation, not pose variation; the pose set is the nine clips.
+			// variation, not pose variation; the pose set is the ten clips.
 			const float Length = Fresh->GetLength();
 			if (Length > 0.0f)
 			{

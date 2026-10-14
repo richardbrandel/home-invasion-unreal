@@ -429,7 +429,7 @@ represented; the port adds coverage the Godot project has never had on either si
 | **`HI.Unreal.Wounds`** | **blood on the man: the wound count against health, five distinct bones, and a wound's SIZE in metres -- the assertion that used to be written in centimetres and so blessed a 7 m box** |
 | **`HI.Unreal.Weapons`** | **both weapon meshes load, their materials are OPAQUE (a masked instance with a missing texture renders as nothing), and all four cast members carry the `RightHand` grip bone** |
 | **`HI.Unreal.DeathFall`** | **everything a corpse needs in order to reach the floor: the clip is a playable AnimSequence, the mesh carries a physics asset, the lawn/floor/walls block `ECC_PhysicsBody` -- and bullets still pass through the floor while the walls still stop them** |
-| **`HI.Unreal.Cast`** | **the Mixamo cast as assets: per character, mesh/skeleton/physics asset resolve, the 22 rig bone names exist, the bind-pose facing measured from the shoulders matches `MeshFacingYawDeg()` within 2 deg, the nine clips load bound to their own skeleton at the right lengths, the locomotion/aim/shoot clips are really pinned the way the normalizer claims (spine frozen, arms still moving), the crouch clip really lowers the Hips below the standing idle, the death clip really drops them, and the per-character stride table stays inside sane bands** |
+| **`HI.Unreal.Cast`** | **the Mixamo cast as assets: per character, mesh/skeleton/physics asset resolve, the 22 rig bone names exist, the bind-pose facing measured from the shoulders matches `MeshFacingYawDeg()` within 2 deg, the ten clips load bound to their own skeleton at the right lengths, the locomotion/aim/shoot clips are really pinned the way the normalizer claims (spine frozen, arms still moving), the crouch clip really lowers the Hips below the standing idle, the death clip really drops them, and the per-character stride table stays inside sane bands** |
 
 ## Bugs the test suite could not have caught
 
@@ -1110,6 +1110,52 @@ Godot original draws, clipped to the panel.
     with `sim_steps=483` = 8.05 s proving the clock stops when the round does. The pending-death
     canary did not fire in any run: the gap it watches for no longer exists.
 
+22. **"SHE KEEPS DRAWING AND HOLSTERING HER GUN, AND WHEN IT IS DRAWN SHE HOLDS IT OUT AWAY
+    FROM HER BODY."** Richard's report from the player's chair, 2026-10-15, seconds into a
+    round, about the defender standing still. She was not drawing or holstering anything: the
+    game was **looping a clip that was never meant to loop**.
+
+    The armed standing pose was the `aim` clip — a choice made when the cast were mannequins
+    and the pose only had to read as "armed" from behind a rifle's stock. The Mixamo source
+    ("Aiming Gun") is not a pose but a **2.4-second sequence**: the gun comes up, holds at
+    arm's length, goes back down. The Godot project's own anim probe had measured that source
+    before anyone ported it — 0.735 m of Hips travel and a 143.2° turn, which is why the
+    import tool strips the clip to its upper body — but the strip pinned the HIPS and left
+    the arms' raise-and-lower exactly as authored. Both halves of the report are that content
+    on a timer: played with `Play(true)`, the raise/lower became a draw and holster every
+    2.4 s (the first sentence), and its peak is the arm's-length hold (the second sentence).
+
+    The original could not cycle. Godot 4 imports the Mixamo FBX **non-looping by default**
+    (`aim.fbx.import` carries no loop parameter), and `actor.gd`'s `play()` early-returns
+    when the clip has not changed — so a Godot body raised the gun ONCE and held the last
+    key. The port's loop was a parity drift of the kind that hides: the first raise-and-hold
+    looks exactly like the original, and only the second cycle, 2.4 s in, gives it away. The
+    fix is not to copy the hold, either — held, the last key is still the arm's-length pose
+    Richard called awkward, and at 1.5 m behind the homeowner that pose is the whole show.
+
+    **The first fix made the armed standing pose the calm `idle`**: arms at the sides, the gun
+    carried low, a breathing loop, and `aim` remains imported, normalized and asserted by
+    `HI.Unreal.Cast` while being deliberately never played. Firing still reads as firing —
+    `shoot` and `reload` are separate latched one-shots — and the intruders get the same
+    calm, since the pose is picked in the one shared `DriveCharacter`. The `bArmed` parameter,
+    dead once every body stood on `idle`, came out of the signature rather than stay an API lie.
+
+    **But `idle` carried the gun too low to see, and Richard called that too.** Measured from
+    the rear camera with `-HIProbe`: the gun rendered (`gunVis=1`, mesh `SM_Pistol`,
+    `inFrontOfCamera=1`) yet sat at `gunDist` 1.61-1.81 m against a `behind` body distance of
+    1.38 m — it hung on the far side of her own torso, so from over her shoulder her body
+    occluded it, arms down at her sides. Given the choice between raising the idle arms and a
+    real pistol-ready clip, Richard took the clip: **"Go with b)."** So the armed standing pose
+    is now **`pistol_idle`** — Mixamo's "Pistol Idle," a calm 8.30 s breathing loop (`travel`
+    0.0 cm, `hipsRotSpread` 17.3-17.6°, locomotion-pinned, imported 107/0 across all four
+    characters) with the gun gripped up near the chest, clear of the torso and visible from the
+    rear camera. `idle` is not dead — it is the hands-full pose, so an intruder mid-carry (gun
+    stowed, `bFree` false) still stands on it — which is why `bArmed` went back INTO
+    `DriveCharacter`'s signature one revision after coming out: the standing pose now depends
+    on whether the hands are free, `bArmed ? pistol_idle : idle`. Louise is always armed (the
+    sim never leaves the homeowner without a gun), so she always stands on `pistol_idle`; `aim`
+    stays imported, asserted and never played.
+
 ## The fix list, item by item
 
 Godot item numbers are from `../home-invasion-godot/ROADMAP-2.md`. **This is the Unreal
@@ -1122,7 +1168,7 @@ column of that list**; the Godot column is unchanged.
 | 5 | Windows | **DONE.** Frames, sills, mullions and glazing on all four exterior walls, and the glazing is now **real translucent glass** (`M_HIGlass`, generated) rather than the pale opaque panel this row used to describe. The pane is in its own component -- `AddWindow` put the pane, the frame, the mullion and the sill in one component with one material, so making the pane glass would have made the frame glass too |
 | 8 | Sockets, switches, thermostats, light fittings | **DONE.** Sockets, switches, a thermostat, a smoke alarm and a ceiling rose under each lamp |
 | 10 / 11 | Valuables and props | **DONE.** TV, laptop and safe modelled from primitives (each with its BASE at floor level so one placement rule serves floor, hand and van), plus a kettle, toaster, bread bin, coat and hook, keys, a phone, a picture and a desk mat |
-| 13 | Animation blending | **DONE, and NOT the way this port's own notes assumed.** "Blending is built in" is true of a normal Unreal project and false of one with no editor session: an AnimBlueprint is a `.uasset`. So it uses `EAnimationMode::AnimationSingleNode` on the engine's 2-D **blend space** over speed and direction — a genuine continuous cross-fade, with the metre-to-centimetre conversion named in the one place it happens |
+| 13 | Animation blending | **DONE, and NOT the way this port's own notes assumed.** "Blending is built in" is true of a normal Unreal project and false of one with no editor session: an AnimBlueprint is a `.uasset`. So it uses `EAnimationMode::AnimationSingleNode` on the engine's 2-D **blend space** over speed and direction — a genuine continuous cross-fade, with the metre-to-centimetre conversion named in the one place it happens. **That row described the mannequin era; corrected 2026-10-15.** The Mixamo cast replaced the blend space with hand-picked clips — `DriveCharacter` selects one clip by speed and crouch, switches only on a change, and matches its stride to the ground (item 14's visible half). Single-node mode remains; continuous cross-fade is gone, and nothing misses it: the clip set is per character and the sim's speeds are discrete |
 | 14 | Foot IK | **HALF DONE.** The visible half — the feet skating — is fixed by matching the clip's play rate to the body's actual speed. Foot PLANTING on an edge needs an anim graph, and the engine's `CR_Mannequin_FootIK` is available and unused |
 | 15 | Idle variation | **HALF DONE.** Every body's idle loop starts at a random phase, so three men no longer breathe in unison. Genuinely different IDLE POSES need more recorded clips; the engine ships one |
 | 16 | Voice / barks | **DONE, with no recordings.** The bark system fires at the right moments (a man goes down, you shout, he spots you, he is shoved, he flees) and all nine lines are real speech: **Kokoro**, an 82M-parameter neural TTS run offline on this Mac by `tools/make-voices-neural.sh`, resampled to 48 kHz mono. The item assumed voices needed a human in a booth; what it actually needed was a speech model that fits on a laptop. Two voices (`bm_george` for the intruders, `am_michael` for the homeowner) so the two sides are audibly different people. `HI.Unreal.Audio` asserts all nine resolve, because a missing line plays NOTHING and that looks exactly like a game with the volume down |
@@ -1198,9 +1244,10 @@ they are no longer the difference between a game that talks and one that beeps.
   rather than guessing a second time.
 
   `tools/import-assets.py` now does exactly that, only for animation-only clips, and derives the
-  target from the folder layout. Measured on `characters/louise/`: **43 imported, 0 failed,
-  `done`, zero Python errors**, including all nine clips, the mesh, the skeleton, the physics
-  asset and eight textures. A rigged character is now a copy of files and no edit.
+  target from the folder layout. Measured on `characters/louise/`: **0 failed, `done`, zero
+  Python errors**, importing all ten clips (`pistol_idle` is the tenth, added 2026-10-15), the
+  mesh, the skeleton, the physics asset and eight textures. A rigged character is now a copy of
+  files and no edit.
 
   This also releases item 15 and half of item 14, which were waiting behind it.
 - **The Mixamo characters are on the Mixamo skeleton**, so the engine's own animations still do not
@@ -1223,7 +1270,7 @@ ssh ubuntu-dev '/data/projects/HIUnreal/tools/import-assets.sh'
 ```
 
 The last step reports `N imported, 0 failed` and `done`. Measured at time of writing:
-**102 imported, 0 failed**, which is four characters at nine clips each plus the textures.
+**107 imported, 0 failed**, which is four characters at ten clips each plus the textures.
 
 **Where the assets land**, and this is the part the wiring depends on:
 

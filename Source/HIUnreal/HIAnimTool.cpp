@@ -154,7 +154,7 @@ FString UHIAnimTool::NormalizeCharacterClip(const FString& PackagePath, const FS
 	// (2026-10-13): every clip carries exactly `GetNumberOfFrames() + 1` keys at
 	// consecutive frame numbers 0..N -- one key per frame boundary INCLUDING both ends,
 	// which is the uniform convention itself (walk: 31 frames, 32 keys, 1.033 s at
-	// 30 fps; aim: 72/73; idle_Anim: 250/251; the same +1 on all nine clips of all four
+	// 30 fps; aim: 72/73; idle_Anim: 250/251; the same +1 on all clips of all four
 	// characters). The guard checks exactly that, per key, and a first draft of it that
 	// demanded keys == frames refused every clip in the set -- a fencepost, caught by
 	// the report line rather than by a retimed animation.

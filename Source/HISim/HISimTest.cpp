@@ -484,6 +484,16 @@ bool FHISimThiefAI::RunTest(const FString& Parameters)
 	// it only passes if StepThief can find all three valuables, carry each one back to the
 	// van, and finish, within the spec's 180 simulated seconds.
 	FHISim::FHIPlayer Player = FHISim::CreatePlayer();
+	// CONTROLLED position, not the round's spawn. This is a pathfinding-completion check (one
+	// man, three valuables, 180 s), calibrated with the homeowner in the front zone. The spawn
+	// moved into the back zone beside the Safe on 2026-10-15, and a SINGLE idle homeowner there
+	// measured 1/3 delivered in 180 s with only 1 re-route -- he is not lost, he gets tied up
+	// with the idle body parked on the very loot he is coming for and never wins a clean
+	// GRAB_RANGE. That is an artifact of ONE idle mannequin, not of the spawn: the same
+	// back-zone spawn clears 3/3 in 72.8 s with the three-intruder crew (HI.Sim.Round), and a
+	// live homeowner does not stand still to be pinned. Stand her on the old front-zone spot so
+	// this measures the pathfinding it means to.
+	Player.Pos = FVector2D(0.0f, -10.6f);
 	FHISim::FHIThief Thief = FHISim::CreateThief();
 	TArray<FHISim::FHILootItem> Loot = FHISim::CreateLoot();
 	TArray<FHISim::FHIEvent> Events;
@@ -864,6 +874,10 @@ bool FHISimHandsFull::RunTest(const FString& Parameters)
 	{
 		const bool bCarrying = (CarryIdx == 1);
 		FHISim::FHIPlayer Player = FHISim::CreatePlayer();
+		// CONTROLLED position, not the round's spawn (see HI.Sim.Aiming): the spawn moved into
+		// the back zone on 2026-10-15, where "+2 m in front" crosses the InteriorZ divider and
+		// blocks the very shot this test asserts, so the free-handed arm reads as not firing.
+		Player.Pos = FVector2D(0.0f, -10.6f);
 		FHISim::FHIThief Thief = FHISim::CreateThief();
 		TArray<FHISim::FHILootItem> Loot = FHISim::CreateLoot();
 		TArray<FHISim::FHIEvent> Events;
@@ -913,6 +927,11 @@ bool FHISimAiming::RunTest(const FString& Parameters)
 	// saw was a line arriving through the wall you had just ducked behind.
 	const float Dt = 1.0f / 60.0f;
 	FHISim::FHIPlayer Player = FHISim::CreatePlayer();
+	// CONTROLLED position, not the round's spawn. This asserts the aim settle before the shot,
+	// so the pair needs a clear line. The spawn moved into the back zone on 2026-10-15, where
+	// "2 m in front" (+Y) puts the intruder on the far side of the InteriorZ divider and he can
+	// never see her -- a check that cannot fire cannot fail, and so cannot pass either.
+	Player.Pos = FVector2D(0.0f, -10.6f);
 	FHISim::FHIThief Thief = FHISim::CreateThief();
 	TArray<FHISim::FHILootItem> Loot = FHISim::CreateLoot();
 	TArray<FHISim::FHIEvent> Events;
@@ -1500,6 +1519,11 @@ bool FHISimRound::RunTest(const FString& Parameters)
 	// ---- the homeowner carries momentum rather than snapping to pace
 	{
 		FHISim::FHIRound M = FHISim::FHIRound::Start(1);
+		// A CONTROLLED spot, not the round's spawn. The spawn moved off-axis into the back
+		// zone on 2026-10-15, where a forward (+Y) walk runs into the InteriorZ divider inside
+		// a second and the full-pace assertion would fail on geometry, not on momentum. Stand
+		// her on the open front-zone axis instead, where +Y is clear through the door gap.
+		M.Player.Pos = FVector2D(0.0f, -10.6f);
 		M.Player.Yaw = 0.0f;                       // yaw 0 faces +Z
 		FHISim::FHIInput In;
 		In.Axis = FVector2D(0.0f, 1.0f);           // walk forward
@@ -1635,6 +1659,58 @@ bool FHISimRound::RunTest(const FString& Parameters)
 		R.Step(In, Dt);                       // frame N+1: the rule scan must see it
 		TestTrue(TEXT("a killing blow resolved after the drain still loses the round on the next step"),
 			R.State == FHISim::EHIRoundState::Lost);
+	}
+
+	// ---- THE OPENING HOLDS FIRE (Richard, 2026-10-15: "the first few seconds are too
+	// brutal. Make them easier."). The cd gate is arithmetic, so this is exact rather than
+	// statistical: four seconds with an idle homeowner and not one shot; the moment the hold
+	// expires the first man fires; and the crew's first shots are staggered, not a volley.
+	// Before ThiefOpeningCd existed -- Godot's 1.2 s opening was ported key for key -- the
+	// same idle homeowner measured HP 57 at t=3.0 and death between 8 and 12.5 s.
+	{
+		FHISim::FHIRound R = FHISim::FHIRound::Start(3);
+		// CONTROLLED geometry, not the round's spawn. This test is about ThiefOpeningCd, so
+		// the crew must actually HAVE a sight line for the hold to be the only thing gating
+		// their first shot. The real spawn moved off the door axis on 2026-10-15 (the spawn
+		// kill-zone fix), which would leave the Drop crew with no line at all and the "fires
+		// once the hold expires" half could never trip -- a check that cannot fail is not a
+		// check. Stand the homeowner back on the old on-axis spot so the Drop -> door ->
+		// homeowner channel exists and ONLY the opening cooldown stands between.
+		R.Player.Pos = FVector2D(0.0f, -10.6f);
+		TestTrue(FString::Printf(TEXT("the crew's opening holds are staggered (%.2f / %.2f / %.2f s)"),
+			R.Intruders[0].Cd, R.Intruders[1].Cd, R.Intruders[2].Cd),
+			FMath::IsNearlyEqual(R.Intruders[0].Cd, FHISim::ThiefOpeningCd)
+			&& FMath::IsNearlyEqual(R.Intruders[1].Cd, FHISim::ThiefOpeningCd + FHISim::ThiefOpeningStagger)
+			&& FMath::IsNearlyEqual(R.Intruders[2].Cd, FHISim::ThiefOpeningCd + 2.0f * FHISim::ThiefOpeningStagger));
+
+		FHISim::FHIInput In;
+		int32 ShotsInHold = 0;
+		int32 ShotsAfter = 0;
+		for (int32 Frame = 0; Frame < 237; ++Frame)      // 3.95 s: inside the hold
+		{
+			R.Step(In, Dt);
+			for (const FHISim::FHIEvent& Ev : R.ConsumeEvents())
+			{
+				if (Ev.Type == TEXT("thiefShot"))
+				{
+					++ShotsInHold;
+				}
+			}
+		}
+		TestEqual(TEXT("not one shot in the first four seconds of a round"), ShotsInHold, 0);
+		for (int32 Frame = 0; Frame < 42; ++Frame)       // to 4.65 s: past the first hold
+		{
+			R.Step(In, Dt);
+			for (const FHISim::FHIEvent& Ev : R.ConsumeEvents())
+			{
+				if (Ev.Type == TEXT("thiefShot"))
+				{
+					++ShotsAfter;
+				}
+			}
+		}
+		TestTrue(FString::Printf(TEXT("and the first man fires once the hold expires (%d shot(s) between 3.95 s and 4.65 s)"),
+			ShotsAfter), ShotsAfter >= 1);
 	}
 
 	// ---- a finished round stops ticking

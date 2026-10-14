@@ -1183,7 +1183,7 @@ bool FHIUnrealDeathFall::RunTest(const FString& Parameters)
 //
 //   1. each mesh loads, with a skeleton and a physics asset (no physics asset = a
 //      corpse that cannot fall, silently -- the DeathFall bug, per character);
-//   2. each character's nine clips load, are AnimSequences (a montage cannot play in
+//   2. each character's ten clips load, are AnimSequences (a montage cannot play in
 //      single-node mode), and bind to THAT character's own skeleton -- four separate
 //      USkeleton assets, so a clip used across characters silently fails to evaluate;
 //   3. clip lengths match the source FBX as measured by the Godot project's anim
@@ -1321,7 +1321,7 @@ bool FHIUnrealCast::RunTest(const FString& Parameters)
 		TEXT("LeftFoot"), TEXT("RightFoot"), TEXT("LeftToeBase"), TEXT("RightToeBase"),
 	};
 
-	// ---- the nine clips and the lengths measured from the SAME FBX files by the
+	// ---- the ten clips and the lengths measured from the SAME FBX files by the
 	// Godot project's anim probe. +/-5%: tight enough that a wrong take (idle has two,
 	// 8.333 s and 9.080 s) or a retimed bake fails, loose enough for import rounding.
 	// idle_Anim is logged, not asserted, BECAUSE which take the importer picked is its
@@ -1339,6 +1339,7 @@ bool FHIUnrealCast::RunTest(const FString& Parameters)
 		{ FHICharAnim::ClipCrouchIdle(), 2.100, TEXT("locomotion") },
 		{ FHICharAnim::ClipCrouchWalk(), 1.700, TEXT("locomotion") },
 		{ FHICharAnim::ClipIdle(),       0.000, TEXT("locomotion") },
+		{ FHICharAnim::ClipPistolIdle(), 8.300, TEXT("locomotion") },
 		{ FHICharAnim::ClipReload(),     3.300, TEXT("locomotion") },
 		{ FHICharAnim::ClipShoot(),      2.667, TEXT("shoot") },
 		{ FHICharAnim::ClipDeath(),      3.033, TEXT("none") },
@@ -1749,7 +1750,7 @@ bool FHIUnrealWeapons::RunTest(const FString& Parameters)
 	// `FHICharAnim::HandBoneFor` accepts either, and every one of the four must answer one.
 	//
 	// (The mannequin-era section 4 asserted the three MF_Pistol pose clips loaded, because
-	// armed locomotion was chosen by hand from engine content. The cast carries its own nine
+	// armed locomotion was chosen by hand from engine content. The cast carries its own ten
 	// clips each, bound to its own skeleton, and their loading is asserted by
 	// `HI.Unreal.Cast` -- which is where the whole imported-asset story lives now.)
 	const TCHAR* GripCast[] = {

@@ -150,6 +150,24 @@ struct HISIM_API FHISim
 	static constexpr float ThiefReload = 1.5f;
 	static constexpr float ThiefAimTime = 0.45f;
 
+	/**
+	 * Opening hold-fire: how long each intruder keeps his FIRST shot, and the stagger
+	 * between the crew's first shots.
+	 *
+	 * A DELIBERATE DIVERGENCE FROM GODOT, decided by Richard 2026-10-15: "the first few
+	 * seconds are too brutal. Make them easier." The original starts every intruder at
+	 * cd 1.2 (sim.gd create_thief()), and the port had reproduced its lethality exactly
+	 * -- every constant above matches Godot key for key -- which measured, from the
+	 * player's chair: a homeowner who stands still is at HP 57 by t=3.0 s and dead
+	 * between 8 and 12.5 s, in every run. The easing spends no new mechanics. The
+	 * intruders still walk in, still see him, still take their 0.45 s aim settle; they
+	 * hold the first shot until 4.0 s, and the crew's first shots leave 0.7 s apart
+	 * instead of all inside the same tenth of a second. Everything after a first shot
+	 * is untouched -- ThiefFireHunting governs the rest of the round exactly as before.
+	 */
+	static constexpr float ThiefOpeningCd = 4.0f;
+	static constexpr float ThiefOpeningStagger = 0.7f;
+
 	static constexpr float FearFlee = 4.0f;
 	static constexpr float FearDecay = 0.18f;
 	static constexpr float FearPerShot = 0.7f;
@@ -320,7 +338,7 @@ struct HISIM_API FHISim
 		float Hp = float(ThiefHealth);
 		bool bAlive = true;
 		int32 Mag = ThiefMag;
-		float Cd = 1.2f;
+		float Cd = ThiefOpeningCd;
 		float Reloading = 0.0f;
 		float Think = 2.0f;
 		FString Carry;

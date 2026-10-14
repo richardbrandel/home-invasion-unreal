@@ -328,8 +328,9 @@ void AHIPlayerCharacter::SyncFromSim(const FHISim::FHIPlayer& P)
 	// a woman accelerating from a standing start animates as one who is accelerating.
 	// Crouching is a STATE here, not a speed: the sim's crouch pace (2.0 m/s) is above the
 	// walk/run threshold, and without the flag a crouching player would be shown running.
-	FHICharAnim::DriveCharacter(Body, *CastTag, P.Vel.Size(), P.bAlive, /*bArmed=*/true,
-		P.bCrouching);
+	// She is ALWAYS armed -- the sim never leaves the homeowner without a gun -- so her
+	// standing pose is the armed `pistol_idle`, gun gripped up near the chest.
+	FHICharAnim::DriveCharacter(Body, *CastTag, P.Vel.Size(), P.bAlive, P.bCrouching, /*bArmed=*/true);
 
 	// THE RELOAD IS AN EDGE, NOT A STATE. `P.Reloading` counts down while the magazine
 	// change runs, and a one-shot restarted every frame would pin the clip to its first
