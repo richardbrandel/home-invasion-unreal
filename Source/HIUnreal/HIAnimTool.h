@@ -62,12 +62,23 @@ public:
 	/**
 	 * Normalize one imported animation sequence, in place, and save the package.
 	 *
-	 * @param PackagePath  e.g. `/Game/HIImported/characters_louise/walk.walk`
-	 * @param Mode         "locomotion" | "aim" | "shoot" | "none"
+	 * @param PackagePath    e.g. `/Game/HIImported/characters_louise/walk.walk`
+	 * @param Mode           "locomotion" | "aim" | "shoot" | "none"
+	 * @param RaiseWristsCm  when > 0, pre-multiply measured LOCAL-space deltas onto the
+	 *                       LeftArm/RightArm tracks so the wrists -- and a gun parented
+	 *                       to a hand bone -- sit this many centimetres higher, with the
+	 *                       hands carrying the gun instead of it floating away from them.
+	 *                       The deltas were derived by `tools/gunraise.py` from the
+	 *                       in-pose `-HIProbe` bone dump of 2026-10-15 (capture
+	 *                       `bones2`) and are calibrated for 15.24 cm = 6 inches; other
+	 *                       amounts rescale the angle linearly, exact to first order
+	 *                       over that range. A raise that finds no track reports a MISS
+	 *                       like a pin does -- it must not read as a success.
 	 * @returns a report line: measurements, what was pinned, and SAVED/FAILED.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Home Invasion")
-	static FString NormalizeCharacterClip(const FString& PackagePath, const FString& Mode);
+	static FString NormalizeCharacterClip(const FString& PackagePath, const FString& Mode,
+		float RaiseWristsCm = 0.0f);
 
 	/**
 	 * Measure one imported sequence's SAVED key data without touching it: per bone, the

@@ -112,7 +112,8 @@ namespace
 
 #endif // WITH_EDITOR
 
-FString UHIAnimTool::NormalizeCharacterClip(const FString& PackagePath, const FString& Mode)
+FString UHIAnimTool::NormalizeCharacterClip(const FString& PackagePath, const FString& Mode,
+	float RaiseWristsCm)
 {
 #if WITH_EDITOR
 	UAnimSequence* Seq = LoadObject<UAnimSequence>(nullptr, *PackagePath);
@@ -256,10 +257,98 @@ FString UHIAnimTool::NormalizeCharacterClip(const FString& PackagePath, const FS
 			Misses.Add(FString(Pin.Bone) + TEXT("(set failed)"));
 		}
 	}
+
+	// ---- THE WRIST RAISE, when the caller asked for one. Richard, 2026-10-15, on the
+	// pistol-ready pose: "Move the gun up a little bit, about 6 inches." The gun is
+	// parented to the hand bone at zero offset, so the honest way to raise the gun is
+	// to raise the HANDS: rotate each upper arm about its own shoulder joint and the
+	// wrist, the gun and the grip all travel together. The gun-only alternative -- an
+	// attach offset -- was built and measured the same day and REJECTED on the frames:
+	// it lifts the gun exactly the predicted 15.24 cm (probe gunLoc 1.09 -> 1.24 m),
+	// and the pictures show a pistol floating above hands that hold nothing, because
+	// from the play camera the hands hide the grip at waist level and the raised gun
+	// rises out of them with background visible in between.
+	//
+	// THE CONSTANTS ARE MEASURED, NOT POSED. tools/gunraise.py derived each from the
+	// in-pose bone dump (probe ticks 2-3 of capture `bones2`, 2026-10-15): the world
+	// rotation about the shoulder line that lifts THAT wrist by exactly 15.24 cm,
+	// conjugated into the clavicle's local frame -- delta = P^-1 * R_c * P -- which is
+	// what pre-multiplying an arm track's LOCAL keys applies. Right arm +24.62 deg,
+	// left +23.82 deg; the same arc also carries the wrists ~7 cm further from the
+	// body, so the gun ends up LESS occluded by the torso, not more. One constant
+	// delta on every key keeps the authored breathing and sway exactly as they are --
+	// the whole arm just sits higher. A RaiseWristsCm other than 15.24 rescales the
+	// angle about the same measured axis, exact to first order over this range.
+	//
+	// RotationSpreadDeg (and with it the Cast test's spreads) is invariant under a
+	// constant pre-multiply -- every key moves together, so key-to-first angles do not
+	// change -- which is why this pass cannot silently invalidate the assertions.
+	int32 Raised = 0;
+	FString RaiseDetail;
+	if (RaiseWristsCm > 0.0f)
+	{
+		struct FRaise
+		{
+			const TCHAR* Bone;
+			FQuat DeltaAt1524; // LOCAL-space pre-multiply, calibrated for +15.24 cm
+		};
+		const FRaise Raises[] = {
+			{ TEXT("RightArm"), FQuat(0.00921f, 0.20664f, 0.05103f, 0.97701f) },
+			{ TEXT("LeftArm"),  FQuat(0.00970f, -0.18782f, -0.08389f, 0.97847f) },
+		};
+		const float Scale = RaiseWristsCm / 15.24f;
+		for (const FRaise& Raise : Raises)
+		{
+			const FName Track = ResolveTrack(Tracks, Raise.Bone);
+			if (Track.IsNone())
+			{
+				Misses.Add(FString(Raise.Bone) + TEXT("(raise)"));
+				continue;
+			}
+			FHIKeySet Keys;
+			if (!CollectKeys(*Model, Track, Keys) || Keys.Rot.Num() != Frames + 1)
+			{
+				Misses.Add(FString(Raise.Bone) + TEXT("(raise keys)"));
+				continue;
+			}
+			// Rescale about the measured axis (manual axis-angle, not ToAxisAndAngle:
+			// the same math gunraise.py ran, so the two cannot drift on an API change).
+			const float W = FMath::Clamp(Raise.DeltaAt1524.W, -1.0, 1.0);
+			const float Angle = 2.0f * FMath::Acos(W);
+			const float HalfSin = FMath::Sin(Angle * 0.5f);
+			const FVector Axis = (FMath::Abs(HalfSin) < 1e-6f)
+				? FVector(0.0f, 0.0f, 1.0f)
+				: FVector(Raise.DeltaAt1524.X, Raise.DeltaAt1524.Y, Raise.DeltaAt1524.Z) / HalfSin;
+			const float ScaledAngle = Angle * Scale;
+			const FQuat Scaled(Axis, ScaledAngle);
+			const FQuat4f Delta(Scaled.X, Scaled.Y, Scaled.Z, Scaled.W);
+			for (int32 i = 0; i < Keys.Rot.Num(); ++i)
+			{
+				Keys.Rot[i] = Delta * Keys.Rot[i];
+			}
+			if (Controller->SetBoneTrackKeys(Track, Keys.Pos, Keys.Rot, Keys.Scale,
+				/*bShouldTransact=*/false))
+			{
+				++Raised;
+				RaiseDetail += FString::Printf(TEXT("%s:%+.1fdeg "),
+					Raise.Bone, FMath::RadiansToDegrees(ScaledAngle));
+			}
+			else
+			{
+				Misses.Add(FString(Raise.Bone) + TEXT("(raise set failed)"));
+			}
+		}
+	}
+
 	Controller->CloseBracket(/*bShouldTransact=*/false);
 	Seq->PostEditChange();
 
 	Report += FString::Printf(TEXT(" -- pinned %d/%d"), Pinned, Pins.Num());
+	if (RaiseWristsCm > 0.0f)
+	{
+		Report += FString::Printf(TEXT(" wrists=+%.2fcm raised %d/2 (%s)"),
+			RaiseWristsCm, Raised, *RaiseDetail.TrimEnd());
+	}
 	if (Misses.Num() > 0)
 	{
 		Report += TEXT(" MISSED: ") + FString::Join(Misses, TEXT(","));

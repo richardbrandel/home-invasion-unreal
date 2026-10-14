@@ -57,6 +57,19 @@ NORMALIZE_MODES = {
 	"death": "none",
 }
 NORMALIZE_DEFAULT_MODE = "locomotion"
+
+# Richard, 2026-10-15, on the pistol-ready pose: "Move the gun up a little bit,
+# about 6 inches." The gun is parented to the hand bone, so raising the gun means
+# raising the HANDS: for the clips below, the tool pre-multiplies measured
+# local-space shoulder deltas (derived by tools/gunraise.py from the in-pose
+# -HIProbe bone dump of 2026-10-15) onto the LeftArm/RightArm tracks. The gun-only
+# alternative -- an attach offset -- was built, measured (an exact 15.24 cm rise)
+# and rejected on the frames: a pistol floating above hands that hold nothing.
+# Only pistol_idle for now; whether shoot/reload need the same raise to keep the
+# firing transitions continuous is a look-at-the-frames question, not a guess.
+RAISE_WRISTS_CM = {
+	"pistol_idle": 15.24,
+}
 # A report is a failure when it says so, in the tool's own words. Mode "none" succeeds
 # with "report only, SAVED nothing"; every failure path says "(nothing normalized)",
 # "MISSED", "FAILED" or "NOT UNIFORM".
@@ -153,7 +166,7 @@ def _normalize(rel_path, imported_path, folder):
 		print("HI_IMPORT: FAILED to normalize %s -- unreal.HIAnimTool is missing "
 			"(the C++ build is older than this script)" % pkg)
 		return False
-	report = tool.normalize_character_clip(pkg, mode)
+	report = tool.normalize_character_clip(pkg, mode, RAISE_WRISTS_CM.get(base, 0.0))
 	print("HI_IMPORT: normalize: %s" % report)
 	return not any(tok in report for tok in NORMALIZE_FAIL_TOKENS)
 

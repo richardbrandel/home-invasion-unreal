@@ -423,7 +423,8 @@ void AHIPlayerCharacter::SyncFromSim(const FHISim::FHIPlayer& P)
 				FMath::Clamp(FVector::DotProduct(GunUp.GetSafeNormal(), FVector::UpVector), -1.0f, 1.0f)));
 			UE_LOG(LogTemp, Display,
 				TEXT("HI: probe weapon=%s mesh=%s bodyVis=%d gunVis=%d behind=%.2f ")
-				TEXT("barrelVsAim=%.1fdeg gunRollFromUp=%.1fdeg gunDist=%.2f inFrontOfCamera=%d"),
+				TEXT("barrelVsAim=%.1fdeg gunRollFromUp=%.1fdeg gunDist=%.2f inFrontOfCamera=%d ")
+				TEXT("gunLoc=(%.2f,%.2f,%.2f)m"),
 				*ShownWeapon,
 				(Gun->GetStaticMesh() != nullptr ? *Gun->GetStaticMesh()->GetName() : TEXT("NONE")),
 				(Body != nullptr && Body->IsVisible()) ? 1 : 0,
@@ -431,13 +432,55 @@ void AHIPlayerCharacter::SyncFromSim(const FHISim::FHIPlayer& P)
 				BehindHim,
 				BarrelVsAimDeg, GunRollDeg,
 				ToGun.Size() / HI_METERS_TO_UU,
-				(FVector::DotProduct(ToGun.GetSafeNormal(), CamFwd) > 0.0f) ? 1 : 0);
+				(FVector::DotProduct(ToGun.GetSafeNormal(), CamFwd) > 0.0f) ? 1 : 0,
+				GunLoc.X / HI_METERS_TO_UU, GunLoc.Y / HI_METERS_TO_UU, GunLoc.Z / HI_METERS_TO_UU);
 			UE_LOG(LogTemp, Display,
 				TEXT("HI: probe   camfwd=(%.2f,%.2f,%.2f) bodyfwd=(%.2f,%.2f,%.2f) barrel=(%.2f,%.2f,%.2f) gunup=(%.2f,%.2f,%.2f)"),
 				CamFwd.X, CamFwd.Y, CamFwd.Z,
 				BodyFwd.X, BodyFwd.Y, BodyFwd.Z,
 				Barrel.X, Barrel.Y, Barrel.Z,
 				GunUp.X, GunUp.Y, GunUp.Z);
+
+			// ---- THE BONES THAT HOLD THE GUN, DUMPED ON TICKS 2 AND 3. `-HIGunLoc` seats
+			// the grip in the HAND BONE's frame, and `AttachPistol` says plainly that
+			// nobody has measured those axes -- so "the gun 6 inches higher" is not a
+			// vector anyone can type until R_bone is known. Both the seat offset and any
+			// arm-raise in the import tool get COMPUTED from this dump instead of
+			// guessing at Mixamo's axis conventions. Mixamo names only (the rig in use);
+			// a mannequin run says NOT FOUND per bone rather than pretending.
+			//
+			// NOT THE FIRST TICK, and that mistake was already made once: the probe also
+			// fires the instant the weapon visual changes, and at round start that is
+			// FRAME 1, before the anim system has evaluated a single pose. The first
+			// dump was the reference T-pose -- hands out at the sides, RightHand Z
+			// 1.394 m against the in-pose gunLoc Z of 1.09 m -- a measurement of
+			// nothing. Ticks 2-3 are mid-loop, and two samples show the breathing
+			// spread any raise has to survive.
+			static int32 ProbeTicks = 0;
+			++ProbeTicks;
+			if ((ProbeTicks == 2 || ProbeTicks == 3) && Body != nullptr)
+			{
+				const TCHAR* const BoneNames[] = {
+					TEXT("RightHand"), TEXT("LeftHand"),
+					TEXT("RightArm"), TEXT("LeftArm"),
+					TEXT("RightShoulder"), TEXT("LeftShoulder") };
+				for (const TCHAR* BoneName : BoneNames)
+				{
+					const int32 BoneIdx = Body->GetBoneIndex(FName(BoneName));
+					if (BoneIdx == INDEX_NONE)
+					{
+						UE_LOG(LogTemp, Warning, TEXT("HI: probe bone %s NOT FOUND"), BoneName);
+						continue;
+					}
+					const FTransform BoneTm = Body->GetBoneTransform(BoneIdx);
+					const FVector BonePos = BoneTm.GetLocation() / HI_METERS_TO_UU;
+					const FQuat BoneRot = BoneTm.GetRotation();
+					UE_LOG(LogTemp, Display,
+						TEXT("HI: probe bone %s pos=(%.3f,%.3f,%.3f)m quat=(%.4f,%.4f,%.4f,%.4f)"),
+						BoneName, BonePos.X, BonePos.Y, BonePos.Z,
+						BoneRot.X, BoneRot.Y, BoneRot.Z, BoneRot.W);
+				}
+			}
 
 			// ---- WHICH WAY DOES THE MESH ACTUALLY FACE?
 			//

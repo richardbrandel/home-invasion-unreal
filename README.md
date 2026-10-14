@@ -1156,6 +1156,38 @@ Godot original draws, clipped to the panel.
     sim never leaves the homeowner without a gun), so she always stands on `pistol_idle`; `aim`
     stays imported, asserted and never played.
 
+    **And the clip held the gun about six inches lower than Richard wanted, which he called
+    from the chair with the number attached: "Move the gun up a little bit, about 6 inches."
+    (2026-10-15, the same day the pose shipped.)** Two ways exist to raise a gun parented at
+    zero offset to the hand bone, and both were built. The cheap one — an attach offset
+    (`-HIGunLoc`) — lifted the gun by exactly the predicted 15.24 cm (probe `gunLoc` Z
+    1.09 → 1.24 m) and was **rejected on the frames**: the hands stay at the waist, and from
+    the play camera, which looks down from behind, the hands hide the grip at waist level —
+    the offset gun rises out of them and floats visibly above hands holding nothing
+    (independent vision reads of matched crops: "GAP … no skin or hand material touches the
+    grip" against the baseline's gun-occluded-by-hands read). So the raise went into the
+    animation instead: `tools/gunraise.py` computed, from an in-pose `-HIProbe` bone dump
+    (capture `bones2` — the first dump attempt measured the frame-1 reference T-pose, because
+    the probe also fires on a weapon swap and that happens before the anim system evaluates a
+    single pose; the trap is recorded in the dump's own comment), the shoulder rotations that
+    lift each wrist by exactly 15.24 cm about the measured lateral axis — right +24.6°, left
+    +23.8° — expressed as constant LOCAL-space pre-multiply deltas (`P⁻¹ · R_c · P`, P the
+    clavicle's world rotation). `HIAnimTool`'s normalize pass applies them to `pistol_idle`'s
+    `LeftArm`/`RightArm` tracks at import for all four characters (every normalize report says
+    `wrists=+15.24cm raised 2/2 … SAVED`). One constant delta across every key keeps the
+    authored breathing and sway exactly as they are, and a pre-multiply leaves every
+    rotation-spread-against-the-first-key unchanged — which is what `HI.Unreal.Cast`
+    measures, so the assertions could not drift. Verified 2026-10-15: `gunLoc` Z 1.09 →
+    1.19-1.25 m across the breathing loop; the RightHand bone itself 1.097 → 1.249 m and the
+    LeftHand 1.072/1.034 → 1.224/1.174 m, i.e. **the hands travel with the gun** (gunLoc
+    still equals the hand position to the millimetre); gunSight clear; `barrelVsAim` still
+    0.0°, because the aim override never reads the arm tracks; import 107/0; suite 41/41; and
+    the vision read of the raised crop answers "**CONTACT** … all five fingers wrapped around
+    the grip". The same arc also carries the wrists ~7 cm further from the torso, so the
+    raise makes the gun slightly MORE visible, not less. Whether `shoot`/`reload` need the
+    same raise for transition continuity is deliberately open — it is a look-at-the-frames
+    question, and the frames so far only ever showed `pistol_idle`.
+
 ## The fix list, item by item
 
 Godot item numbers are from `../home-invasion-godot/ROADMAP-2.md`. **This is the Unreal
