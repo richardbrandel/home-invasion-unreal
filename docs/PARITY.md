@@ -291,8 +291,9 @@ before that day — see below), and fixed the same day:
   that can never be won or lost. Fixed in the port by self-healing the search route (with a
   nearest-OTHER-node fallback, because `NearestNode` is Voronoi and can name a room across a
   wall) and by teaching the reroute room names. `HI.Sim.Searching` now reproduces the frozen
-  state itself and asserts he walks out. **Godot is NOT patched** — Richard's call, flagged
-  in the 2026-10-15 report.
+  state itself and asserts he walks out. **Godot is NOT patched** — Richard's decision,
+  recorded 2026-10-15: leave Godot alone for now; the original ships with the bug, and the
+  sim.gd line numbers in this entry are the map if that ever changes.
 - **THE PINCER: the avoid-orbit and a wall corner held a searcher to ±5 mm.** With the freeze
   fixed, the regression still did not arrive: frame-level tracing caught him at (−1.58, −13.81),
   exactly 2.21 m from the idle homeowner — `AVOID_RANGE` is 2.2. The raw bearing to the

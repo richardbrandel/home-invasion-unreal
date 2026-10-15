@@ -1227,8 +1227,9 @@ Godot original draws, clipped to the panel.
     frame-level tracing caught the alternation: step southwest, wall contact, slide south;
     deflect west, head-on contact, no slide tangent, handed straight back. `SteerAround` now
     probes both deflection sides one metre ahead and refuses to steer into a wall, and the
-    move loop slides along contact tangents instead of grinding. Godot is NOT patched — both
-    bugs are Richard's call there. `HI.Sim.Searching` reproduces the frozen state and the
+    move loop slides along contact tangents instead of grinding. Godot is NOT patched — Richard's
+    decision, recorded 2026-10-15, is to leave the original alone for now; the sim.gd line
+    numbers above are the map if that ever changes. `HI.Sim.Searching` reproduces the frozen state and the
     reroute target as regressions, because the original suite's heist test only ever ran
     configurations where another thief masks the freeze.
 
