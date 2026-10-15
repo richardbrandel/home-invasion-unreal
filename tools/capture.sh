@@ -160,9 +160,12 @@ else
 fi
 
 # shellcheck disable=SC2086
-setsid nohup "$UE" "$PROJ" -game $VIDEO -ResX=1600 -ResY=900 -unattended -nopause -nosplash \
+# $PASSTHRU GOES FIRST: FParse::Value takes the FIRST occurrence, so raw extra args
+# (-- -HIThieves=5) only override the script's own flags and defaults if they lead.
+# Same trap, same day, same measurement as play.sh (2026-10-15).
+setsid nohup "$UE" "$PROJ" -game $PASSTHRU $VIDEO -ResX=1600 -ResY=900 -unattended -nopause -nosplash \
 	-HIThieves="$THIEVES" "$SHOTARG" -HIShotSeries="$TIMES" \
-	-log -abslog="$LOG" $PASSTHRU >/tmp/hi_capture.out 2>&1 < /dev/null &
+	-log -abslog="$LOG" >/tmp/hi_capture.out 2>&1 < /dev/null &
 disown 2>/dev/null || true
 
 n=0

@@ -212,6 +212,13 @@ bool FHISimSeparation::RunTest(const FString& Parameters)
 		Apart[0].Equals(FVector2D(0.0f, 0.0f), 0.001f)
 		&& Apart[1].Equals(FVector2D(0.0f, 5.0f), 0.001f));
 
+	// GODOT test_sim.gd:125-127, ported 2026-10-15 (PARITY item 14): the DIRECTION of
+	// yield is the documented choice that caused 142 re-routes when it was wrong. The
+	// distance assertions above would all pass with the two bodies swapping roles.
+	const TArray<FVector2D> Yield = FHISim::SeparateBodies(FVector2D(0.0f, 0.0f), FVector2D(0.0f, 0.3f));
+	TestTrue(FString::Printf(TEXT("the homeowner is the body that yields (player ended at y=%.3f)"), Yield[0].Y),
+		Yield[0].Y < 0.0f);
+
 	// THE CONTRACT, over many forced contacts: no two of N bodies ever overlap, and nobody
 	// leaves the world. This is what separate_all exists for and what the Godot suite
 	// measures over 900 frames.
@@ -256,6 +263,22 @@ bool FHISimSeparation::RunTest(const FString& Parameters)
 		const float Ahead = FMath::Atan2(1.0f, 0.0f);      // facing +Y
 		const float Steered = FHISim::SteerAround(Ahead, From, FVector2D(0.5f, 1.0f));
 		TestNotEqual(TEXT("steer_around turns away from a player in front"), Steered, Ahead);
+		// test_sim.gd:131-132, ported 2026-10-15 (PARITY item 14): Godot asserts the
+		// MAGNITUDE, and the port asserted only "not equal" -- AVOID_TURN could be 0.001
+		// and that passes. A check that cannot fail is not a check.
+		TestTrue(FString::Printf(TEXT("and it turns by more than 0.1 rad (%.3f against %.3f)"), Steered, Ahead),
+			FMath::Abs(Steered - Ahead) > 0.1f);
+
+		// test_sim.gd:137-140, ported 2026-10-15 (PARITY item 14): the swerve must turn
+		// AWAY from the homeowner, not into him. Godot's own inputs, unchanged: heading
+		// north (-PI/2), homeowner ahead and to one side, heading must come out > north.
+		const float North = -UE_PI * 0.5f;
+		const float Swerve = FHISim::SteerAround(North, FVector2D(0.0f, 0.0f), FVector2D(-0.4f, -1.5f));
+		TestTrue(FString::Printf(TEXT("the swerve turns away from the homeowner, not into him (%.3f > %.3f)"),
+			Swerve, North), Swerve > North);
+		const float DeadAhead = FHISim::SteerAround(North, FVector2D(0.0f, 0.0f), FVector2D(0.0f, -1.5f));
+		TestTrue(FString::Printf(TEXT("and a homeowner dead ahead also moves the heading by more than 0.1 rad (%.3f)"),
+			DeadAhead), FMath::Abs(DeadAhead - North) > 0.1f);
 
 		const float BehindAhead = FHISim::SteerAround(Ahead, From, FVector2D(0.0f, -1.0f));
 		TestEqual(TEXT("steer_around leaves a heading alone when the player is behind"),
@@ -450,10 +473,17 @@ bool FHISimMomentum::RunTest(const FString& Parameters)
 		Speeds[0], Speeds[9], FHISim::ThiefSpeed),
 		Speeds[9] > Speeds[0] && Speeds[9] < FHISim::ThiefSpeed);
 
-	// Now take his route away and watch him coast to a halt. `halted > 0` is the whole
+	// Now stop him mid-stride and watch him coast to a halt. `halted > 0` is the whole
 	// assertion: a body that stopped dead would read 0 on the first frame.
+	//
+	// He is stopped by DWELL, not by taking his route away. Emptying the route used to be
+	// enough -- but only because of the frontHub freeze: the search branch never rebuilt an
+	// emptied route, so the "coast" was really the freeze with a speed on it. Since the
+	// 2026-10-15 self-heal an empty route is refilled on the next step (that is the point of
+	// the fix), so this gates the walk the honest way: a thief listening at a threshold does
+	// not move, and his speed decays while he listens.
 	const float Peak = Thief.Speed;
-	Thief.Route.Empty();
+	Thief.Think = 5.0f;
 	int32 Halted = -1;
 	for (int32 Frame = 0; Frame < 60; ++Frame)
 	{
@@ -594,6 +624,13 @@ bool FHISimShove::RunTest(const FString& Parameters)
 	TestTrue(FString::Printf(TEXT("and the valuable is back in the world where he stood (taken=%d delivered=%d)"),
 		Loot[1].bTaken ? 1 : 0, Loot[1].bDelivered ? 1 : 0),
 		!Loot[1].bTaken && !Loot[1].bDelivered);
+	// PARITY item 14, 2026-10-15: Godot's message says "where he stood" but its assertion
+	// checks only the flags, and so did this one. The POSITION is the part that can silently
+	// break -- loot that "returns to the world" at the origin or at the drop point would
+	// pass both suites and read as a teleport in play.
+	TestTrue(FString::Printf(TEXT("and it landed at his feet, not elsewhere (loot (%.2f,%.2f) vs thief (%.2f,%.2f))"),
+		Loot[1].Pos.X, Loot[1].Pos.Y, Thief.Pos.X, Thief.Pos.Y),
+		Loot[1].Pos.Equals(Thief.Pos, 0.001f));
 
 	// And he must not simply snatch it straight back off the floor.
 	Thief.Think = 0.0f;
@@ -1039,6 +1076,115 @@ bool FHISimSearching::RunTest(const FString& Parameters)
 	}
 	TestTrue(FString::Printf(TEXT("and he does not search the same room twice (kitchen appears %d times)"), KitchenCount),
 		KitchenCount == 1);
+
+	// ---- THE FRONTHUB FREEZE, measured 2026-10-15 in a single-thief soak and reproduced
+	// byte-identically across two 400 s runs: mode=search, target=bedroom, route=<none>,
+	// stuck=0.00, parked 0.59 m from frontHub with the bedroom 5.66 m away and unsearched,
+	// for the remaining 327 seconds. Two defects compounded: a reroute resolved the target
+	// only as a loot LABEL, so the search target 'bedroom' fell through to the frontHub
+	// default; and the search branch rebuilt a route only when the target CHANGED, so the
+	// emptied route never came back -- while the stuck detector stayed blind because it
+	// measures travel against the step he wanted, and an empty route wants nothing. Three
+	// thieves hide it (the others search on); the survivor of two kills freezes the same
+	// way, and then the round can never end. Both fixes live in StepThief; this is the
+	// frozen state itself, asserting it walks out.
+	{
+		const int32 BedroomIdx = FHISim::NodeNames().IndexOfByKey(TEXT("bedroom"));
+		const int32 HubIdx = FHISim::NodeNames().IndexOfByKey(TEXT("frontHub"));
+		FHISim::FHIThief Frozen = FHISim::CreateThief();
+		FHISim::FHIPlayer Idle = FHISim::CreatePlayer();
+		TArray<FHISim::FHILootItem> House = FHISim::CreateLoot();
+		TArray<FHISim::FHIEvent> FEvents;
+
+		Frozen.Pos = FHISim::NodePositions()[HubIdx] + FVector2D(-0.30f, -0.51f);  // the soak's exact spot
+		Frozen.Prev = Frozen.Pos;
+		Frozen.Mode = TEXT("search");
+		Frozen.Target = TEXT("bedroom");
+		Frozen.Searched.Add(TEXT("living"));   // the TV was found here...
+		Frozen.Searched.Add(TEXT("kitchen"));  // ...and the kitchen already came up empty,
+		// so the bedroom is the NEAREST UNSEARCHED room and the target he is frozen on --
+		// without this line the search branch would pick the kitchen instead and the test
+		// would assert against a room the soak never named.
+		House[0].bKnown = true;                            // the TV was found...
+		House[0].bTaken = true;
+		House[0].bDelivered = true;                        // ...and is gone
+
+		FHISim::StepThief(Frozen, Idle, House, FEvents, Dt);
+		TestTrue(FString::Printf(TEXT("a frozen searcher rebuilds his route on the next step (route=%d waypoint(s))"),
+			Frozen.Route.Num()), Frozen.Route.Num() > 0);
+		TestTrue(FString::Printf(TEXT("and it ends at the room he was searching, not somewhere else (last=(%.2f,%.2f))"),
+			Frozen.Route.Num() > 0 ? Frozen.Route.Last().X : 0.0f,
+			Frozen.Route.Num() > 0 ? Frozen.Route.Last().Y : 0.0f),
+			Frozen.Route.Num() > 0
+			&& Frozen.Route.Last().Equals(FHISim::NodePositions()[BedroomIdx], 0.001f));
+
+		// And the proof that matters: he finishes the walk and the safe becomes known.
+		bool bFoundSafe = false;
+		for (int32 N = 0; N < 3600; ++N)
+		{
+			FHISim::StepThief(Frozen, Idle, House, FEvents, Dt);
+			if (House[2].bKnown)                           // index 2 is the Safe
+			{
+				bFoundSafe = true;
+				break;
+			}
+		}
+		// The failure message carries his END STATE, because a walk that does not arrive
+		// has a dozen causes -- pinned, dwelling, rerouting -- and "false" names none of
+		// them. This is the message that diagnosed the divider-corner pin of 2026-10-15.
+		TestTrue(FString::Printf(
+			TEXT("and he reaches the bedroom and finds the safe within a minute of sim (end: pos=(%.2f,%.2f) mode=%s target=%s route=%d think=%.2f stuck=%.2f)"),
+			Frozen.Pos.X, Frozen.Pos.Y, *Frozen.Mode, *Frozen.Target, Frozen.Route.Num(),
+			Frozen.Think, Frozen.StuckT), bFoundSafe);
+	}
+
+	// ---- the reroute half of the same freeze, asserted where it is decided: a searcher
+	// who cannot move must be rerouted to the ROOM HE IS SEARCHING. He is parked against
+	// the world's north edge with a waypoint he can never reach, so the stuck detector
+	// fires inside 1.2 s and the reroute target is the thing under test.
+	{
+		FHISim::FHIThief Pinned = FHISim::CreateThief();
+		FHISim::FHIPlayer Far = FHISim::CreatePlayer();
+		TArray<FHISim::FHILootItem> House = FHISim::CreateLoot();
+		TArray<FHISim::FHIEvent> PEvents;
+
+		const int32 BedroomIdx = FHISim::NodeNames().IndexOfByKey(TEXT("bedroom"));
+		Pinned.Pos = FVector2D(0.0f, 23.7f);               // against ClampToWorld's north edge
+		Pinned.Prev = Pinned.Pos;
+		Pinned.Mode = TEXT("search");
+		Pinned.Target = TEXT("bedroom");
+		Pinned.Searched.Add(TEXT("living"));   // same reasoning as the frozen block: the
+		Pinned.Searched.Add(TEXT("kitchen"));  // bedroom must BE the nearest unsearched room,
+		// or the decide step overwrites the pinned route on frame one and nothing gets stuck
+		Pinned.Route.Add(FVector2D(0.0f, 27.0f));          // a waypoint past the edge: unreachable
+		Pinned.Think = 0.0f;
+
+		bool bRerouted = false;
+		// 480 frames = 8 s: the fresh thief's 2 s opening dwell, then the stuck detector's
+		// own 1.2 s, then margin -- a budget that barely fits is a test that flakes.
+		for (int32 N = 0; N < 480; ++N)
+		{
+			FHISim::StepThief(Pinned, Far, House, PEvents, Dt);
+			for (const FHISim::FHIEvent& Ev : PEvents)
+			{
+				if (Ev.Type == TEXT("reroute"))
+				{
+					bRerouted = true;
+				}
+			}
+			PEvents.Reset();
+			if (bRerouted)
+			{
+				break;
+			}
+		}
+		TestTrue(TEXT("a searcher who cannot move reroutes within a couple of seconds"), bRerouted);
+		TestTrue(FString::Printf(TEXT("and the reroute sends him to the room he was searching (last=(%.2f,%.2f))"),
+			Pinned.Route.Num() > 0 ? Pinned.Route.Last().X : 0.0f,
+			Pinned.Route.Num() > 0 ? Pinned.Route.Last().Y : 0.0f),
+			Pinned.Route.Num() > 0
+			&& Pinned.Route.Last().Equals(FHISim::NodePositions()[BedroomIdx], 0.001f));
+	}
 
 	return true;
 }

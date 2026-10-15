@@ -166,6 +166,15 @@ public:
 	float LastDamageTime = -100.0f;
 
 	/**
+	 * Directional hit-marker state, read by the HUD every frame. The bearing is the screen
+	 * angle game.gd:1145 computes -- 0 is straight ahead, +PI/2 screen-right -- and the time
+	 * is what is left of the 1.1 s fade (game.gd:1146). Set when a thief's shot roll HITS;
+	 * a round that goes wide gives no direction, which is also the original's behaviour.
+	 */
+	float HitMarkBearing = 0.0f;
+	float HitMarkTime = 0.0f;
+
+	/**
 	 * Latest short message for the HUD, and how long it has left.
 	 *
 	 * The Godot original carries `msg`/`msg_t` for exactly this: "They grabbed the TV!" is

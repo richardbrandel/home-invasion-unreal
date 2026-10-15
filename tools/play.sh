@@ -51,7 +51,13 @@ hi_detect_session
 hi_kill_stale_editor
 
 LOG=/tmp/hi_play.log
-setsid nohup "$UE" "$PROJ" -game -windowed -ResX=1600 -ResY=900 -HIThieves=3 "$@" \
+# DEFAULTS GO *AFTER* "$@", because FParse::Value takes the FIRST occurrence on the
+# command line. Measured 2026-10-15: with the defaults in front, a run asking for
+# `-HIThieves=1` silently played with 3 -- every variant of a soak battery came back
+# `intruders=3` with identical step counts, and the single-thief question the battery
+# existed to answer was never asked. Explicit arguments must win over defaults, and
+# with first-wins parsing the only way to arrange that is defaults last.
+setsid nohup "$UE" "$PROJ" -game "$@" -windowed -ResX=1600 -ResY=900 -HIThieves=3 \
 	-log -abslog="$LOG" >/tmp/hi_play.out 2>&1 < /dev/null &
 disown 2>/dev/null || true
 

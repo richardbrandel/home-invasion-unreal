@@ -1188,6 +1188,88 @@ Godot original draws, clipped to the panel.
     same raise for transition continuity is deliberately open — it is a look-at-the-frames
     question, and the frames so far only ever showed `pistol_idle`.
 
+23. **EVERY "SINGLE-THIEF" EXPERIMENT EVER RUN HAD THREE THIEVES IN IT.** Found 2026-10-15,
+    and it invalidates measurements rather than frames. `tools/play.sh` appended its own
+    `-HIThieves=3` to the launch line BEFORE `"$@"`, and `FParse::Value` takes the FIRST
+    occurrence of a flag — so the caller's `-HIThieves=1` was parsed second and ignored.
+    Proof: the first soak battery's three "1 thief", "2 thieves" and "5 thieves" runs all
+    logged `intruders=3` and identical 72.8 s / 4365-step results. The earlier-session
+    "single thief stalls at 1/3 in 180 s" measurement died with it — re-run properly the next
+    day it showed the stall was real, and much worse (bug 24). Fixed by moving `"$@"` first
+    in `play.sh` and `$PASSTHRU` first in `capture.sh`, with the trap written down at both
+    sites: same bug, same day, same measurement, twice.
+
+24. **ONE THIEF COULD FREEZE THE HEIST FOREVER, AND THE ROUND COULD THEN NEVER END.** Found
+    by the corrected soak battery, 2026-10-15: two byte-identical 400 s single-thief runs
+    (`sim_steps=24004` both) delivered one of three valuables, then stood at
+    `mode=search target=bedroom route=<none> stuck=0.00` for the remaining 327 seconds,
+    0.59 m from the frontHub node with the bedroom 5.66 m away. THREE defects compounded,
+    and **all three exist identically in the Godot original** — the port found a bug in its
+    own spec:
+
+    1. The stuck-reroute resolved his target only as a loot LABEL. A searcher's target is a
+       ROOM NAME, so the lookup missed and `Back` fell to the `frontHub` default — the
+       reroute sent him away from the room he was walking to.
+    2. The search branch rebuilt a route only when the target CHANGED. He arrives at
+       frontHub, the last waypoint pops, the target is still `bedroom` — and no route is ever
+       rebuilt. Flee, carry and hunt all self-heal an empty route; search did not.
+    3. The stuck detector could not see him: it measures travel against the step he WANTED,
+       and a thief with no route wants nothing (`Want=0` skips the check entirely). That is
+       what `stuck=0.00` in the dump means — not "unstuck", but "invisible".
+
+    Three thieves hide it, because `bKnown` is global: somebody else searches the room, the
+    hunt branch takes over, the frozen man walks again. **The gameplay-reachable form is the
+    survivor** — drop two of three intruders and the last one can strand the round in a state
+    that can never be won or lost. Fixing (1) and (2) then uncovered a fourth, independent
+    trap: with the escape hatch gone, a searcher could still be held to ±5 mm in a PINCER
+    between the avoid-orbit (homeowner standing 2.2 m off, exactly `AVOID_RANGE`, directly
+    between him and the room) and the divider corner his deflected heading walked into —
+    frame-level tracing caught the alternation: step southwest, wall contact, slide south;
+    deflect west, head-on contact, no slide tangent, handed straight back. `SteerAround` now
+    probes both deflection sides one metre ahead and refuses to steer into a wall, and the
+    move loop slides along contact tangents instead of grinding. Godot is NOT patched — both
+    bugs are Richard's call there. `HI.Sim.Searching` reproduces the frozen state and the
+    reroute target as regressions, because the original suite's heist test only ever ran
+    configurations where another thief masks the freeze.
+
+25. **THE RETICLE COULD PROJECT OFF-SCREEN, AND ITS TEST COULD NOT CATCH IT.** Found
+    2026-10-15 while auditing checks rather than code. Unreal's `FieldOfView` is HORIZONTAL;
+    Godot's `cam.fov` is VERTICAL. The port fed the horizontal tangent into the vertical
+    formula AND multiplied X by the aspect while leaving Y bare — wrong under either reading.
+    An aim at the true frustum edge landed at x=1.389 on a 1.0-wide screen. Invisible in
+    play, because fixed mode aims along the camera forward and everything projects to the
+    centre; invisible to the suite, because the test computed `Expected` with the code's own
+    formula — a check that cannot fail is not a check, and this one's comment ("a quarter of
+    the way") even contradicted its own asserted number (0.324). Fixed as the honest tanH
+    translation of `game.gd:2092-2096` (X bare, Y × aspect), and the suite now carries
+    first-principles edge-ray assertions — a ray along the frustum edge MUST land on the
+    screen edge — which fail on any axis flip whatever the formula says. The pitch case is
+    asserted at 15°, not 20°: `PitchMin` clamps at 0.30 rad, and the first run of that test
+    measured the clamp instead of the formula (y=0.225 against 0.176 expected; the difference
+    is exactly tan(0.30) vs tan(20°)).
+
+26. **THE HIT MARKER WORKED ON DAY ONE. THE PIXEL SCANNER THAT CHECKED IT DID NOT.** Found
+    2026-10-15, and the entry stays in full because two confident wrong fixes were applied
+    before the measurement was questioned. A combat capture showed four HP hits on the HUD
+    (OCR: 78→50) and the ring scan around the crosshair found zero mark-coloured pixels —
+    so the mark was declared invisible and the engine source was read for causes. Two were
+    found, both plausible, both acting like fixes: a null-texture `FCanvasTileItem` takes a
+    material path that draws nothing (true in general — but the constructor used here
+    defaults its texture to `GWhiteTexture`, `CanvasItem.cpp:343`, so it never applied), and
+    a Roll rotation turns the quad out of the screen plane (true — Yaw is the in-plane
+    component, and the switch to Yaw stands on its own merits). Neither was the reason the
+    scan was empty. The reason, found only by dumping raw pixel values instead of
+    thresholding them: **the mark had drawn in every capture, at (248, 137, 129)** — the
+    `FLinearColor(0.94, 0.25, 0.22)` after the framebuffer's sRGB encode — while the
+    scanner's thresholds were written against the un-encoded colour and rejected every real
+    mark pixel. A check that can only fail is not a check either. The corrected scan finds
+    263-286 mark pixels per frame, bearing and radius matching the shooter, and a 15-degree
+    mark's bounding box measures 17 px wide, which is 10·cos15° + 28·sin15° to the pixel.
+    The `HitBearing` unit test passed throughout, because the math was never wrong. Lesson
+    for the next invisible feature: calibrate the scanner on a frame that is KNOWN to
+    contain the thing — a positive control — before believing an absence.
+
+
 ## The fix list, item by item
 
 Godot item numbers are from `../home-invasion-godot/ROADMAP-2.md`. **This is the Unreal

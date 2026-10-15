@@ -291,7 +291,13 @@ void AHIPlayerCharacter::ViewTransformCollided(const FHISim::FHIPlayer& P, FVect
 	if (World->SweepSingleByChannel(Hit, Pivot, Ideal, FQuat::Identity, ECC_Visibility,
 		FCollisionShape::MakeSphere(12.0f), Params))
 	{
-		OutLocation = Hit.Location;
+		// Then the 0.14 m standoff game.gd:1407 applies: the camera sits OFF the surface it
+		// found, pushed back toward the pivot, not plastered to the hit point. The sphere
+		// stays (the documented port decision above -- it keeps the near plane out of walls
+		// a zero-thickness ray would pass beside); the standoff was the half of Godot's
+		// pull-in the port dropped (PARITY item 13, 2026-10-15).
+		OutLocation = Hit.Location
+			+ (Pivot - Ideal).GetSafeNormal() * (0.14f * HI_METERS_TO_UU);
 	}
 	else
 	{
@@ -317,11 +323,13 @@ void AHIPlayerCharacter::SyncFromSim(const FHISim::FHIPlayer& P)
 	// pointing the way he is walking rather than the way he is glancing.
 	Body->SetWorldRotation(BodyRotation(P.Yaw));
 
-	// CAM_FADE, inherited from the Godot original. When the camera has been pulled in so
-	// hard that it is inside the homeowner, showing him fills the screen with the inside of
-	// his own back; hiding him shows the room, which is the information the player wanted.
+	// CAM_FADE, inherited from the Godot original, at its own value: game.gd:110 says 0.42
+	// and game.gd:1413 fades below it; the port had 0.35 with no recorded reason. When the
+	// camera has been pulled in so hard that it is inside the homeowner, showing him fills
+	// the screen with the inside of his own back; hiding him shows the room, which is the
+	// information the player wanted.
 	const float BehindHim = FVector::Dist(Location, EyePivot(P)) / HI_METERS_TO_UU;
-	Body->SetVisibility(BehindHim > 0.35f);
+	Body->SetVisibility(BehindHim > 0.42f);
 
 	// `Vel` is already in metres per second, and it is what makes him lean into a walk
 	// instead of skating: the clip choice and its stride are driven by MEASURED speed, so

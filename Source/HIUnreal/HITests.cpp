@@ -268,21 +268,57 @@ bool FHIUnrealReticle::RunTest(const FString& Parameters)
 		TestTrue(TEXT("a 20 degree yaw projects"), AHIHUD::ReticleFraction(Aim, Forward, Right, Up, HalfFov, Aspect, Frac));
 		TestTrue(FString::Printf(TEXT("and pushing the aim toward +X moves the reticle LEFT (x=%.3f)"), Frac.X),
 			Frac.X < 0.45f);
-		// 20 degrees off axis at a 45 degree half-FOV is (tan20/tan45) of the way to the edge,
-		// so a quarter of the way across half the screen. Checked as a magnitude rather than
-		// as "it moved", because "it moved" is also true of a reticle that moves ten times
-		// too far.
-		const float Expected = 0.5f - (FMath::Tan(FMath::DegreesToRadians(20.0f)) / HalfFov) * 0.5f * Aspect;
+		// 20 degrees off axis at a 45 degree half-FOV is tan20/tan45 = 0.364 of the way from
+		// the centre to the edge, and under the HORIZONTAL tangent that is the whole of the
+		// X correction -- no aspect factor. Checked as a magnitude rather than as "it moved",
+		// because "it moved" is also true of a reticle that moves ten times too far. (This
+		// Expected used to mirror the code's own formula, aspect factor and all, which made
+		// it a check that could not fail; the edge-ray assertions below are the ones that
+		// can, and they caught the axis flip this formula previously carried.)
+		const float Expected = 0.5f - (FMath::Tan(FMath::DegreesToRadians(20.0f)) / HalfFov) * 0.5f;
 		TestTrue(FString::Printf(TEXT("and by the right amount (x=%.3f, expected %.3f)"), Frac.X, Expected),
 			FMath::IsNearlyEqual(Frac.X, Expected, 2e-3f));
 	}
 
-	// ---- and pitch moves it in Y rather than in X
+	// ---- and pitch moves it in Y rather than in X, by tan20/tanH of the half-height times
+	// the aspect: under the horizontal tangent the VERTICAL correction is the one that
+	// carries the aspect (game.gd:2092-2096 divides Y by the vertical tangent). NEGATIVE
+	// pitch is looking UP in this sim -- the same convention the recoil kick relies on when
+	// it subtracts -- so an upward pitch must move the reticle toward y=0, the top edge.
 	{
-		const FVector Aim = FHISim::AimDir(0.0f, FMath::DegreesToRadians(20.0f));
+		// 15 degrees, NOT 20: PitchMin clamps the aim at 0.30 rad = 17.2 degrees, and a
+		// "20 degree pitch" is silently a 17.2 degree one -- the first run of this test
+		// measured the clamp instead of the formula (found 2026-10-15, y=0.225 against an
+		// expected 0.176; the difference is exactly tan(0.30) vs tan(20 deg)).
+		const FVector Aim = FHISim::AimDir(0.0f, FMath::DegreesToRadians(-15.0f));
 		AHIHUD::ReticleFraction(Aim, Forward, Right, Up, HalfFov, Aspect, Frac);
 		TestTrue(FString::Printf(TEXT("pitch leaves the reticle on the vertical axis (x=%.3f)"), Frac.X),
 			FMath::IsNearlyEqual(Frac.X, 0.5f, 1e-3f));
+		const float ExpectedY = 0.5f - (FMath::Tan(FMath::DegreesToRadians(15.0f)) / HalfFov) * 0.5f * Aspect;
+		TestTrue(FString::Printf(TEXT("and a 15 degree upward pitch lifts it by the right amount (y=%.3f, expected %.3f)"),
+			Frac.Y, ExpectedY),
+			FMath::IsNearlyEqual(Frac.Y, ExpectedY, 2e-3f));
+	}
+
+	// ---- THE EDGE RAYS, from first principles rather than from the formula: a ray along
+	// the frustum's horizontal edge is BY DEFINITION at the screen's horizontal edge, and
+	// likewise vertically. These are the assertions that fail when the aspect factor is on
+	// the wrong axis -- the bug this test could not see while its Expected was computed the
+	// same way as the code (found 2026-10-15: the port multiplied X by the aspect and left
+	// Y bare while feeding the HORIZONTAL tangent, so an aim at the true edge projected to
+	// x=1.389, off a 1.0-wide screen, and every existing assertion still passed).
+	{
+		const FVector EdgeH = Forward + Right * HalfFov;
+		TestTrue(TEXT("a ray along the horizontal frustum edge projects"),
+			AHIHUD::ReticleFraction(EdgeH, Forward, Right, Up, HalfFov, Aspect, Frac));
+		TestTrue(FString::Printf(TEXT("and lands on the screen edge, not off it (x=%.4f)"), Frac.X),
+			FMath::IsNearlyEqual(Frac.X, 1.0f, 1e-4f));
+
+		const FVector EdgeV = Forward + Up * (HalfFov / Aspect);
+		TestTrue(TEXT("a ray along the vertical frustum edge projects"),
+			AHIHUD::ReticleFraction(EdgeV, Forward, Right, Up, HalfFov, Aspect, Frac));
+		TestTrue(FString::Printf(TEXT("and lands on the screen's top edge, not short of it (y=%.4f)"), Frac.Y),
+			FMath::IsNearlyEqual(Frac.Y, 0.0f, 1e-4f));
 	}
 
 	// ---- an aim behind the camera has no position, and must say so rather than return a
@@ -290,6 +326,58 @@ bool FHIUnrealReticle::RunTest(const FString& Parameters)
 	{
 		TestFalse(TEXT("an aim behind the camera reports no position at all"),
 			AHIHUD::ReticleFraction(-Forward, Forward, Right, Up, HalfFov, Aspect, Frac));
+	}
+
+	return true;
+}
+
+// ------------------------------------------------------------ the hit bearing
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHIUnrealHitBearing,
+	"HI.Unreal.HitBearing",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FHIUnrealHitBearing::RunTest(const FString& Parameters)
+{
+	// The bearing of whoever just shot the homeowner, in screen angles: 0 straight ahead,
+	// +PI/2 screen-right, PI behind. game.gd:1142-1146 is the spec -- forward is
+	// (sin yaw, cos yaw), right is (-cos yaw, sin yaw) -- and the sim's own AimDir uses the
+	// same forward convention, so the two are asserted against each other rather than
+	// against a hand-computed idea of which way is "right".
+	const FVector2D Player(1.0f, -2.0f);
+
+	// Straight ahead, at an arbitrary yaw: the mark must sit at the centre, not to a side.
+	// Rotational invariance is the property that actually matters -- a formula that is only
+	// correct at yaw 0 is a formula with the axes swapped.
+	for (const float Yaw : { 0.0f, 1.1f, -2.3f })
+	{
+		const FVector2D Fwd(FMath::Sin(Yaw), FMath::Cos(Yaw));
+		const float B = AHIHUD::HitBearing(Player + Fwd * 4.0f, Player, Yaw);
+		TestTrue(FString::Printf(TEXT("a shooter straight ahead at yaw %.1f bears 0 (%.4f)"), Yaw, B),
+			FMath::IsNearlyEqual(B, 0.0f, 1e-4f));
+	}
+
+	// Screen-right: the sim's own right vector at yaw 0 is (-cos, sin) = (-1, 0), the same
+	// vector the camera basis in the reticle test uses -- so a shooter there must bear +PI/2,
+	// which DrawHitMark renders as dir (sin, -cos) = (+1, 0) pixels: right on screen.
+	{
+		const float B = AHIHUD::HitBearing(Player + FVector2D(-1.0f, 0.0f) * 3.0f, Player, 0.0f);
+		TestTrue(FString::Printf(TEXT("a shooter to the screen-right bears +PI/2 (%.4f)"), B),
+			FMath::IsNearlyEqual(B, UE_PI * 0.5f, 1e-4f));
+	}
+
+	// Screen-left is the mirror.
+	{
+		const float B = AHIHUD::HitBearing(Player + FVector2D(1.0f, 0.0f) * 3.0f, Player, 0.0f);
+		TestTrue(FString::Printf(TEXT("a shooter to the screen-left bears -PI/2 (%.4f)"), B),
+			FMath::IsNearlyEqual(B, -UE_PI * 0.5f, 1e-4f));
+	}
+
+	// Behind is either sign of PI -- what must not happen is a mark pointing forward.
+	{
+		const float B = AHIHUD::HitBearing(Player - FVector2D(0.0f, 1.0f) * 3.0f, Player, 0.0f);
+		TestTrue(FString::Printf(TEXT("a shooter behind bears PI, not 0 (%.4f)"), B),
+			FMath::IsNearlyEqual(FMath::Abs(B), UE_PI, 1e-4f));
 	}
 
 	return true;

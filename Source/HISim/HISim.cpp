@@ -1548,6 +1548,20 @@ TArray<FVector2D> FHISim::SeparateAll(const TArray<FVector2D>& Positions, const 
 	return Out;
 }
 
+namespace
+{
+	/**
+	 * Whether one stride of the given heading ends with his body inside something solid.
+	 * File-local because its only caller is SteerAround's side choice; it asks the same
+	 * question the move loop does, through the same ResolveCircle.
+	 */
+	bool BlockedAhead(const FVector2D& From, float Heading)
+	{
+		const FVector2D To = From + FVector2D(FMath::Cos(Heading), FMath::Sin(Heading)) * 1.0f;
+		return !FHISim::ResolveCircle(To, FHISim::ThiefRadius).Equals(To, 1e-4f);
+	}
+}
+
 float FHISim::SteerAround(float A, const FVector2D& From, const FVector2D& PlayerPos)
 {
 	const FVector2D ToP = PlayerPos - From;
@@ -1565,7 +1579,21 @@ float FHISim::SteerAround(float A, const FVector2D& From, const FVector2D& Playe
 	}
 	// break dead-on ties to a fixed side so he is predictable rather than jittering
 	const float Cross = Fwd.X * Dir.Y - Fwd.Y * Dir.X;
-	const float Side = (FMath::Abs(Cross) < 1e-4f) ? 1.0f : FMath::Sign(Cross);
+	float Side = (FMath::Abs(Cross) < 1e-4f) ? 1.0f : FMath::Sign(Cross);
+	// DO NOT STEER INTO A WALL -- a deliberate divergence added 2026-10-15, measured not
+	// theorised. The geometric side can point straight at solid geometry: a searcher
+	// north of the hall gap, with the homeowner standing between him and the bedroom node,
+	// gets the west deflection every frame, and west is the divider's corner one body-radius
+	// away. Head-on contact has no slide tangent, so ResolveCircle hands him straight back
+	// -- a pincer between the avoid orbit and the wall that holds him to +/-5 mm for the
+	// rest of the round (the HI.Sim.Searching regression reproduces it). One probe per side
+	// settles it: take the geometric side unless it is blocked and the other is not. The
+	// probe is 1.0 m of the deflected heading -- about three-quarters of a second at full
+	// pace -- with his own radius, which is the same question ResolveCircle answers.
+	if (BlockedAhead(From, A - Side * AvoidTurn) && !BlockedAhead(From, A + Side * AvoidTurn))
+	{
+		Side = -Side;
+	}
 	return A - Side * AvoidTurn;
 }
 
@@ -1897,6 +1925,61 @@ bool FHISim::StepThief(FHIThief& Thief, FHIPlayer& Player, TArray<FHILootItem>& 
 					Thief.Target = Room;
 					Thief.Route = RouteTo(NearestNode(TPos), Room);
 				}
+				else if (Thief.Route.Num() == 0)
+				{
+					// SELF-HEAL AN EMPTY ROUTE, the fourth branch to have it and the last to
+					// get it: flee, carry and hunt all rebuild when the route runs out, and
+					// search used to rebuild ONLY when the target changed. Measured
+					// 2026-10-15 in a single-thief soak, byte-identical across two 400 s
+					// runs: a reroute dropped him at frontHub, he popped the last waypoint
+					// there, target 'bedroom' never changed -- so no route was ever rebuilt,
+					// and the stuck detector could not see him because it measures travel
+					// against the step he WANTED and an empty route wants nothing
+					// (stuck=0.00 for the remaining 327 s, bedroom 5.66 m away, unsearched).
+					// With three thieves the others paper over it; the survivor of a
+					// homeowner who has dropped two of them freezes the same way, and the
+					// round can then never end. Godot's sim.gd:978-980 has the same shape.
+					Thief.Route = RouteTo(NearestNode(TPos), Room);
+					if (Thief.Route.Num() == 0)
+					{
+						// The nearest node IS the room, and PathNodes returns an empty path
+						// for equal endpoints by design. NearestNode is VORONOI, not
+						// walkable-reachable: north of the divider the bedroom node can be
+						// the nearest one, and walking straight at it ploughs into the wall
+						// -- the hall gap is the only way in, and only the graph knows
+						// that. So route from the nearest OTHER node instead; the direct
+						// walk stays as the last resort for a graph that cannot answer.
+						FString Other;
+						float OtherD = TNumericLimits<float>::Max();
+						const TArray<FString>& Names = NodeNames();
+						const TArray<FVector2D>& Poses = NodePositions();
+						for (int32 Idx = 0; Idx < Names.Num(); ++Idx)
+						{
+							if (Names[Idx] == Room)
+							{
+								continue;
+							}
+							const float D = FVector2D::DistSquared(Poses[Idx], TPos);
+							if (D < OtherD)
+							{
+								OtherD = D;
+								Other = Names[Idx];
+							}
+						}
+						if (!Other.IsEmpty())
+						{
+							Thief.Route = RouteTo(Other, Room);
+						}
+						if (Thief.Route.Num() == 0)
+						{
+							const int32 DirectIdx = NodeNames().IndexOfByKey(Room);
+							if (DirectIdx != INDEX_NONE)
+							{
+								Thief.Route.Add(NodePositions()[DirectIdx]);
+							}
+						}
+					}
+				}
 				const int32 RoomIdx = NodeNames().IndexOfByKey(Room);
 				if (RoomIdx != INDEX_NONE
 					&& FVector2D::Distance(TPos, NodePositions()[RoomIdx]) < SearchRange)
@@ -1976,7 +2059,42 @@ bool FHISim::StepThief(FHIThief& Thief, FHIPlayer& Player, TArray<FHILootItem>& 
 		// needs; the intent is `wish`. They were the same before he could accelerate.
 		Thief.Step = Thief.Speed * Dt;
 		TPos += FVector2D(FMath::Cos(A), FMath::Sin(A)) * Thief.Step;
-		TPos = ResolveCircle(TPos, ThiefRadius);
+		// WALL SLIDE, a deliberate divergence added 2026-10-15 (Godot grinds to a halt
+		// where this slides). Measured, not theorised: a searcher walking the
+		// opening->bedroom leg can pin himself on the west divider's corner -- the leg
+		// clears it by 0.80 m from the node, but the 0.6 m waypoint pop lets him start it
+		// up to 0.6 m off-axis, which eats the clearance down to 3.6 mm over his 0.42 m
+		// radius. Pinned, he jitters +/-0.01 m a frame along the corner face: enough
+		// travel to stay above the stuck detector's 25%-of-intent threshold, so StuckT
+		// never reaches 1.2 and no reroute ever fires (and a reroute would re-walk the
+		// same leg anyway). The frontHub freeze of 2026-10-15 was this pin's escape hatch;
+		// with that freeze fixed, the pin itself had to go. Projection onto the contact
+		// tangent is what a physical body does: the corner's push normal points east, the
+		// desired step points southwest, and the tangential remainder points SOUTH --
+		// through the hall gap, which is the way the route meant all along.
+		{
+			const FVector2D Stepped = TPos;
+			const FVector2D Resolved = ResolveCircle(Stepped, ThiefRadius);
+			if (!Resolved.Equals(Stepped, 1e-4f))
+			{
+				FVector2D PushN = Resolved - Stepped;              // out of the solid
+				PushN.Normalize();
+				const FVector2D StepDir(FMath::Cos(A), FMath::Sin(A));
+				FVector2D Tangent = StepDir - StepDir.Dot(PushN) * PushN;
+				if (Tangent.SizeSquared() > 0.0025f)               // head-on contact: no slide
+				{
+					TPos = ResolveCircle(Resolved + Tangent.GetSafeNormal() * Thief.Step, ThiefRadius);
+				}
+				else
+				{
+					TPos = Resolved;
+				}
+			}
+			else
+			{
+				TPos = Resolved;
+			}
+		}
 		TPos = ClampToWorld(TPos, ThiefRadius);
 		bWalked = true;
 		break;
@@ -2043,6 +2161,17 @@ bool FHISim::StepThief(FHIThief& Thief, FHIPlayer& Player, TArray<FHILootItem>& 
 				{
 					Back = L.Node;
 				}
+			}
+			// A SEARCH target is a room NAME, not a loot label, and the loop above only
+			// reads labels -- so a searcher who got stuck was rerouted to the frontHub
+			// default instead of the room he was walking to. That is how the 2026-10-15
+			// freeze started: frontHub, last waypoint popped, target unchanged, and (until
+			// the self-heal above existed) no route ever rebuilt. Labels (TV, Safe, Laptop)
+			// and node names (bedroom, study, ...) cannot collide, so both lookups are safe
+			// in either order; loot first because that is the older contract.
+			if (NodeNames().Contains(Thief.Target))
+			{
+				Back = Thief.Target;
 			}
 		}
 		Thief.Route = RouteTo(NearestNode(TPos), Back);

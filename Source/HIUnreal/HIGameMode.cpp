@@ -1067,7 +1067,11 @@ void AHIGameMode::ResolvePlayerShot(const FHISim::FHIEvent& Shot)
 		const float Kick = bShotgun ? RecoilShotgun : RecoilPistol;
 		Round.Player.Pitch = FMath::Clamp(Round.Player.Pitch - Kick,
 			FHISim::PitchMin, FHISim::PitchMax);
-		RecoilPending += Kick;
+		// 65% of the kick comes back, not all of it: game.gd:1456 does
+		// `recoil_recover += kick * 0.65`, so the original leaves a residue on the sight
+		// picture -- sustained fire climbs and the player has to pull back down. The port
+		// returned 100%, making the climb free (PARITY item 13, 2026-10-15).
+		RecoilPending += Kick * 0.65f;
 	}
 
 	for (int32 Pellet = 0; Pellet < Shot.Pellets; ++Pellet)
@@ -1107,8 +1111,17 @@ void AHIGameMode::ResolvePlayerShot(const FHISim::FHIEvent& Shot)
 				if (Mark != nullptr)
 				{
 					const bool bFlesh = Hit.GetActor() != nullptr && Hit.GetActor()->IsA(AHIIntruder::StaticClass());
-					Mark->Stamp(Hit.ImpactPoint, Hit.ImpactNormal,
-						bFlesh ? 0.07f : 0.10f,
+					// game.gd's _add_impact, all three of its numbers: the quad is 0.16 m,
+					// a shotgun hit scales it x1.7 (`big`), and flesh scales it x0.7. The
+					// port kept only the flesh ratio and invented a 0.10 base with no
+					// shotgun case at all (PARITY item 13, 2026-10-15) -- a shotgun's
+					// nine 0.27 m sheets ARE the feedback that a shotgun hit.
+					float HoleSize = bShotgun ? 0.16f * 1.7f : 0.16f;
+					if (bFlesh)
+					{
+						HoleSize *= 0.7f;
+					}
+					Mark->Stamp(Hit.ImpactPoint, Hit.ImpactNormal, HoleSize,
 						bFlesh ? FHIMaterials::Blood : HoleColour);
 				}
 			}
@@ -1271,7 +1284,11 @@ void AHIGameMode::ResolveThiefShot(const FHISim::FHIEvent& Shot)
 			MarkCursor = (MarkCursor + 1) % Marks.Num();
 			if (Mark != nullptr)
 			{
-				Mark->Stamp(WallHit.ImpactPoint, WallHit.ImpactNormal, 0.10f, HoleColour);
+				// 0.16 m, the same _add_impact base the homeowner's holes use: game.gd's
+				// thiefShot wall case calls it with big=false, on_flesh=false. His shot
+				// chipping the wall next to your head is the cue that the miss was close,
+				// and at the port's old 0.10 it was a cue you had to squint at.
+				Mark->Stamp(WallHit.ImpactPoint, WallHit.ImpactNormal, 0.16f, HoleColour);
 			}
 		}
 		return;
@@ -1294,6 +1311,12 @@ void AHIGameMode::ResolveThiefShot(const FHISim::FHIEvent& Shot)
 		UE_LOG(LogTemp, Verbose,
 			TEXT("HI: thief %d fires at %.1f m -- chance %.2f (lights=%d) HIT (hp %.0f)"),
 			Shot.Id, RangeM, Chance, bLightsOn ? 1 : 0, Round.Player.Hp);
+		// BEARING TO THE SHOOTER, before the wound and in the same branch as it, exactly as
+		// game.gd:1142-1146 orders them (PARITY item 8, ported 2026-10-15). Under
+		// -HINoThiefDamage the marker still draws: the roll hit, and the direction is a fact
+		// about the shot rather than about the withheld wound.
+		HitMarkBearing = AHIHUD::HitBearing(Who->Pos, Round.Player.Pos, Round.Player.Yaw);
+		HitMarkTime = 1.1f;
 		// The report goes into the ROUND's event list, not into LastEvents, because that is
 		// the list the round's own rules read -- `playerDown` has to reach ApplyRoundRules or
 		// a lethal hit would leave the round in Play forever.
@@ -1432,6 +1455,19 @@ void AHIGameMode::Tick(float DeltaSeconds)
 	// not the round-restart prompt, and not a window control, because this window has no title bar.
 	ClaimInput();
 	PollMouseRelease();
+
+	// The hit marker's fade, ticked here rather than in the HUD so the marker runs down even
+	// while the round itself is over and the HUD is only drawing the outcome banner.
+	//
+	// `-HIHoldHitMark` is Godot's `--dbg-hit` (game.gd:2170-2172), and the hold has to live
+	// HERE rather than in the draw: Godot clamps the timer itself so it never reaches zero,
+	// and a clamp applied only to the drawn alpha would still let the state decay and the
+	// mark vanish -- a debug switch that cannot hold anything is a switch that does nothing.
+	static const bool bHoldHitMark = FParse::Param(FCommandLine::Get(), TEXT("HIHoldHitMark"));
+	if (!bHoldHitMark)
+	{
+		HitMarkTime = FMath::Max(0.0f, HitMarkTime - DeltaSeconds);
+	}
 
 	if (Marks.IsEmpty())
 	{
@@ -1751,8 +1787,20 @@ void AHIGameMode::Tick(float DeltaSeconds)
 		}
 		else if (Ev.Type == TEXT("thiefShove"))
 		{
-			Message = TEXT("He shoved you back!");
-			MessageTime = 1.6f;
+			// He is on you, and this is the one moment the game should feel like a fight
+			// rather than a duel, so it shoves the VIEW as well as the message --
+			// game.gd:1181-1189 in full, text and timings included (PARITY item 13, ported
+			// 2026-10-15; the port's first version had the message only, and with different
+			// words). The recovery drift STACKS on the instant kick exactly as the original
+			// does: +0.10 now, and the 0.06 rides the same give-back the shots use.
+			Message = TEXT("He shoved you off!");
+			MessageTime = 1.4f;
+			Round.Player.Pitch = FMath::Clamp(Round.Player.Pitch + 0.10f,
+				FHISim::PitchMin, FHISim::PitchMax);
+			RecoilPending += 0.06f;
+			FHIAudio::Impact(World,
+				FVector(Round.Player.Pos.X, Round.Player.Pos.Y, 1.2f) * HI_METERS_TO_UU,
+				/*bFlesh=*/false);
 		}
 		else if (Ev.Type == TEXT("shouted"))
 		{

@@ -152,10 +152,26 @@ bool AHIHUD::ReticleFraction(const FVector& AimDir, const FVector& CameraForward
 	}
 	const float X = FVector::DotProduct(AimDir, CameraRight) / Z;
 	const float Y = FVector::DotProduct(AimDir, CameraUp) / Z;
-	// 0.5 is the centre; the aim's tangent over the half-FOV tangent is the offset.
-	OutFraction = FVector2D(0.5f + (X / HalfFovTangent) * 0.5f * AspectRatio,
-		0.5f - (Y / HalfFovTangent) * 0.5f);
+	// 0.5 is the centre. `HalfFovTangent` is the HORIZONTAL half-FOV tangent (Unreal's
+	// FieldOfView is horizontal; Godot's cam.fov is vertical). Godot's game.gd:2092-2096
+	// divides X by tan(v)*aspect and Y by tan(v); substituting tan(h) = tan(v)*aspect gives
+	// exactly this -- X by tan(h) with no factor, Y by tan(h) times the aspect. The first
+	// version of this port multiplied X by the aspect and left Y bare, which is wrong under
+	// EITHER reading of the FOV, and hid because in fixed mode the aim IS the camera forward
+	// and every projection lands on the centre whatever the formula says.
+	OutFraction = FVector2D(0.5f + (X / HalfFovTangent) * 0.5f,
+		0.5f - (Y / HalfFovTangent) * 0.5f * AspectRatio);
 	return true;
+}
+
+float AHIHUD::HitBearing(const FVector2D& ShooterPos, const FVector2D& PlayerPos, float PlayerYaw)
+{
+	// game.gd:1142-1146 verbatim: "Bearing to him in the homeowner's own frame: forward is
+	// (sin, cos), right is (-cos, sin), and atan2(right, forward) is the screen angle."
+	const FVector2D D = ShooterPos - PlayerPos;
+	const FVector2D Fwd(FMath::Sin(PlayerYaw), FMath::Cos(PlayerYaw));
+	const FVector2D Rgt(-FMath::Cos(PlayerYaw), FMath::Sin(PlayerYaw));
+	return FMath::Atan2(FVector2D::DotProduct(D, Rgt), FVector2D::DotProduct(D, Fwd));
 }
 
 void AHIHUD::DrawCrosshair(const FVector2D& Fraction)
@@ -248,6 +264,50 @@ void AHIHUD::DrawDamageFlash(float SecondsSinceHit)
 	DrawRect(Red, Canvas->ClipX - Band, 0.0f, Band, Canvas->ClipY);
 }
 
+void AHIHUD::DrawHitMark(float SecondsLeft, float Bearing)
+{
+	if (SecondsLeft <= 0.0f)
+	{
+		return;
+	}
+	// `-HIHoldHitMark` (the port of Godot's `--dbg-hit`, game.gd:2170-2172) is applied where
+	// the timer decays, in the GameMode's Tick -- holding it here would only pin the alpha
+	// of a mark the state had already retired.
+	const float T = SecondsLeft;
+
+	const FVector2D Centre(Canvas->ClipX * 0.5f, Canvas->ClipY * 0.5f);
+	const FVector2D Dir(FMath::Sin(Bearing), -FMath::Cos(Bearing));
+	// PIXELS, not fractions of the screen: game.gd:1812-1814 records the original writing
+	// 0.020 x 0.055 here and the mark coming out 0.02 px across -- invisible in every
+	// capture, exactly like a mark that does not draw.
+	const FVector2D Size(10.0f, 28.0f);
+	const FLinearColor Colour(0.94f, 0.25f, 0.22f,
+		FMath::Clamp(T / 1.1f, 0.0f, 1.0f) * 0.92f);
+
+	// Position is the mark's TOP-LEFT (that is what FCanvasTileItem's position is with the
+	// default pivot), and the rotation is about that corner -- game.gd:2181-2182 does both
+	// the same way: `position = centre + dir*62 - size*0.5; rotation = a`.
+	//
+	// The rotation goes in YAW, and getting there cost a detour worth keeping on record
+	// (2026-10-15). FCanvasTileItem::Draw feeds the FRotator to FRotationMatrix, where Roll
+	// rotates about the X axis -- OUT of the screen plane -- while Yaw is the in-plane spin,
+	// which is what the engine's own FCanvasItemTestbed uses (CanvasItem.cpp:280). On a
+	// Y-down canvas, positive yaw is clockwise, exactly Godot's Control.rotation, so the
+	// bearing transfers with only a unit change. Verified in pixels: a 15-degree mark's
+	// bounding box measures 17 px wide, which is 10*cos15 + 28*sin15 to the pixel.
+	//
+	// The detour: the first capture "showed" no mark, and two wrong fixes were applied from
+	// engine-source reading before anyone dumped raw pixels -- the mark had drawn ALL ALONG,
+	// at (248, 137, 129): FLinearColor(0.94, 0.25, 0.22) after the framebuffer's sRGB
+	// encode, and the verification scanner's thresholds assumed the un-encoded values. The
+	// colour below is LINEAR by design; a scanner or an eyedropper comparing against it
+	// must decode first. (The texture argument is belt-and-braces: the no-texture
+	// constructor defaults to GWhiteTexture anyway -- CanvasItem.cpp:343.)
+	FCanvasTileItem Mark(Centre + Dir * 62.0f - Size * 0.5f, GWhiteTexture, Size, Colour);
+	Mark.Rotation = FRotator(0.0f, FMath::RadiansToDegrees(Bearing), 0.0f);
+	Canvas->DrawItem(Mark);
+}
+
 void AHIHUD::DrawOutcome(const FHISim::FHIRound& Round)
 {
 	if (Round.State == FHISim::EHIRoundState::Play)
@@ -326,12 +386,15 @@ const TArray<FVector2D>& AHIHUD::CachedSightPolygon(const FVector2D& From)
 
 void AHIHUD::DrawMinimap(const FHISim::FHIRound& Round)
 {
-	// Top right, and sized from the sim's own world bounds so the map and the world cannot
-	// disagree about how much ground there is.
+	// BOTTOM right, where Godot puts it (minimap.gd at (1334, 674) in 1600x900 -- a 22 px
+	// margin on both axes), and sized from the sim's own world bounds so the map and the
+	// world cannot disagree about how much ground there is. The port's first version hung it
+	// top-right with no recorded reason, which under PARITY's own rule makes it wrong;
+	// moved 2026-10-15.
 	const float PanelW = 232.0f;
 	const float PanelH = 200.0f;
 	const float X0 = Canvas->ClipX - PanelW - 22.0f;
-	const float Y0 = 22.0f;
+	const float Y0 = Canvas->ClipY - PanelH - 22.0f;
 	const float Pad = 10.0f;
 	const float InnerW = PanelW - Pad * 2.0f;
 	const float InnerH = PanelH - Pad * 2.0f;
@@ -514,6 +577,11 @@ void AHIHUD::DrawHUD()
 		}
 		DrawCrosshair(Frac);
 	}
+
+	// WHERE the shot came from, drawn right after the crosshair so the mark sits around it:
+	// the flash below says THAT you are being hit, and only the bearing says from where
+	// (PARITY item 8, ported 2026-10-15).
+	DrawHitMark(Mode->HitMarkTime, Mode->HitMarkBearing);
 
 	const TArray<FString> Lines = RoundLines(Mode->Round);
 	const float Scale = 1.6f;

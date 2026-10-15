@@ -57,10 +57,26 @@ public:
 	 * resolution but the one it was written at. Godot hit exactly this and wrote it out.
 	 *
 	 * Returns false when the aim is behind the camera, in which case there is no position.
+	 *
+	 * `HalfFovTangent` is the tangent of the HALF HORIZONTAL FOV -- Unreal's
+	 * `Camera->FieldOfView` is horizontal, where Godot's `cam.fov` is vertical. Translating
+	 * game.gd:2092-2096 (which divides X by `tan(fov/2)*aspect` and Y by `tan(fov/2)`) into
+	 * the horizontal tangent means X carries no factor and Y carries the aspect; the first
+	 * version of this port had that the wrong way round on both axes.
 	 */
 	static bool ReticleFraction(const FVector& AimDir, const FVector& CameraForward,
 		const FVector& CameraRight, const FVector& CameraUp, float HalfFovTangent,
 		float AspectRatio, FVector2D& OutFraction);
+
+	/**
+	 * The screen-space bearing of whoever just shot the homeowner, in radians: 0 is straight
+	 * ahead, +PI/2 is screen-right, PI is behind. game.gd:1142-1146's own formula -- forward
+	 * is (sin yaw, cos yaw), right is (-cos yaw, sin yaw), and atan2(right, forward) is the
+	 * screen angle -- ported verbatim so the mark points where the original points.
+	 *
+	 * Pure and static so the four quarters can be asserted without a canvas.
+	 */
+	static float HitBearing(const FVector2D& ShooterPos, const FVector2D& PlayerPos, float PlayerYaw);
 
 	/**
 	 * The patch of world the minimap shows.
@@ -128,6 +144,18 @@ private:
 	 * while being shot at from behind.
 	 */
 	void DrawDamageFlash(float SecondsSinceHit);
+
+	/**
+	 * A mark beside the crosshair pointing at whoever just shot the homeowner.
+	 *
+	 * PARITY item 8, ported 2026-10-15 from game.gd:1806-1815 and 2166-2186: a 10 x 28 px
+	 * red bar 62 px out from the centre along the bearing, rotated to point at the shooter,
+	 * fading over 1.1 s. The port's damage flash says THAT you were hit; only this says
+	 * FROM WHERE -- which is the entire answer to "being shot gave you nothing but a falling
+	 * number". `-HIHoldHitMark` is the port of Godot's `--dbg-hit`: it holds the mark open
+	 * so a capture can photograph it.
+	 */
+	void DrawHitMark(float SecondsLeft, float Bearing);
 
 	/** Frame counter and cache for `CachedSightPolygon`. */
 	int32 MinimapFrame = 0;
