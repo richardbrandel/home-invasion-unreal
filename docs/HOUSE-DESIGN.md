@@ -127,45 +127,133 @@ On today's 16 × 11 footprint (`House` = x −8…8, y −19…−8, divider at 
 toward the back of the lot:
 
 - **Second floor over the FRONT half only** (y −14 … −8), slab span [2.75, 3.0]
-  (floor-to-floor 3.0 = today's `WallHeight`). One room: `upstairs`, node (0, −11,
+  (floor-to-floor 3.0 = today's `WallHeight`). One room: `upstairs`, node (0, −12.2,
   floor 1), a SearchNode. The rear half stays single-storey under its existing roof —
   which is why the staircase lives in the front half, under the slab it climbs through;
   a first draft of this slice put the run in the study (rear half) and a man's head at
   the top tread (4.8 m) went through the 3.0 m rear roof. Recorded so the mistake is
   not repeated in the full house: **a stair top must arrive under a two-storey volume.**
 - **Straight run in the kitchen's east strip** (the study version died above; the
-  kitchen counters move instead): band x 6.60 … 7.60, y −13.60 … −9.10, bottom at the
-  SOUTH end (y = −9.10, h 0), top at the north (y = −13.60, h 3.0). Rise 3.0 = 16 ×
-  0.1875; run 4.5 = 15 × 0.30. The top tread opens west onto the deck.
-- **Slab hole** x 6.35 … 7.875, y −13.90 … −10.50 — computed from the 2 m headroom rule:
-  h(y) = 3.0·(−9.1−y)/4.5 along the run; h + 1.8 clears slab-underside 2.75 from
-  y ≤ −10.44, rounded to −10.5. The slab is therefore three rectangles: west
+  kitchen counters move instead): band x 6.60 … 7.875 — the FULL stairwell width, to
+  the east wall's inner face — y −13.50 … −9.10, bottom at the SOUTH end (y = −9.10,
+  h 0), top at the north (y = −13.50, h 3.0). Rise 3.0 = 16 × 0.1875; run 4.4 =
+  15 × 0.293. The top tread opens west onto the header landing.
+- **Slab hole** x 6.35 … 7.875, y −13.50 … −10.50 — computed from the 2 m headroom
+  rule: h(y) = 3.0·(−9.1−y)/4.4 along the run; h + 1.8 clears slab-underside 2.75 from
+  y ≤ −10.49, rounded to −10.5. The slab is therefore three rectangles: west
   (x −8…6.35, y −14…−8), south (x 6.35…8, y −10.5…−8), north strip (x 6.35…8,
-  y −14…−13.9).
+  y −14…−13.5 — the header landing the top tread steps off west from).
 - **Railings** (0.10 thick, span [3.0, 4.0] — they block second-floor walking, never
   block ground-floor sight (span reject), and second-floor eyes at 4.62 see over them
-  (also rejected)): hole west edge x 6.25…6.35, y −13.3…−10.5 (the gap at the north end
-  is the step-off from the top tread); hole south edge x 6.35…7.875, y −10.6…−10.5.
-- **Stair side wall** (stringer): x 6.50…6.62, y −13.9…−9.1, span [0, 3.0] — you enter
-  the stairs from the kitchen at the open south end, not through the side.
+  (also rejected)): hole west edge x 6.25…6.35, y −13.1…−10.5 (the gap at the north
+  end, y −13.5…−13.1, is the step-off from the header landing); hole south edge
+  x 6.35…7.875, y −10.6…−10.5.
+- **Stair side wall** (stringer): x 6.50…6.62, y −13.875…−9.5, span [0, **2.70**] —
+  the wall table grew a per-row `TopZ` for it (full height by default). You enter the
+  stairs from the kitchen at the open south end, not through the side. Both deviations
+  from the drawing — the 2.70 top and the −9.5 foot — are measured as-built corrections,
+  recorded below; the drawing's [0, 3.0] full-run version froze a climber at the top
+  landing and pinched the foot corridor to 0.01 m.
 - **Second-floor walls**: the front half's own exterior runs at y = −8 (south), x = ±8
   (east/west, y −14…−8), and y = −14 (north, above the ground divider — the two-storey
   front section's back wall), all span [3.0, 5.75]. No openings in the slice.
 - **Roofs**: rear half stays [3.0, 3.15]; front half rises to [5.75, 5.9] (second-floor
   ceiling 2.75). Head at the top tread: 3.0 + 1.8 = 4.8 < 5.75 ✓.
-- **Kitchen data moves**: counter (6.6, −13.0) → x 5.10, fridge (6.7, −13.85) → x 5.20;
-  every other furniture row stands. Desk untouched (the study keeps its desk — the stair
-  moved out of it).
-- **Graph**: `stairFootG` (7.1, −8.9, floor 0) and `stairTopG` (7.1, −13.75, floor 1);
-  edges kitchen — stairFootG — stairTopG — upstairs, the two stair edges flagged.
-  SearchNodes gain `upstairs`.
+- **Kitchen data moves**: counter (6.6, −13.0, 1.15 × 4.00) → (4.90, −13.05, 1.15 ×
+  3.40) and fridge (6.7, −13.85) → (5.00, −13.85); every other furniture row stands.
+  Desk untouched (the study keeps its desk — the stair moved out of it). The counter's
+  shortened length is a walkability fact, not taste: the kitchen→stairFootG nav edge is
+  a straight line from (4.5, −9.6) to (7.24, −8.85) that dips to y = −9.49 at the
+  counter's east edge, and the world-data test requires every edge to be clear on its
+  floor — the 4.00-deep counter ending at y = −9.0 clipped that line by 0.49 m.
+- **Graph**: `stairFootG` (7.24, −8.85, floor 0), `stairTopG` (7.24, −13.30, floor 1),
+  `upstairs` (0, −12.2, floor 1); edges kitchen — stairFootG — stairTopG — upstairs,
+  the two stair edges flagged (a stair edge IS an edge whose endpoints' floors differ —
+  `IsStairEdge`, no separate table). SearchNodes gain `upstairs`. The `upstairs` node
+  is NOT the plan-centre (0, −11): the stairTopG→upstairs walk line must pass the west
+  railing through its step-off gap, and from (7.24, −13.30) it crosses x 6.25…6.35 at
+  y −13.16…−13.15 (clear) instead of y −13.0 (inside the railing).
+- **AI floor rules** (measured, from the MovingHeist trace of 2026-10-15): target
+  choice uses `FloorDist` = plan distance + **12 m** per storey of difference — the
+  slice detour hub→stairfoot→top→upstairs walks 3.1 + 4.4/0.7 + 3.3 ≈ 12.7 m, and a
+  first penalty of 6 let `upstairs` (plan-near everything) beat unsearched ground rooms
+  on float noise. Search ARRIVAL and item GRAB additionally require being on the
+  target's floor / within 0.6 m of its height — plan proximity through a slab is not
+  presence. And `OrbitBreakTime` = 2.5 s: a thief circling one waypoint that long
+  (the tangential orbit around a camped homeowner is a stable attractor at 1.3–1.5 m —
+  outside the 1.2 m occupied-pop, moving every frame so the stuck detector reads 0.00)
+  walks straight at it and shoulders past; the separation rule already says the
+  homeowner yields.
 - **Player climb**: walk north into the band from the kitchen, Z rises along the run,
-  `Floor` flips at the band midpoint (y = −11.35), step off west at the top onto the
-  deck. Pawn, camera and audio ride Z (audio already consumes it — HIGameMode.cpp:1253).
+  `Floor` flips at the band midpoint (y = −11.30), step off west at the top onto the
+  header landing. Pawn, camera and audio ride Z (audio already consumes it — HIGameMode.cpp:1253).
 - **Under-stairs**: no solid. Inside the band you are ON the stairs (Z interpolates for
   anyone in the footprint) — a ground-floor walker crossing the band mid-kitchen climbs
   it and comes back down, odd but harmless, and the full house walls stairwells in
   anyway. The open risers do not block sight — realistic, recorded.
+
+**As-built corrections, 2026-10-15** (found while writing the geometry, all recorded
+above in place — listed together because each is a class of mistake the full house can
+repeat): (1) the 1.0 m band left 0.275 m slab-free slivers beside the top tread where a
+second-floor body would stand on nothing — the band spans the full stairwell, and the
+railing's push-out radius makes the west sliver unreachable (a resolved body centre
+cannot be west of x 6.77 there, and 6.77 is on the stairs); (2) UE's `FBox2D::IsInside`
+is STRICT — `Contains` uses `IsInsideOrOn`, or the top landing is not part of the
+flight (caught by SelfCheck v2's arrival assertion on its first run); (3) the stringer
+stops at the divider, because a 0.375 m pocket between two walls is narrower than a
+body (0.84) and any wall-slide can feed it; (4) `WorldSolids` headroom is sampled every
+~21 cm along the flight — finer than a tread — so no hole hides between samples.
+
+**As-built corrections, 2026-10-15 (slice bring-up)** — each of these was found by a
+measured statue, teleport or orbit rather than by review; the code comments carry the
+full traces:
+
+1. **The stringer's top is 2.70, not 3.0 and not 2.95.** A climber stepping off west at
+   the top (the step-off gap, y −13.5…−13.1, interpolated z 2.73…3.0) is within a body
+   radius of the stringer's east face. With the top at 3.0 — then at 2.95 — the span
+   [0, top] still strictly overlapped his cylinder, so the stringer pushed him back into
+   the band on every frame and `ThiefUpstairs` froze at the top landing. Both values were
+   tried; both froze (measured). At 2.70 the span ends below the step-off corridor: the
+   stringer is transparent to anyone at z ≥ 2.70 and still solid to a ground-floor body
+   (cylinder [0, 1.8]).
+2. **The stringer's foot stops at y −9.5, not at the band's foot (−9.1).** With the foot
+   at −9.1, the corridor between the stringer's foot corner (6.62, −9.1) and the south
+   wall's inner face (−8.25) is 0.85 m; two body clearances (0.42 each) leave a 0.01 m
+   passage — unthreadable by any slide rule, and `ThiefDescends` ping-ponged at the foot
+   for 72 s (measured). Stopping at −9.5 leaves 1.25 m between foot and wall: 0.41 m of
+   centre freedom, which the kitchen→stair line threads.
+3. **Collision corners are rounded — but only past the end plane.** A body past a run's
+   end plane on its long axis gets a diagonal push off the end corner instead of an
+   antiparallel face push; that is the statue cure (item 1's freeze was this shape). A
+   body BESIDE a long face gets the ordinary face push. The first, broader version — snap
+   to the end corner for any body within a radius of the end, including beside the face —
+   built a closed 16-frame orbit in `HI.Sim.Shove` (measured 2026-10-15): the corner snap
+   replaced a genuine 0.079 m face overlap with a farther-corner "free", the body drifted
+   off the push-out equilibrium into the band, the radial corner push and its slide
+   tangent pumped it east along the corner circle, and the face push re-acquired at
+   nearly full depth and launched it 0.3 m north back to the equilibrium — with the stuck
+   detector silent, because Moved ≈ Want on every frame. Beside the face, the face push
+   is the geometrically correct answer, and the plain clamp already rounds the end once
+   the projection passes it.
+4. **Deck beats band.** Where a slab deck covers a point — span [2.75, 3.0], top exactly
+   `FloorHeight(1)` — a first-floor body's Z is the deck's top, not the flight's
+   interpolation. Band-wins teleported an arriving body ~2 m (measured). The
+   `DeckCovers` predicate is shared by `FloorZAt` and `ApplyElevation` so the two cannot
+   disagree.
+5. **The railing skip is Z-gated.** Inside the stair band a body ignores the first-floor
+   railing solids only while Z < `FloorHeight(1)` − 0.02: a climber passes (the band is
+   single file, nothing to pincer on), while a second-floor body at the hole's edge is
+   still stopped by the railing.
+6. **Graph: 14 nodes.** `stairLanding` (6.00, −13.35, f1) was added between `stairTopG`
+   and `upstairs` — the straight top→upstairs line crossed the west railing outside the
+   step-off gap — and `stairFootL` (7.24, −8.60, f0) pins the kitchen-side foot
+   connections. `stairFootG`—`stairTopG` remains the only floor-changing edge.
+7. **The 2-D visibility polygon is floor-aware at the actor edge.**
+   `VisibilityPolygon(From, MaxRange, Floor)`: floor 0 keeps the legacy `Solids()`
+   projection byte-identical; any other floor sees `FloorSolidRects(Floor)` — the same
+   filter `WalkBlocked` uses — and the HUD passes `Round.Player.Floor`. The sim's own 3-D
+   sight was already span-exact; this stops the minimap from drawing ground-floor
+   furniture around an upstairs body.
 - **No falls, no basement** in the slice; both are phase 2 with the stacked run.
 
 **Slice tests (new):** FloorZ interpolation ends + midpoint; the sight matrix — same
