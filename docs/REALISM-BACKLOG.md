@@ -214,6 +214,34 @@ Older open question, still open: the shoot/reload clips play from the shoulder;
 wrists stay rigid. Visible in first person every magazine. Animation-layer work
 (HIAnimTool), independent of everything above.
 
+### 16. Stairwell lighting
+
+The stair shaft has no light of its own. Measured from the 2026-10-15 slice
+frames: tread luminance ~104 against ~190 for the divider seen through the open
+risers — the flight reads as a dark wedge, not as stairs. The nearest bulb is
+the kitchen's at 3.2 m west, shadowed by the stringer wall. Real houses light
+their stairs (top, bottom, or both — often on a 3-way switch). One lamp entry at
+the stair head fixes it; the second floor already proved the slab carries light
+correctly.
+
+### 17. The over-the-shoulder camera fights the railings
+
+The camera rides ~1.2 m behind the player and its collision probe treats the
+stairwell railings as walls. Standing at the second-floor hole's edge, the camera
+was pulled to 1.24 m west of the player and framed a blank wall instead of the
+stairwell (measured, 2026-10-15 landing capture). Options: let the camera probe
+ignore railing solids (walking collision is the sim's job, the railings stay
+drawn), or shorten the arm near ledges. This is game-feel, and it will bite every
+player who goes upstairs.
+
+### 18. The pitch clamp hides the player's own feet on stairs
+
+Pitch is clamped to −0.3 rad (−17°), inherited from the Godot parity: at the top
+of the flight the whole staircase projects BELOW the frame — you cannot look down
+at the treads you are standing on (measured, 2026-10-15 startop capture). With
+stairs now in the game, looking down matters. Richard's call: widen the clamp
+(−45° is typical for this camera style), or keep it and accept blind stair tops.
+
 ---
 
 ## Suggested order (if Richard wants one)
