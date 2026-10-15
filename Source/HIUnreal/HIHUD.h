@@ -130,7 +130,7 @@ private:
 	 * (`minimap.gd`'s `POLY_EVERY`, "the polygon costs ~2.1 ms"). At 60 fps a three-frame
 	 * cache reads as instant and pays the cost a third as often.
 	 */
-	const TArray<FVector2D>& CachedSightPolygon(const FVector2D& From);
+	const TArray<FVector2D>& CachedSightPolygon(const FVector2D& From, int32 Floor);
 
 	/** The latest event's message, in the middle of the screen where it is read. */
 	void DrawMessage(const FString& Text, float SecondsLeft);

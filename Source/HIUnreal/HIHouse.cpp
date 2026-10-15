@@ -112,6 +112,29 @@ AHIHouse::AHIHouse()
 	FurnitureInstances->SetCollisionResponseToChannel(ECC_PhysicsBody, ECR_Block);
 	FurnitureInstances->SetMobility(EComponentMobility::Static);
 
+	// ---- the fork's slice: three more COLLIDING components, set up exactly like the
+	// walls and furniture above. The slab separates the storeys for bullets, bodies and
+	// sightlines; the treads are the visible staircase; the railings guard the hole's
+	// edge. One component per material, as everywhere else in this class.
+	auto MakeSolid = [this, Cube](const TCHAR* Name)
+	{
+		UInstancedStaticMeshComponent* Comp = CreateDefaultSubobject<UInstancedStaticMeshComponent>(Name);
+		Comp->SetupAttachment(WallInstances);
+		if (Cube != nullptr)
+		{
+			Comp->SetStaticMesh(Cube);
+		}
+		Comp->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+		Comp->SetCollisionResponseToAllChannels(ECR_Ignore);
+		Comp->SetCollisionResponseToChannel(ECC_Visibility, ECR_Block);
+		Comp->SetCollisionResponseToChannel(ECC_PhysicsBody, ECR_Block);
+		Comp->SetMobility(EComponentMobility::Static);
+		return Comp;
+	};
+	SlabInstances = MakeSolid(TEXT("Slabs"));
+	StairInstances = MakeSolid(TEXT("Stairs"));
+	RailingInstances = MakeSolid(TEXT("Railings"));
+
 	// ---- everything below is decoration, and none of it collides. See the header.
 	GroundInstance = MakeDecor(TEXT("Ground"), Cube, WallInstances);
 	FloorInstance = MakeDecor(TEXT("InteriorFloor"), Cube, WallInstances);
@@ -265,20 +288,50 @@ void AHIHouse::BuildDressing()
 			FVector(HSize.X, HSize.Y, 0.4f));
 	}
 
-	// ---- the roof and its ceiling. The ceiling underside sits just under the wall top so
-	// the rooms are closed; the roof slab above it gives the outside a pitched-looking mass.
+	// ---- THE ROOF AND ITS CEILINGS, SPLIT AT THE STOREY DIVIDER (the fork's slice).
+	// The rear wing (y -19..-14) is single-storey: its lid stays at 3.0 exactly as it was.
+	// The front half (y -14..-8) is two storeys: its lid sits on the second-floor wall
+	// tops at 5.75, matching the sim's own roof decks in WorldSolids. One flat roof over
+	// both halves was the single-storey house; a drawn house that disagrees with the
+	// house that stops bullets is a bug, not a style.
 	{
 		const FVector2D HSize = H.GetSize();
 		const float Wall = FHISim::WallHeight;
+		const float IZ = FHISim::InteriorZ;
 		const float CXm = (H.Min.X + H.Max.X) * 0.5f;
-		const float CYm = (H.Min.Y + H.Max.Y) * 0.5f;
-		// The ceiling: its underside at the wall top, so the rooms are closed and lit from
-		// the lamps below rather than from the sun above.
-		AddBox(CeilingInstance, FVector(CXm, CYm, Wall + 0.03f), FVector(HSize.X, HSize.Y, 0.06f));
-		// The roof above it, and an eave overhanging the walls so the roof does not read as
-		// a lid dropped on a box.
-		AddBox(RoofInstance, FVector(CXm, CYm, Wall + 0.26f), FVector(HSize.X, HSize.Y, 0.32f));
-		AddBox(RoofInstance, FVector(CXm, CYm, Wall + 0.50f), FVector(HSize.X + 0.9f, HSize.Y + 0.9f, 0.14f));
+
+		// Rear wing: ceiling under the wall top, roof slab, overhang eave.
+		const float RearCY = (H.Min.Y + IZ) * 0.5f;
+		const float RearD = IZ - H.Min.Y;
+		AddBox(CeilingInstance, FVector(CXm, RearCY, Wall + 0.03f), FVector(HSize.X, RearD, 0.06f));
+		AddBox(RoofInstance, FVector(CXm, RearCY, Wall + 0.26f), FVector(HSize.X, RearD, 0.32f));
+		AddBox(RoofInstance, FVector(CXm, RearCY, Wall + 0.50f), FVector(HSize.X + 0.9f, RearD + 0.9f, 0.14f));
+
+		// Front, two storeys: roof slab on the second-floor wall tops, same eaves, and a
+		// ceiling panel under it at 5.75.
+		const float Top = FHISim::FloorHeight(1) + 2.75f;
+		const float FrontCY = (IZ + H.Max.Y) * 0.5f;
+		const float FrontD = H.Max.Y - IZ;
+		AddBox(RoofInstance, FVector(CXm, FrontCY, Top + 0.26f), FVector(HSize.X, FrontD, 0.32f));
+		AddBox(RoofInstance, FVector(CXm, FrontCY, Top + 0.50f), FVector(HSize.X + 0.9f, FrontD + 0.9f, 0.14f));
+		AddBox(CeilingInstance, FVector(CXm, FrontCY, Top - 0.03f), FVector(HSize.X, FrontD, 0.06f));
+
+		// The ground floor's front ceiling IS the slab's underside: a 6 cm panel under
+		// each deck rectangle, taken from the sim's own list so the stairwell hole exists
+		// by construction -- from the ground floor you can look up through the hole and
+		// see the second floor, which is the whole point of the slice.
+		for (const FHISim::FHISolid& S : FHISim::WorldSolids())
+		{
+			if (S.bDeck && S.Span.MinZ < FHISim::FloorHeight(1)
+				&& FMath::IsNearlyEqual(S.Span.MaxZ, FHISim::FloorHeight(1), 0.01f))
+			{
+				AddBox(CeilingInstance,
+					FVector((S.Rect.Min.X + S.Rect.Max.X) * 0.5f,
+						(S.Rect.Min.Y + S.Rect.Max.Y) * 0.5f,
+						S.Span.MinZ - 0.03f),
+					FVector(S.Rect.GetSize().X, S.Rect.GetSize().Y, 0.06f));
+			}
+		}
 	}
 
 	// ---- the HEAD of the front doorway, and the round starts facing it.
@@ -354,13 +407,18 @@ void AHIHouse::BuildDressing()
 
 	// Light fittings: a shallow rose under the ceiling at each lamp, so the lamp in the game
 	// mode is a light that is visibly COMING FROM something.
+	// The fork's slice moved some of the ceilings: the front half's is now the slab's
+	// underside at 2.75, so a rose at 2.93 would be buried in the deck. The rear keeps
+	// its 3.0 ceiling, the hall rose steps just south of the slab's edge at -14, and the
+	// second floor gets a rose of its own under the 5.75 lid.
 	static const FVector Roses[] =
 	{
-		FVector(-5.00f, -11.00f, FHISim::WallHeight - 0.07f),
-		FVector( 4.00f, -11.00f, FHISim::WallHeight - 0.07f),
-		FVector(-4.00f, -16.50f, FHISim::WallHeight - 0.07f),
-		FVector( 4.00f, -16.50f, FHISim::WallHeight - 0.07f),
-		FVector( 0.00f, -14.00f, FHISim::WallHeight - 0.07f),
+		FVector(-4.00f, -16.50f, FHISim::WallHeight - 0.07f),   // bedroom (rear wing)
+		FVector( 4.00f, -16.50f, FHISim::WallHeight - 0.07f),   // study (rear wing)
+		FVector(-5.00f, -11.00f, 2.72f),                        // living room, under the slab
+		FVector( 4.00f, -11.00f, 2.72f),                        // kitchen, under the slab
+		FVector( 0.00f, -13.90f, 2.72f),                        // hall, south of the slab edge
+		FVector( 0.00f, -12.20f, 5.66f),                        // upstairs
 	};
 	for (const FVector& R : Roses)
 	{
@@ -482,24 +540,83 @@ void AHIHouse::Build()
 		return;
 	}
 
-	for (int32 Idx = 0; Idx < Solids.Num(); ++Idx)
+	// THE FORK'S SLICE: walls are drawn from WallRows(), not from the ground-floor
+	// projection. Each row carries its own Floor and optional TopZ, so the first-floor
+	// walls stand on FloorHeight(1) and the stringer board stops at its 2.70 header --
+	// the drawn house and the house that stops a bullet are the same house. The legacy
+	// Solids()/SolidSpans() pair stays the furniture's index alignment.
+	for (const FHISim::FHIWallRow& Row : FHISim::WallRows())
 	{
-		if (Idx < WallCount)
+		const float MinZ = FHISim::FloorHeight(Row.Floor);
+		const float MaxZ = Row.TopZ > 0.0f ? Row.TopZ : MinZ + FHISim::WallHeight;
+		WallInstances->AddInstance(BoxTransform(Row.Rect, MinZ, MaxZ), /*bWorldSpace=*/false);
+	}
+	for (int32 Idx = WallCount; Idx < Solids.Num(); ++Idx)
+	{
+		// THE HEIGHT IS THE ITEM'S OWN, not the sight model's. `SolidSpans` spans a full
+		// storey on purpose -- it answers "can he see past it", not "how tall is it" --
+		// and using it as geometry is what drew every couch, table and counter as a
+		// column from floor to ceiling. The mismatch that remains -- you cannot see over
+		// a sofa you can see the top of -- is Godot's too, because its `los_blocked` is
+		// 2-D and ignores `h`. That is fix-list item 18.
+		FurnitureInstances->AddInstance(
+			BoxTransform(Solids[Idx], Spans[Idx].MinZ, SolidHeights[Idx - WallCount]),
+			/*bWorldSpace=*/false);
+	}
+
+	// ---- the slab, the railings and the treads, each from the sim's own lists.
+	for (const FHISim::FHISolid& S : FHISim::WorldSolids())
+	{
+		if (S.bDeck)
 		{
-			WallInstances->AddInstance(
-				BoxTransform(Solids[Idx], Spans[Idx].MinZ, Spans[Idx].MaxZ), /*bWorldSpace=*/false);
+			// The storey slab is the deck whose top IS the first floor. Both roof decks
+			// are decks too, and this span test skips them: they sit on wall tops and the
+			// roof component draws them.
+			if (S.Span.MinZ < FHISim::FloorHeight(1)
+				&& FMath::IsNearlyEqual(S.Span.MaxZ, FHISim::FloorHeight(1), 0.01f))
+			{
+				SlabInstances->AddInstance(BoxTransform(S.Rect, S.Span.MinZ, S.Span.MaxZ), /*bWorldSpace=*/false);
+			}
+			continue;
 		}
-		else
+		// Railings: the floor-1, metre-tall class standing on the deck's top face -- the
+		// same test ResolveCircleZ's stair skip uses, so what a climber may pass and what
+		// is drawn cannot disagree.
+		if (S.Floor == 1 && FMath::IsNearlyEqual(S.Span.MinZ, FHISim::FloorHeight(1), 0.01f)
+			&& S.Span.MaxZ <= FHISim::FloorHeight(1) + 1.05f)
 		{
-			// THE HEIGHT IS THE ITEM'S OWN, not the sight model's. `SolidSpans` spans a full
-			// storey on purpose -- it answers "can he see past it", not "how tall is it" --
-			// and using it as geometry is what drew every couch, table and counter as a
-			// column from floor to ceiling. The mismatch that remains -- you cannot see over
-			// a sofa you can see the top of -- is Godot's too, because its `los_blocked` is
-			// 2-D and ignores `h`. That is fix-list item 18.
-			FurnitureInstances->AddInstance(
-				BoxTransform(Solids[Idx], Spans[Idx].MinZ, SolidHeights[Idx - WallCount]),
-				/*bWorldSpace=*/false);
+			RailingInstances->AddInstance(BoxTransform(S.Rect, S.Span.MinZ, S.Span.MaxZ), /*bWorldSpace=*/false);
+		}
+	}
+	// Treads: the sim walks the band's interpolated Z; the treads are the visible steps
+	// under it -- sixteen per flight (HOUSE-DESIGN.md section 3), each a 5 cm slab with
+	// OPEN risers, so the stairwell's sight tube stays honest: what the sim's exact span
+	// clipping says is visible through the hole is also visible past the drawn stair.
+	for (const FHISim::FHIStairBand& B : FHISim::Stairs())
+	{
+		const int32 Risers = 16;
+		const bool bRunsY = FMath::Abs(B.Top.Y - B.Bottom.Y) >= FMath::Abs(B.Top.X - B.Bottom.X);
+		for (int32 I = 1; I <= Risers; ++I)
+		{
+			const float T0 = static_cast<float>(I - 1) / static_cast<float>(Risers);
+			const float T1 = static_cast<float>(I) / static_cast<float>(Risers);
+			const float TopZ = B.BottomH + (B.TopH - B.BottomH) * T1;
+			FBox2D Plan = B.Rect;
+			if (bRunsY)
+			{
+				const float Y0 = B.Bottom.Y + (B.Top.Y - B.Bottom.Y) * T0;
+				const float Y1 = B.Bottom.Y + (B.Top.Y - B.Bottom.Y) * T1;
+				Plan = FBox2D(FVector2D(B.Rect.Min.X, FMath::Min(Y0, Y1)),
+					FVector2D(B.Rect.Max.X, FMath::Max(Y0, Y1)));
+			}
+			else
+			{
+				const float X0 = B.Bottom.X + (B.Top.X - B.Bottom.X) * T0;
+				const float X1 = B.Bottom.X + (B.Top.X - B.Bottom.X) * T1;
+				Plan = FBox2D(FVector2D(FMath::Min(X0, X1), B.Rect.Min.Y),
+					FVector2D(FMath::Max(X0, X1), B.Rect.Max.Y));
+			}
+			StairInstances->AddInstance(BoxTransform(Plan, TopZ - 0.05f, TopZ), /*bWorldSpace=*/false);
 		}
 	}
 
@@ -544,6 +661,12 @@ void AHIHouse::Build()
 	FHIMaterials::Tint(RoofInstance, FHIMaterials::WallExterior);
 	FHIMaterials::Textured(RoofInstance, TEXT("roof_shingle"), 8.0f);
 	FHIMaterials::Tint(FurnitureInstances, FHIMaterials::Wood);
+	// The slice's three: the slab is walked on upstairs, so it wears the floor's wood;
+	// treads are bare wood; railings match the trim.
+	FHIMaterials::Tint(SlabInstances, FHIMaterials::Floor);
+	FHIMaterials::Textured(SlabInstances, TEXT("floor_wood"), 6.0f);
+	FHIMaterials::Tint(StairInstances, FHIMaterials::Wood);
+	FHIMaterials::Tint(RailingInstances, FHIMaterials::Trim);
 	FHIMaterials::Tint(GroundInstance, FHIMaterials::Grass);
 	FHIMaterials::Tint(FloorInstance, FHIMaterials::Floor);
 	FHIMaterials::Tint(RoofInstance, FHIMaterials::WallExterior);
@@ -590,7 +713,7 @@ void AHIHouse::Build()
 	// those apart. These counts can: 7 walls, 19 furniture solids, and every decorative
 	// component non-zero, or something in this function silently did not run.
 	UE_LOG(LogTemp, Display,
-		TEXT("HI: house built -- walls=%d furniture=%d ground=%d floor=%d roof=%d ceiling=%d trim=%d frames=%d glass=%d fittings=%d props=%d coat=%d door_head=%d van=%d van_detail=%d"),
+		TEXT("HI: house built -- walls=%d furniture=%d ground=%d floor=%d roof=%d ceiling=%d trim=%d frames=%d glass=%d fittings=%d props=%d coat=%d door_head=%d van=%d van_detail=%d slabs=%d stairs=%d railings=%d"),
 		WallInstances->GetInstanceCount(), FurnitureInstances->GetInstanceCount(),
 		GroundInstance->GetInstanceCount(), FloorInstance->GetInstanceCount(),
 		RoofInstance->GetInstanceCount(), CeilingInstance->GetInstanceCount(),
@@ -600,7 +723,10 @@ void AHIHouse::Build()
 		PropInstances->GetInstanceCount(), CoatInstances->GetInstanceCount(),
 		DoorHeadInstances->GetInstanceCount(),
 		VanInstances->GetInstanceCount(),
-		VanDetailInstances->GetInstanceCount());
+		VanDetailInstances->GetInstanceCount(),
+		SlabInstances->GetInstanceCount(),
+		StairInstances->GetInstanceCount(),
+		RailingInstances->GetInstanceCount());
 	UE_LOG(LogTemp, Display, TEXT("HI: shape material %s"),
 		FHIMaterials::ShapeMaterial() != nullptr ? TEXT("loaded") : TEXT("MISSING -- everything will be default grey"));
 }

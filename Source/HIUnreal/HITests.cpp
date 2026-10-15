@@ -1218,6 +1218,11 @@ bool FHIUnrealDeathFall::RunTest(const FString& Parameters)
 			{ House->FurnitureInstances, TEXT("the furniture") },
 			{ House->GroundInstance,     TEXT("the lawn") },
 			{ House->FloorInstance,      TEXT("the interior floor") },
+			// The fork's slice: the slab is the floor a second-storey corpse lands on,
+			// and the treads and railings stand in the same world as the walls.
+			{ House->SlabInstances,      TEXT("the storey slab") },
+			{ House->StairInstances,     TEXT("the stair treads") },
+			{ House->RailingInstances,   TEXT("the railings") },
 		};
 		for (const FNeed& Need : Needs)
 		{
@@ -1243,6 +1248,15 @@ bool FHIUnrealDeathFall::RunTest(const FString& Parameters)
 			House->WallInstances != nullptr && House->FurnitureInstances != nullptr
 			&& House->WallInstances->GetCollisionResponseToChannel(ECC_Visibility) == ECR_Block
 			&& House->FurnitureInstances->GetCollisionResponseToChannel(ECC_Visibility) == ECR_Block);
+		// The fork's slice: everything the sim treats as bullet-stopping must stop bullets
+		// when drawn too -- slab, treads, railings. A second-floor firefight decided by
+		// geometry the sim does not share is the exact bug class this test exists for.
+		TestTrue(TEXT("and so do the slab, the treads and the railings"),
+			House->SlabInstances != nullptr && House->StairInstances != nullptr
+			&& House->RailingInstances != nullptr
+			&& House->SlabInstances->GetCollisionResponseToChannel(ECC_Visibility) == ECR_Block
+			&& House->StairInstances->GetCollisionResponseToChannel(ECC_Visibility) == ECR_Block
+			&& House->RailingInstances->GetCollisionResponseToChannel(ECC_Visibility) == ECR_Block);
 	}
 
 	// ---- 4. THE HANDOVER IS NOT ON THE FRAME LOOP. Once the round is decided the game mode

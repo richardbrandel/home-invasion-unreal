@@ -347,6 +347,20 @@ void AHIGameMode::BeginPlay()
 			Round.Player.Pos.X, Round.Player.Pos.Y);
 	}
 
+	// `-HIShotFloor=N`: the storey the posed body stands on. Since the fork, Floor is
+	// CARRIED state -- ApplyElevation derives Z from Pos and Floor and never re-derives
+	// Floor itself -- so a capture posed upstairs has to say so, or the homeowner is
+	// pinned to the ground storey and the camera ends up inside the slab. Z is then
+	// derived by the same function the sim steps with, so a posed frame is sim truth.
+	int32 FloorArg = 0;
+	if (FParse::Value(FCommandLine::Get(), TEXT("HIShotFloor="), FloorArg))
+	{
+		Round.Player.Floor = FloorArg;
+		FHISim::ApplyElevation(Round.Player.Pos, Round.Player.Floor, Round.Player.Z);
+		UE_LOG(LogTemp, Display, TEXT("HI: posed on floor %d at z=%.2f"),
+			Round.Player.Floor, Round.Player.Z);
+	}
+
 	float Deg = 0.0f;
 	if (FParse::Value(FCommandLine::Get(), TEXT("HIShotYaw="), Deg))
 	{
@@ -445,6 +459,10 @@ void AHIGameMode::SetupLighting()
 	{
 		float X;
 		float Y;
+		// The fork's slice: a bulb hangs under a CEILING, and the house now has two of
+		// them at different heights -- 2.60 under the slab's underside in the front half,
+		// 5.35 under the upstairs lid. Ground-floor lamps keep their hand-placed 2.60.
+		float Z;
 		float Intensity;
 	};
 	// `LampSpecs`, NOT `Lamps`: `Lamps` is the member the light switch iterates, and a local
@@ -456,17 +474,21 @@ void AHIGameMode::SetupLighting()
 		// 800-ish lumens, which is one ordinary LED bulb rather than the 2600 this started at.
 		// The first value was chosen against a fixed exposure that has since been reversed,
 		// and against auto-exposure a house lit to 2600 lumens a room looks like an office.
-		{ -5.00f, -11.00f,  900.0f },   // living room
-		{  4.00f, -11.00f,  800.0f },   // kitchen
-		{ -4.00f, -16.50f,  700.0f },   // bedroom
-		{  4.00f, -16.50f,  700.0f },   // study
-		{  0.00f, -14.00f,  700.0f },   // hall
+		{ -5.00f, -11.00f, 2.60f,  900.0f },   // living room (under the slab)
+		{  4.00f, -11.00f, 2.60f,  800.0f },   // kitchen (under the slab)
+		{ -4.00f, -16.50f, 2.60f,  700.0f },   // bedroom
+		{  4.00f, -16.50f, 2.60f,  700.0f },   // study
+		{  0.00f, -14.00f, 2.60f,  700.0f },   // hall
+		// The upstairs bulb: the slab stops light exactly as it stops bullets, so without
+		// this the whole second floor is lit by what leaks through the stairwell hole --
+		// pitch dark with the lamps off, and untestable with them on.
+		{  0.00f, -12.20f, 5.35f,  700.0f },   // upstairs
 	};
 	for (const FLamp& L : LampSpecs)
 	{
 		if (APointLight* Lamp = World->SpawnActor<APointLight>(
 			APointLight::StaticClass(),
-			FTransform(FRotator::ZeroRotator, FVector(L.X, L.Y, 2.60f) * HI_METERS_TO_UU), Params))
+			FTransform(FRotator::ZeroRotator, FVector(L.X, L.Y, L.Z) * HI_METERS_TO_UU), Params))
 		{
 			Lamps.Add(Lamp);
 			if (UPointLightComponent* Bulb = Cast<UPointLightComponent>(Lamp->GetLightComponent()))
@@ -1234,11 +1256,12 @@ void AHIGameMode::ResolveThiefShot(const FHISim::FHIEvent& Shot)
 		return;
 	}
 
-	// Chest height at both ends, in metres converted once. The Godot original uses 1.3 for
-	// both, which is what makes this a level line across a room rather than one that dives
-	// into the floor.
-	const FVector From(Who->Pos.X, Who->Pos.Y, 1.30f);
-	const FVector To(Round.Player.Pos.X, Round.Player.Pos.Y, 1.30f);
+	// Chest height ABOVE THE FLOOR EACH BODY STANDS ON, in metres converted once. The
+	// Godot original used a flat 1.3 for both ends, which made every shot a level line
+	// across a single storey; since the fork the sim carries Z, and a flat 1.30 pinned
+	// a second-floor gunman's muzzle inside the slab. Range below is 3-D from here on.
+	const FVector From(Who->Pos.X, Who->Pos.Y, Who->Z + 1.30f);
+	const FVector To(Round.Player.Pos.X, Round.Player.Pos.Y, Round.Player.Z + 1.30f);
 	const FVector FromW = From * HI_METERS_TO_UU;
 	const FVector ToW = To * HI_METERS_TO_UU;
 

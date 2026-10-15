@@ -47,6 +47,19 @@ public:
 	UPROPERTY(VisibleAnywhere, Category = "Home Invasion")
 	TObjectPtr<class UInstancedStaticMeshComponent> FurnitureInstances;
 
+	/** The fork's slice: second-floor slab decks. These collide -- the slab is what stops a
+	 *  bullet, a body and a sightline from crossing storeys except through the hole. */
+	UPROPERTY(VisibleAnywhere, Category = "Home Invasion")
+	TObjectPtr<class UInstancedStaticMeshComponent> SlabInstances;
+
+	/** The fork's slice: the visible stair treads under the sim's band. These collide. */
+	UPROPERTY(VisibleAnywhere, Category = "Home Invasion")
+	TObjectPtr<class UInstancedStaticMeshComponent> StairInstances;
+
+	/** The fork's slice: railings at the slab hole's edge. These collide. */
+	UPROPERTY(VisibleAnywhere, Category = "Home Invasion")
+	TObjectPtr<class UInstancedStaticMeshComponent> RailingInstances;
+
 	/**
 	 * The lawn, over the sim's world bounds, DELIBERATELY WITHOUT COLLISION.
 	 *

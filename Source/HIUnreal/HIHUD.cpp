@@ -371,14 +371,16 @@ FVector2D AHIHUD::MinimapFraction(const FVector2D& SimPos)
 	return FVector2D((SimPos.X - B.Min.X) / Size.X, 1.0f - (SimPos.Y - B.Min.Y) / Size.Y);
 }
 
-const TArray<FVector2D>& AHIHUD::CachedSightPolygon(const FVector2D& From)
+const TArray<FVector2D>& AHIHUD::CachedSightPolygon(const FVector2D& From, int32 Floor)
 {
 	// `SightPolygon.IsEmpty()` rather than only the modulo: the first frame has to build it
 	// whether or not that frame happens to be a multiple of three, and a HUD drawn before any
 	// round exists must not hand an empty ring to the fan.
 	if (SightPolygon.IsEmpty() || MinimapFrame % MinimapPolyEvery == 0)
 	{
-		SightPolygon = FHISim::VisibilityPolygon(From);
+		// The fork's slice: the ring is built from the FLOOR the player stands on, so a
+		// man upstairs sees upstairs walls -- the ground floor's plan would be a lie.
+		SightPolygon = FHISim::VisibilityPolygon(From, 28.0f, Floor);
 	}
 	++MinimapFrame;
 	return SightPolygon;
@@ -436,7 +438,7 @@ void AHIHUD::DrawMinimap(const FHISim::FHIRound& Round)
 	// angle zero. The fill colour is `minimap.gd`'s C_FLOOR_LIT.
 	const FVector2D PlayerPos = Round.Player.Pos;
 	const FVector2D PlayerPx = ToPanel(PlayerPos);
-	const TArray<FVector2D>& Poly = CachedSightPolygon(PlayerPos);
+	const TArray<FVector2D>& Poly = CachedSightPolygon(PlayerPos, Round.Player.Floor);
 	// The panel's inner rectangle. Every sight ray is clipped to it, because the polygon's
 	// rays reach 28 m and the panel shows 38 x 32 m -- an unclipped fan paints over the game
 	// outside the panel, which is exactly what the captures showed before this line existed.
