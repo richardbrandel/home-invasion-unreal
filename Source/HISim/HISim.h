@@ -31,6 +31,14 @@ struct HISIM_API FHISim
 	static const FBox2D House;
 	static constexpr float WallHeight = 3.0f;
 	static constexpr float WallThickness = 0.25f;
+	/**
+	 * The collision cylinder's height, in metres. A body occupies [Z, Z + BodyHeight];
+	 * a solid blocks it only when that interval strictly overlaps the solid's span --
+	 * strict, so a second-floor body standing AT a ground-floor wall's top (Z == MaxZ)
+	 * is not caught by the wall below its feet. 1.8 matches the eye-height story
+	 * (EyeHeight 1.62 sits inside it) and the headroom arithmetic in HOUSE-DESIGN.md.
+	 */
+	static constexpr float BodyHeight = 1.8f;
 
 	/**
 	 * A solid's vertical extent, in metres above the ground floor.
@@ -48,6 +56,86 @@ struct HISIM_API FHISim
 		 */
 		float MaxZ = WallHeight;
 	};
+
+	/**
+	 * A staircase: a plan rectangle inside which height is a function of position, not of
+	 * floor. Bottom and Top are PLAN points (the feet of the bottom and top risers); the
+	 * height at a point inside Rect interpolates linearly along Bottom→Top. That is the
+	 * whole elevation model for stairs -- no stair entity state, no step simulation:
+	 * walking into the band IS climbing it, for the player and the thieves alike.
+	 *
+	 * The sim owns all movement, including the player's (FHIRound::Step moves him and the
+	 * pawn mirrors via SyncFromSim), so the stairs are sim machinery -- the claim made to
+	 * Richard on 2026-10-15 that UE's CharacterMovement would do the human stairs for free
+	 * was wrong, and HOUSE-DESIGN.md records the correction.
+	 *
+	 * Floors: a body inside the band takes FloorLow below the halfway point and FloorHigh
+	 * at or above it, so floor state can never drift from geometry -- it is re-derived
+	 * from position every step (ApplyElevation).
+	 */
+	struct FHIStairBand
+	{
+		FBox2D Rect;
+		FVector2D Bottom;
+		FVector2D Top;
+		float BottomH = 0.0f;
+		float TopH = WallHeight;
+		int32 FloorLow = 0;
+		int32 FloorHigh = 1;
+
+		/** 0 at Bottom, 1 at Top, unclamped along the Bottom→Top axis. */
+		float Progress(const FVector2D& P) const
+		{
+			const FVector2D Axis = Top - Bottom;
+			const float Len2 = Axis.SizeSquared();
+			return Len2 > KINDA_SMALL_NUMBER ? FVector2D::DotProduct(P - Bottom, Axis) / Len2 : 0.0f;
+		}
+		float HeightAt(const FVector2D& P) const
+		{
+			return BottomH + FMath::Clamp(Progress(P), 0.0f, 1.0f) * (TopH - BottomH);
+		}
+		int32 FloorAt(const FVector2D& P) const
+		{
+			return Progress(P) < 0.5f ? FloorLow : FloorHigh;
+		}
+		/**
+		 * IsInsideOrOn, NOT IsInside, and the distinction cost a failed first run: UE's
+		 * FBox2D::IsInside is STRICT (> and <), so a body exactly on the band's top edge --
+		 * the top landing, where the flight arrives -- was not "on the stairs". Boundary
+		 * points belong to the band: entering at the sill is entering.
+		 */
+		bool Contains(const FVector2D& P) const { return Rect.IsInsideOrOn(P); }
+	};
+	static const TArray<FHIStairBand>& Stairs();
+	/** True when Pos lies inside any stair band's plan rectangle. */
+	static bool InStairBand(const FVector2D& Pos);
+
+	/**
+	 * Height of a flat floor. The slice has two (0 → ground, 1 → the partial second floor
+	 * at WallHeight); the full house's three floors become a table in phase 2.
+	 */
+	static float FloorHeight(int32 Floor);
+
+	/**
+	 * The one elevation truth, read by the sim and the actor layer alike: inside a stair
+	 * band the height interpolates along the run (the Floor argument is ignored there --
+	 * position rules); on flat ground it is the floor's height.
+	 */
+	static float FloorZAt(const FVector2D& Pos, int32 Floor);
+
+	/**
+	 * Re-derive a body's Z and Floor from its position after any move. The stair-band
+	 * midpoint flips the floor; outside a band the floor stands and Z is flat. Called by
+	 * the player step, the thief step, and every shove displacement -- a body that ends
+	 * up somewhere new must never carry stale elevation.
+	 */
+	static void ApplyElevation(const FVector2D& Pos, int32& Floor, float& Z);
+
+	/* True when a WALKABLE deck (the second-floor slab, span [2.75, 3.0] -- not a roof)
+	 * covers this plan position. Decks beat stair bands where they overlap: the south
+	 * deck strip lies above the flight's foot inside the band's own footprint, and a
+	 * second-floor body standing on it must not be derived down onto the treads. */
+	static bool DeckCovers(const FVector2D& Pos);
 	/** Front door, in the south wall. Godot Vector2(-1, 1). */
 	static const FVector2D DoorGap;
 	/** Opening in the interior wall. Godot Vector2(-2, 2). */
@@ -67,6 +155,21 @@ struct HISIM_API FHISim
 	static constexpr float PlayerDecel = 30.0f;
 	static constexpr float ThiefAccel = 4.0f;
 	static constexpr float ThiefDecel = 6.0f;
+	/**
+	 * Everyone crosses a stair band at 70% pace -- the player too, and it is one rule
+	 * rather than a per-body one, which keeps cross-floor chases a calculation instead of
+	 * a coin flip. HOUSE-DESIGN.md §1.
+	 */
+	static constexpr float StairPace = 0.7f;
+	/**
+	 * Seconds on one waypoint before the avoidance orbit is dropped and he walks
+	 * straight at it, shouldering past. The orbit trap, measured in MovingHeist mode 3
+	 * on 2026-10-15: a homeowner camping a hub node left the thief circling at 1.3-1.5 m
+	 * -- too far for the 1.2 m occupied-waypoint pop, too close to leave -- for 120 s at
+	 * stuck=0.00, because orbiting IS moving. Lineage of the frontHub freeze fix: same
+	 * disease (a waypoint that can never complete), new symptom.
+	 */
+	static constexpr float OrbitBreakTime = 2.5f;
 	static constexpr float PlayerRadius = 0.42f;
 	static constexpr float EyeHeight = 1.62f;
 	static constexpr float CrouchEyeHeight = 1.05f;
@@ -231,38 +334,100 @@ struct HISIM_API FHISim
 
 	/**
 	 * Height-aware segment test: blocked only by a solid whose VERTICAL span the segment
-	 * also reaches. Against a world whose solids all span a full storey this returns
-	 * exactly what the 2-D LosBlocked returns, which is why adding it changed no behaviour.
+	 * actually passes through. Against a world whose solids all span a full storey this
+	 * returns exactly what the 2-D LosBlocked returns, which is why adding it changed no
+	 * behaviour.
 	 *
-	 * The vertical test is conservative: a span is rejected only when the segment's whole Z
-	 * range lies outside it, so a ray that climbs above a low wall is clear while one that
-	 * merely passes over one of its corners is not. Documented rather than hidden, because
-	 * the approximation is visible to anyone who leans over a low obstacle.
+	 * EXACT SINCE 2026-10-15 (the three-floor fork). The first form was conservative: it
+	 * rejected a span only when the segment's whole Z range lay outside it, then tested
+	 * the WHOLE plan segment against the footprint. With one storey that approximation
+	 * never fired. With slabs it fires exactly where it must not: a homeowner at the stair
+	 * foot (6.0, -11, eyes 1.62) looking up at a man on the second floor (7.1, -12, eyes
+	 * 4.62) crosses slab height 2.75 at (6.41, -11.38) -- inside the stairwell hole, so
+	 * the true answer is CLEAR -- but the conservative form finds his own feet inside the
+	 * slab footprint and calls it blocked. Defending the stairwell is a core scenario, so
+	 * the test now clips the segment to the t-interval where z(t) lies inside the span
+	 * (z(t) is linear, spans are flat: a few ops) and runs SegRect on the clipped
+	 * sub-segment. Exact is a strict refinement of conservative -- it only ever clears
+	 * false blocks -- so every truly-blocked assertion still holds. HOUSE-DESIGN.md §1.
 	 */
 	static bool LosBlocked3D(const FVector& A, const FVector& B,
 		const TArray<FBox2D>& Solids, const TArray<FHISolidSpan>& Spans);
 	/** The same test against the real world. */
 	static bool LosBlocked3D(const FVector& A, const FVector& B);
+	/**
+	 * The same test against WorldSolids() -- every floor's walls, slabs, railings and
+	 * roofs, each at its real span. THIS is the multi-storey sight test; the two above
+	 * stay on the ground-floor projection for the 2-D queries and the old assertions.
+	 */
+	static bool LosBlockedWorld(const FVector& A, const FVector& B);
 	/** Distance to the first solid along a unit direction, or MaxT when clear. */
 	static float RayCastPx(const FVector2D& From, const FVector2D& Dir, float MaxT = 60.0f);
 	static bool CanSee(const FVector2D& A, const FVector2D& B, float MaxRange = 28.0f);
+	/**
+	 * The floor-aware sight test. A and B are FOOT positions carrying Z (FloorZAt); the
+	 * test adds the eye height itself, measures range in 3-D, and blocks on the exact
+	 * LosBlocked3D. This is what StepThief uses once the house has floors -- the 2-D
+	 * CanSee underneath it has no spans and a man in a basement would see through the
+	 * ceiling.
+	 */
+	static bool CanSee3D(const FVector& A, const FVector& B, float MaxRange = 28.0f);
+	/**
+	 * Walkability on one floor: the 2-D segment against every solid a body walking that
+	 * floor would collide with (its cylinder [FloorHeight(F), +BodyHeight] strictly
+	 * overlapping the span, decks excluded). What LosBlocked is to ground-floor sight,
+	 * this is to per-floor walking -- used by the world-data checks; stair edges are
+	 * tested on their LOW floor, which is where the flight's collisions live.
+	 */
+	static bool WalkBlocked(const FVector2D& A, const FVector2D& B, int32 Floor);
 	/** The intruder's perception: sight PLUS a 200-degree field of view. */
 	static bool ThiefSees(const FVector2D& ThiefPos, float ThiefYaw, const FVector2D& PlayerPos);
+	/** The same perception with feet that carry Z and the 3-D sight underneath. */
+	static bool ThiefSees3D(const FVector& ThiefPos, float ThiefYaw, const FVector& PlayerPos);
 	/**
 	 * Angular samples cast outward from From, one point per direction, returned in ascending
 	 * angle order. Not a true angular sweep: Godot casts at every solid corner (+/-1e-4 either
 	 * side of it) plus 64 even steps, and that ring is what the minimap already consumes.
 	 */
-	static TArray<FVector2D> VisibilityPolygon(const FVector2D& From, float MaxRange = 28.0f);
+	static TArray<FVector2D> VisibilityPolygon(const FVector2D& From, float MaxRange = 28.0f, int32 Floor = 0);
+
+	/**
+	 * The rectangles that occlude for a body standing on `Floor` -- the minimap's wall set.
+	 * Same filter as WalkBlocked: decks are floors, not obstacles, and every other solid
+	 * belongs to exactly one storey. Floor 0 callers keep using Solids() directly.
+	 */
+	static TArray<FBox2D> FloorSolidRects(int32 Floor);
 
 	static FVector2D ResolveCircle(const FVector2D& Pos, float Radius);
 	static FVector2D ResolveCircle(const FVector2D& Pos, float Radius, const TArray<FBox2D>& Solids);
+	/**
+	 * The floor-aware resolve: the same push-out of overlapping circles, against the
+	 * WorldSolids() entries whose span STRICTLY overlaps the body cylinder [Z, Z +
+	 * BodyHeight]. Decks are skipped (stood on, never walked into). Strictness is what
+	 * lets a second-floor body stand at Z == a ground-floor wall's MaxZ without being
+	 * shoved by the storey below. Every mover in the game -- player step, thief step,
+	 * shoves, separation -- goes through this; the 2-D overloads remain for the tests and
+	 * call sites that are ground floor by construction.
+	 */
+	static FVector2D ResolveCircleZ(const FVector2D& Pos, float Radius, float Z);
 	static FVector2D ClampToWorld(const FVector2D& Pos, float Radius);
 
 	/** The homeowner yields; the intruder does not. Returns [player, thief]. */
 	static TArray<FVector2D> SeparateBodies(const FVector2D& PlayerPos, const FVector2D& ThiefPos);
 	/** N-body separation. Iterative, because resolving one pair can overlap another. */
 	static TArray<FVector2D> SeparateAll(const TArray<FVector2D>& Positions, const TArray<float>& Radii);
+	/**
+	 * The elevation-aware separations. Each body resolves against WorldSolids at its own
+	 * Z (so a second-floor man is not shoved by the ground-floor fridge under his feet),
+	 * and any pair with a body INSIDE A STAIR BAND is left exactly where it is: a 1 m
+	 * flight is single file, and pushing sideways on a stair is pushing someone through a
+	 * stringer or over a railing. Callers re-run ApplyElevation after -- a push can move
+	 * a body along a band, and its Z must follow.
+	 */
+	static TArray<FVector2D> SeparateBodiesZ(const FVector2D& PlayerPos, float PlayerZ,
+		const FVector2D& ThiefPos, float ThiefZ);
+	static TArray<FVector2D> SeparateAllZ(const TArray<FVector2D>& Positions,
+		const TArray<float>& Radii, const TArray<float>& Zs);
 	static float SteerAround(float A, const FVector2D& From, const FVector2D& PlayerPos);
 
 	// ------------------------------------------------------------------ entities
@@ -284,6 +449,10 @@ struct HISIM_API FHISim
 	struct FHILootItem
 	{
 		FVector2D Pos = FVector2D::ZeroVector;
+		/** The storey the item sits on. The grab test needs it: a thief on the second
+		 *  floor standing above the ground-floor TV is 0 m away in plan and must NOT be
+		 *  able to take it through the deck. */
+		int32 Floor = 0;
 		FString Label;
 		FString Node;
 		bool bTaken = false;
@@ -302,6 +471,13 @@ struct HISIM_API FHISim
 		 * still means exactly what it meant. A ground-floor round leaves it at 0.
 		 */
 		float Z = 0.0f;
+		/**
+		 * Which storey the body is on (0 ground, +1 up, -1 down). Plan position alone
+		 * cannot say -- the same (x,y) is basement, ground and second floor where they
+		 * stack -- so Floor is state and Z is derived from it (ApplyElevation). It only
+		 * ever changes on a stair band.
+		 */
+		int32 Floor = 0;
 		float Yaw = 0.0f;
 		float Pitch = 0.24f;
 		float Hp = ThiefMaxHp;
@@ -333,6 +509,8 @@ struct HISIM_API FHISim
 		FVector2D Prev = Drop + FVector2D(0.0f, 0.5f);
 		/** The third axis: see FHIPlayer::Z. A body spawned in the drive is at 0. */
 		float Z = 0.0f;
+		/** The storey: see FHIPlayer::Floor. Changes only on a stair band. */
+		int32 Floor = 0;
 		/** yaw PI faces -Z, i.e. back towards the house from the van. */
 		float Yaw = 3.14159265358979f;
 		float Hp = float(ThiefHealth);
@@ -346,6 +524,9 @@ struct HISIM_API FHISim
 		TArray<FVector2D> Route;
 		FString Mode = TEXT("hunt");
 		float StuckT = 0.0f;
+		/** Seconds spent on the CURRENT waypoint (Route[0]); resets when it changes. */
+		float WpT = 0.0f;
+		FVector2D LastWp = FVector2D::ZeroVector;
 		float Aim = 0.0f;
 		float Stagger = 0.0f;
 		int32 Hits = 0;
@@ -679,14 +860,62 @@ struct HISIM_API FHISim
 	static float MoveToward(float Current, float Target, float MaxDelta);
 
 	// ------------------------------------------------------------------ pathing
+	/**
+	 * The graph node nearest P ON THE GIVEN FLOOR. Floors matter: the stacked stair nodes
+	 * share one plan position (a straight run under a straight run), so an unfiltered
+	 * Voronoi nearest would hand a ground-floor thief the second-floor node and route him
+	 * through a slab. The old single-argument form stays as floor 0 for the ground-only
+	 * call sites and tests.
+	 */
 	static FString NearestNode(const FVector2D& P);
+	static FString NearestNode(const FVector2D& P, int32 Floor);
 	static TArray<FString> PathNodes(const FString& FromKey, const FString& ToKey);
 	static TArray<FVector2D> RouteTo(const FString& FromKey, const FString& ToKey);
 
 	// ------------------------------------------------------------------ world data
+	/** A wall row: its plan rectangle and the storey it stands on. */
+	struct FHIWallRow
+	{
+		FBox2D Rect;
+		int32 Floor = 0;
+		// 0 = a full storey (FloorHeight(Floor) + WallHeight). The stringer carries an
+		// override: its top is the slab soffit minus the step-off clearance -- see
+		// WallRows(), where a 3 cm miss is recorded with the freeze it caused.
+		float TopZ = 0.0f;
+	};
+	static const TArray<FHIWallRow>& WallRows();
 	static const TArray<FBox2D>& Walls();
-	/** Everything collision cares about: walls plus non-flat furniture. */
+	/**
+	 * Everything collision cares about: walls plus non-flat furniture, GROUND FLOOR ONLY.
+	 * The projection keeps its pre-floors meaning exactly -- the 2-D queries that serve
+	 * the minimap and the legacy tests see the ground floor they were written against.
+	 * Floor-aware work goes through WorldSolids().
+	 */
 	static const TArray<FBox2D>& Solids();
+
+	/**
+	 * The master solid table: every wall, furniture block, slab, railing and roof deck on
+	 * every floor, each with the span that makes it real in height.
+	 *
+	 * `bDeck` marks structure you stand ON -- floor slabs, roof decks. Decks never take
+	 * part in collision (a second-floor body standing at Z == slab MaxZ walks on it, it
+	 * does not walk into it) but they do block sight across storeys, which is the entire
+	 * reason slabs are solids at all. Railings are NOT decks: they collide with bodies
+	 * whose cylinder overlaps their span (second-floor walkers) and are invisible to
+	 * ground-floor sight and walking (span reject) -- no special cases anywhere.
+	 *
+	 * `Floor` is for the queries and the builder that group by storey (minimap, actor
+	 * instancing); collision itself never reads it -- the span-vs-cylinder overlap test
+	 * subsumes it, stringers mid-flight included.
+	 */
+	struct FHISolid
+	{
+		FBox2D Rect;
+		FHISolidSpan Span;
+		int32 Floor = 0;
+		bool bDeck = false;
+	};
+	static const TArray<FHISolid>& WorldSolids();
 
 	/**
 	 * The vertical extent of each entry in Solids(), in the same order. The FHISolidSpan
@@ -736,6 +965,15 @@ struct HISIM_API FHISim
 	static const TArray<FString>& NodeNames();
 	static const TArray<TArray<FString>>& NodeEdges();
 	static const TArray<FVector2D>& NodePositions();
+	/**
+	 * The storey each node sits on, index-aligned with NodeNames(). The first nine are the
+	 * Godot graph's, all floor 0; the stair and second-floor nodes are the fork's. An edge
+	 * whose endpoints differ in floor is a STAIR EDGE by definition -- no separate flag
+	 * table that could disagree with the node data.
+	 */
+	static const TArray<int32>& NodeFloors();
+	/** True when the graph edge A—B is a stair edge (floor differs between endpoints). */
+	static bool IsStairEdge(const FString& A, const FString& B);
 
 	/**
 	 * Throws if the world data disagrees with the Godot original: seven walls, the house

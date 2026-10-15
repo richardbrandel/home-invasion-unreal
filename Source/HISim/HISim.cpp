@@ -149,7 +149,12 @@ bool FHISim::Shove(FHIPlayer& Player, FHIThief& Thief, TArray<FHILootItem>& Loot
 		return false;
 	}
 	const FVector2D To = Thief.Pos - Player.Pos;
-	const float Dist = To.Size();
+	// 3-D distance, and the floors take care of themselves: a man standing under you on
+	// the ground floor is 2.75 m away through the slab, further than any arm, so no
+	// special floor gate is needed -- and a shove on the stairs stays honest, because
+	// treads 1.4 m apart in height are 2 m apart in space.
+	const float Dist = FMath::Sqrt(To.SizeSquared()
+		+ FMath::Square(Thief.Z - Player.Z));
 	if (Dist > ShoveRange || Dist < 0.001f)
 	{
 		return false;
@@ -169,7 +174,10 @@ bool FHISim::Shove(FHIPlayer& Player, FHIThief& Thief, TArray<FHILootItem>& Loot
 	Thief.Stagger = FMath::Max(Thief.Stagger, ShoveStagger);
 	Thief.Aim = 0.0f;
 	Thief.Fear = FMath::Min(Thief.Fear + ShoveFear, 8.0f);
-	Thief.Pos = ResolveCircle(Thief.Pos + Dir * ShovePush, ThiefRadius);
+	Thief.Pos = ResolveCircleZ(Thief.Pos + Dir * ShovePush, ThiefRadius, Thief.Z);
+	// A shove can land him on the stairs or back down them; elevation is re-derived
+	// from wherever he ended up, never carried from before the push.
+	ApplyElevation(Thief.Pos, Thief.Floor, Thief.Z);
 	Thief.Route.Empty();
 	// He has to stoop for whatever he just dropped, or he simply picks it straight back up.
 	Thief.Regrab = RegrabTime;
@@ -201,6 +209,7 @@ void FHISim::DropCarried(FHIThief& Thief, TArray<FHILootItem>& Loot, TArray<FHIE
 			L.bTaken = false;
 			L.bDelivered = false;
 			L.Pos = Thief.Pos;
+			L.Floor = Thief.Floor;
 			L.bKnown = true;
 		}
 	}
@@ -228,14 +237,17 @@ bool FHISim::ThiefShove(FHIThief& Thief, FHIPlayer& Player, TArray<FHIEvent>& Ev
 		return false;
 	}
 	const FVector2D To = Player.Pos - Thief.Pos;
-	const float Dist = To.Size();
+	// 3-D, for the same reason as the homeowner's shove: through a slab is out of reach.
+	const float Dist = FMath::Sqrt(To.SizeSquared()
+		+ FMath::Square(Player.Z - Thief.Z));
 	if (Dist > ThiefShoveRange || Dist < 0.001f)
 	{
 		return false;
 	}
 	Thief.ShoveCd = ThiefShoveCd;
 	Player.Stagger = FMath::Max(Player.Stagger, ThiefShoveStagger);
-	Player.Pos = ResolveCircle(Player.Pos + To / Dist * ThiefShovePush, PlayerRadius);
+	Player.Pos = ResolveCircleZ(Player.Pos + To / Dist * ThiefShovePush, PlayerRadius, Player.Z);
+	ApplyElevation(Player.Pos, Player.Floor, Player.Z);
 	FHIEvent Ev;
 	Ev.Type = TEXT("thiefShove");
 	Events.Add(Ev);
@@ -425,12 +437,22 @@ TArray<int32> FHISim::StepIntruders(TArray<FHIThief>& Intruders, FHIPlayer& Play
 		Radii.Add(ThiefRadius);
 	}
 
-	const TArray<FVector2D> After = SeparateAll(Stepped, Radii);
+	TArray<float> Zs;
+	Zs.Reserve(Intruders.Num() + 1);
+	Zs.Add(Player.Z);
+	for (const FHIThief& T : Intruders)
+	{
+		Zs.Add(T.Z);
+	}
+
+	const TArray<FVector2D> After = SeparateAllZ(Stepped, Radii, Zs);
 	Player.Pos = After[0];
+	ApplyElevation(Player.Pos, Player.Floor, Player.Z);
 	for (int32 Idx = 0; Idx < Intruders.Num(); ++Idx)
 	{
 		FHIThief& T = Intruders[Idx];
 		T.Pos = After[Idx + 1];
+		ApplyElevation(T.Pos, T.Floor, T.Z);
 		// `prev` is re-anchored on the FRAME-START position, not the resolved one, so the
 		// stuck detector measures the whole frame's travel -- the step plus whatever the
 		// body-push added. `StepThief` already wrote exactly this value; assigning it again
@@ -438,6 +460,115 @@ TArray<int32> FHISim::StepIntruders(TArray<FHIThief>& Intruders, FHIPlayer& Play
 		T.Prev = AtFrameStart[Idx + 1];
 	}
 	return Seen;
+}
+
+TArray<FVector2D> FHISim::SeparateBodiesZ(const FVector2D& PlayerPos, float PlayerZ,
+	const FVector2D& ThiefPos, float ThiefZ)
+{
+	// Stairs are single file: a pair with either body inside a stair band is left exactly
+	// where it stands. A push sideways on a flight is a push through a stringer or over a
+	// railing, and this is the one place the no-overlap contract yields to architecture --
+	// two men on one flight overlap in plan by design.
+	if (InStairBand(PlayerPos) || InStairBand(ThiefPos))
+	{
+		return { PlayerPos, ThiefPos };
+	}
+	const float MinDist = PlayerRadius + ThiefRadius;
+	const FVector2D D = ThiefPos - PlayerPos;
+	const float Dist = D.Size();
+	// Different storeys cannot touch: body cylinders are BodyHeight tall, and no two
+	// floors in this house are less than 2.75 apart outside a band.
+	if (Dist >= MinDist || FMath::Abs(PlayerZ - ThiefZ) >= BodyHeight)
+	{
+		return { PlayerPos, ThiefPos };
+	}
+	// THE HOMEOWNER YIELDS -- the load-bearing choice, kept from SeparateBodies.
+	const FVector2D N = (Dist < 1e-5f) ? FVector2D(1.0f, 0.0f) : D / Dist;
+
+	FVector2D T = ThiefPos;
+	FVector2D P = ClampToWorld(
+		ResolveCircleZ(PlayerPos - N * (MinDist - Dist), PlayerRadius, PlayerZ), PlayerRadius);
+
+	const FVector2D Gap = T - P;
+	const float GapLen = Gap.Size();
+	if (GapLen < MinDist - 1e-4f)
+	{
+		// he is against something immovable, so the remainder comes out of the intruder
+		const FVector2D BN = (GapLen < 1e-5f) ? N : Gap / GapLen;
+		T = ClampToWorld(ResolveCircleZ(P + BN * MinDist, ThiefRadius, ThiefZ), ThiefRadius);
+	}
+	return { P, T };
+}
+
+TArray<FVector2D> FHISim::SeparateAllZ(const TArray<FVector2D>& Positions,
+	const TArray<float>& Radii, const TArray<float>& Zs)
+{
+	constexpr int32 PairSweeps = 3;
+	TArray<FVector2D> Out = Positions;
+	const int32 N = Out.Num();
+	if (N < 2)
+	{
+		return Out;
+	}
+	// Stair membership is sampled ONCE, at the frame's positions: separation must not
+	// decide who is on the stairs from positions separation itself is moving.
+	TArray<bool> OnStairs;
+	OnStairs.SetNum(N);
+	for (int32 Idx = 0; Idx < N; ++Idx)
+	{
+		OnStairs[Idx] = InStairBand(Positions[Idx]);
+	}
+
+	for (int32 Sweep = 0; Sweep < PairSweeps; ++Sweep)
+	{
+		bool bMoved = false;
+		for (int32 Idx = 0; Idx < N; ++Idx)
+		{
+			for (int32 Jdx = Idx + 1; Jdx < N; ++Jdx)
+			{
+				if (OnStairs[Idx] || OnStairs[Jdx])
+				{
+					continue;
+				}
+				// Different storeys cannot touch -- body cylinders are BodyHeight tall.
+				if (FMath::Abs(Zs[Idx] - Zs[Jdx]) >= BodyHeight)
+				{
+					continue;
+				}
+				const FVector2D PosI = Out[Idx];
+				FVector2D PJ = Out[Jdx];
+				const float Want = Radii[Idx] + Radii[Jdx];
+				const FVector2D D = PJ - PosI;
+				const float Dist = D.Size();
+				if (Dist >= Want)
+				{
+					continue;
+				}
+				bMoved = true;
+				const FVector2D Dir = (Dist < 1e-5f) ? FVector2D(1.0f, 0.0f) : D / Dist;
+				const float Push = Want - Dist;
+				if (Idx == 0)
+				{
+					// body 0 is the homeowner: he takes the push, as in the two-body case
+					Out[0] = ClampToWorld(ResolveCircleZ(Out[0] - Dir * Push, Radii[0], Zs[0]), Radii[0]);
+					PJ = ClampToWorld(ResolveCircleZ(Out[Jdx], Radii[Jdx], Zs[Jdx]), Radii[Jdx]);
+					Out[Jdx] = PJ;
+				}
+				else
+				{
+					// two intruders: split it evenly so neither is privileged
+					const float Half = Push * 0.5f;
+					Out[Idx] = ClampToWorld(ResolveCircleZ(PosI - Dir * Half, Radii[Idx], Zs[Idx]), Radii[Idx]);
+					Out[Jdx] = ClampToWorld(ResolveCircleZ(PJ + Dir * Half, Radii[Jdx], Zs[Jdx]), Radii[Jdx]);
+				}
+			}
+		}
+		if (!bMoved)
+		{
+			break;
+		}
+	}
+	return Out;
 }
 
 FVector2D FHISim::MoveToward(const FVector2D& Current, const FVector2D& Target, float MaxDelta)
@@ -489,7 +620,11 @@ FHISim::FHIThief* FHISim::FHIRound::NearestIntruder()
 		{
 			continue;
 		}
-		const float Dist = FVector2D::Distance(Player.Pos, T.Pos);
+		// 3-D: the shove it feeds gates on 3-D range, so a man on the storey above
+		// must not WIN the selection and then fail the shove while an adjacent one waits.
+		const float Dist = FVector::Dist(
+			FVector(Player.Pos.X, Player.Pos.Y, Player.Z),
+			FVector(T.Pos.X, T.Pos.Y, T.Z));
 		if (Dist < BestDist)
 		{
 			BestDist = Dist;
@@ -704,6 +839,7 @@ bool FHISim::FHIRound::DamageIntruder(int32 Id, float Damage)
 				L.bTaken = false;
 				L.bDelivered = false;
 				L.Pos = Who->Pos;
+				L.Floor = Who->Floor;
 			}
 		}
 		Who->Carry.Empty();
@@ -808,6 +944,13 @@ void FHISim::FHIRound::Step(const FHIInput& Input, float Dt)
 		const FVector2D Fwd(FMath::Sin(Player.Yaw), FMath::Cos(Player.Yaw));
 		const FVector2D Right(-FMath::Cos(Player.Yaw), FMath::Sin(Player.Yaw));
 		Wish = (Fwd * Input.Axis.Y + Right * Input.Axis.X).GetSafeNormal() * Speed;
+		// Stairs cost pace -- everyone climbs at StairPace of their walk, sprint
+		// included. Checked at his START position, so the slowdown begins the frame he
+		// commits to the flight.
+		if (InStairBand(Player.Pos))
+		{
+			Wish *= StairPace;
+		}
 	}
 
 	// He carries momentum between frames instead of being assigned a velocity. This is the
@@ -818,7 +961,10 @@ void FHISim::FHIRound::Step(const FHIInput& Input, float Dt)
 	if (V.Size() > 0.02f)
 	{
 		FVector2D P = Player.Pos + V * Dt;
-		P = ResolveCircle(P, PlayerRadius);
+		// Z-aware: the same push-out, but each solid only counts when his body cylinder
+		// [Z, Z+1.8] strictly overlaps its span -- so the ground-floor fridge cannot
+		// shove a man on the second floor, and the stringer wall catches a climber.
+		P = ResolveCircleZ(P, PlayerRadius, Player.Z);
 		P = ClampToWorld(P, PlayerRadius);
 		// A wall has to STOP him, not let momentum pile up against it.
 		const FVector2D Moved = P - Player.Pos;
@@ -827,6 +973,10 @@ void FHISim::FHIRound::Step(const FHIInput& Input, float Dt)
 			V = Moved / FMath::Max(Dt, 1e-4f);
 		}
 		Player.Pos = P;
+		// Elevation is DERIVED, never integrated: wherever the step landed him is where
+		// the floor is, and the floor flips at the band's midpoint. One function owns
+		// that truth for every body in the sim.
+		ApplyElevation(Player.Pos, Player.Floor, Player.Z);
 	}
 	else
 	{
@@ -910,19 +1060,24 @@ float FHISim::MoveToward(float Current, float Target, float MaxDelta)
 
 // ---------------------------------------------------------------------- world data
 
-const TArray<FBox2D>& FHISim::Walls()
+const TArray<FHISim::FHIWallRow>& FHISim::WallRows()
 {
-	static const TArray<FBox2D> W = []()
+	static const TArray<FHIWallRow> W = []()
 	{
 		const float T = WallThickness;
 		const FBox2D H = House;
 		const float IZ = InteriorZ;
-		TArray<FBox2D> Out;
-		auto R = [](float X, float Z, float Wd, float Dp)
+		TArray<FHIWallRow> Out;
+		auto R = [](float X, float Z, float Wd, float Dp, int32 Floor = 0, float TopZ = 0.0f)
 		{
-			return FBox2D(FVector2D(X, Z), FVector2D(X + Wd, Z + Dp));
+			FHIWallRow Row;
+			Row.Rect = FBox2D(FVector2D(X, Z), FVector2D(X + Wd, Z + Dp));
+			Row.Floor = Floor;
+			Row.TopZ = TopZ;
+			return Row;
 		};
-		// exterior
+		// ---- GROUND FLOOR: Godot's seven walls, unchanged. The fork adds floors, it does
+		// not move the house the port was proven against.
 		Out.Add(R(H.Min.X, H.Min.Y, H.GetSize().X, T));               // north
 		Out.Add(R(H.Min.X, H.Max.Y - T, DoorGap.X - H.Min.X, T));     // south-west of the door
 		Out.Add(R(DoorGap.Y, H.Max.Y - T, H.Max.X - DoorGap.Y, T));   // south-east of the door
@@ -931,6 +1086,71 @@ const TArray<FBox2D>& FHISim::Walls()
 		// interior divider with a central opening
 		Out.Add(R(H.Min.X, IZ - T * 0.5f, HallGap.X - H.Min.X, T));
 		Out.Add(R(HallGap.Y, IZ - T * 0.5f, H.Max.X - HallGap.Y, T));
+		// ---- THE SLICE (HOUSE-DESIGN.md §3, 2026-10-15): the stair stringer wall, west
+		// side of the run -- you enter the stairs from the open kitchen end, not through
+		// the side. Interior thickness.
+		// IT RUNS SOUTH TO THE DIVIDER (-13.875), not to the band's top (-13.5): the
+		// 0.375 m pocket between two walls is narrower than a body (0.84) -- a trap any
+		// wall-slide could feed, and real stringers meet the wall anyway.
+		// AND IT STOPS AT -9.5, NOT AT THE BAND'S FOOT (-9.1) -- measured, 2026-10-15,
+		// ThiefDescends frozen 72 s at (7.04, -9.5): the corridor between the stringer's
+		// foot corner and the south wall's face is 0.85 m, and a body needs 0.42 of
+		// clearance from EACH side -- 0.01 m of passage. No slide rule threads that; the
+		// west leg out of the stair foot bit into a corner push-out equilibrium whatever
+		// the corner rounding. Ending the stringer 0.4 m short of the foot leaves a
+		// 0.41 m centre corridor, which is a door a body fits through, and is also what
+		// an open bottom tread looks like in a real house: you board the last steps from
+		// the side. What the shortening gives up -- nothing: a body on those last two
+		// treads (Z <= 0.27) walking west simply steps off onto the kitchen floor, the
+		// same 13-27 cm step as walking off the foot.
+		// TOP AT 2.70, NOT 3.0 -- and the original comment here claimed the strict-overlap
+		// rule made the step-off work "with no gap geometry at all". That was WRONG TWICE,
+		// and both errors were measured (ThiefUpstairs traces, 2026-10-15):
+		//  * [0, 3.0]: the top tread's standing height is 2.97 (the north wall's push-out
+		//    stops a body 0.045 m short of the band's end), its cylinder is [2.97, 4.77],
+		//    and 2.97 < 3.0 -- NO position on the flight cleared a full-storey stringer.
+		//    Frozen 76 s at x 7.04 = the stringer's east face + the body radius.
+		//  * [0, 2.95]: frozen again, at (7.04, -13.35), Z 2.90 -- the step-off waypoint's
+		//    own latitude, where the band height is 2.90. A 2 cm header is not a corridor;
+		//    the desired heading there is due west, exactly opposite the push normal, so
+		//    the wall-slide projection is zero and the stuck detector watches a statue.
+		// The legal crossing is the west railing's step-off gap, y -13.5..-13.1, where the
+		// band height runs 3.00 down to 2.73 -- so the header must sit BELOW 2.73, and
+		// 2.70 still seals the flight: band height 2.70 is latitude y -13.05, and every
+		// latitude south of the gap is inside the west railing's zone (y -13.1..-10.5,
+		// whose [3, 4] span catches any cylinder from Z 1.2 up) -- a body tall enough to
+		// see over the stringer there is a body the railing holds.
+		Out.Add(R(6.50f, -13.875f, 0.12f, 4.375f, 0, 2.70f));          // stringer, -13.875..-9.5
+		// ---- SECOND FLOOR exterior, over the front half (y -14..-8) only. The south run
+		// is full width -- the front door's gap is the ground floor's business, not the
+		// storey above it. The north run at the divider line is the two-storey section's
+		// back wall; it has no gap, because the stair top opens WEST onto the deck.
+		Out.Add(R(H.Min.X, H.Max.Y - T, H.GetSize().X, T, 1));        // south, floor 1
+		Out.Add(R(H.Min.X, IZ - T * 0.5f, H.GetSize().X, T, 1));      // north, floor 1
+		Out.Add(R(H.Min.X, IZ, T, H.Max.Y - IZ, 1));                  // west, floor 1
+		Out.Add(R(H.Max.X - T, IZ, T, H.Max.Y - IZ, 1));              // east, floor 1
+		return Out;
+	}();
+	return W;
+}
+
+const TArray<FBox2D>& FHISim::Walls()
+{
+	// GROUND FLOOR ONLY, and deliberately: every 2-D query in the game -- the minimap's
+	// rays, the legacy LosBlocked, the old ResolveCircle and every test written against
+	// them -- means "the floor you stand on", which until the fork was the only floor.
+	// Floor-aware work reads WallRows()/WorldSolids(). The count changed 7 -> 8 with the
+	// stair stringer; SelfCheck and the wall tests were migrated the same day.
+	static const TArray<FBox2D> W = []()
+	{
+		TArray<FBox2D> Out;
+		for (const FHIWallRow& Row : WallRows())
+		{
+			if (Row.Floor == 0)
+			{
+				Out.Add(Row.Rect);
+			}
+		}
 		return Out;
 	}();
 	return W;
@@ -978,9 +1198,15 @@ namespace
 			// `sim.gd` first, as the spec, and matched here.
 			{ -7.60f, -10.60f, 4.40f, 1.80f, 0.02f, true,  TEXT("rug") },
 			{ -7.30f,  -9.90f, 0.45f, 0.45f, 1.60f, false, TEXT("lamp") },
-			// kitchen (front east)
-			{  6.60f, -13.00f, 1.15f, 4.00f, 0.92f, false, TEXT("counter") },
-			{  6.70f, -13.85f, 1.00f, 0.80f, 1.85f, false, TEXT("fridge") },
+			// kitchen (front east). Counter and fridge moved 1.70 m west on 2026-10-15:
+			// the slice's staircase takes the east strip they stood in (HOUSE-DESIGN.md
+			// §3). Relative offsets between the two rows are preserved exactly.
+			// Counter shortened 4.00 -> 3.40 and set to abut the fridge (north end -9.65):
+			// the kitchen->stairFootL walk line from (4.5,-9.6) to (7.24,-8.6) dips to
+			// y=-9.49 at the counter's east edge, and WorldData asserts every nav edge is a
+			// clear straight line on its floor. Measured, not eyeballed.
+			{  4.90f, -13.05f, 1.15f, 3.40f, 0.92f, false, TEXT("counter") },
+			{  5.00f, -13.85f, 1.00f, 0.80f, 1.85f, false, TEXT("fridge") },
 			{  2.60f, -12.40f, 2.00f, 1.50f, 0.75f, false, TEXT("dining_table") },
 			{  3.15f, -10.75f, 0.55f, 0.50f, 0.90f, false, TEXT("chair") },
 			{  3.55f, -13.00f, 0.55f, 0.45f, 0.90f, false, TEXT("chair") },
@@ -1098,6 +1324,296 @@ const TArray<FHISim::FHISolidSpan>& FHISim::SolidSpans()
 	return Spans;
 }
 
+// ------------------------------------------------------------------ floors (2026-10-15 fork)
+//
+// The three-floor house's core machinery, specified in HOUSE-DESIGN.md §1: explicit
+// Floor per body, height derived from position, stairs as elevation bands, slabs as
+// spanned deck solids with the stairwell a literal hole.
+
+const TArray<FHISim::FHISolid>& FHISim::WorldSolids()
+{
+	static const TArray<FHISolid> S = []()
+	{
+		// Slice constants (HOUSE-DESIGN.md §3): the second floor is one WallHeight up,
+		// its slab 0.25 thick, railings a metre tall, the front roof on a 2.75 ceiling.
+		const float F1 = FloorHeight(1);
+		const float SlabLo = F1 - 0.25f;
+		const float RailTop = F1 + 1.0f;
+		const float FrontRoofLo = F1 + 2.75f;
+		TArray<FHISolid> Out;
+		auto Add = [&Out](const FBox2D& R, const FHISolidSpan& Span, int32 Floor, bool bDeck)
+		{
+			FHISolid S;
+			S.Rect = R;
+			S.Span = Span;
+			S.Floor = Floor;
+			S.bDeck = bDeck;
+			Out.Add(S);
+		};
+		// Walls: each at its floor, each spanning its storey.
+		for (const FHIWallRow& Row : WallRows())
+		{
+			FHISolidSpan Span;
+			Span.MinZ = FloorHeight(Row.Floor);
+			Span.MaxZ = Row.TopZ > 0.0f ? Row.TopZ : Span.MinZ + WallHeight;
+			Add(Row.Rect, Span, Row.Floor, false);
+		}
+		// Furniture: ground floor only in the slice, and still uniform-at-a-storey for
+		// SIGHT -- real furniture heights are a feel decision for Richard
+		// (HOUSE-DESIGN.md §1), not a side effect of the floors.
+		{
+			const TArray<FBox2D>& Furn = FurnitureRects();
+			const TArray<bool>& Flat = FurnitureFlat();
+			for (int32 Idx = 0; Idx < Furn.Num(); ++Idx)
+			{
+				if (!Flat[Idx])
+				{
+					Add(Furn[Idx], FHISolidSpan(), 0, false);
+				}
+			}
+		}
+		// The second-floor slab as three decks around the stairwell hole
+		// (x 6.35..7.875, y -13.9..-10.5 -- the hole's south edge is the computed
+		// headroom limit, not a round number).
+		const FHISolidSpan Slab{ SlabLo, F1 };
+		Add(FBox2D(FVector2D(-8.0f, -14.0f), FVector2D(6.35f, -8.0f)), Slab, 1, true);  // west
+		Add(FBox2D(FVector2D(6.35f, -10.5f), FVector2D(8.0f, -8.0f)), Slab, 1, true);   // south
+		Add(FBox2D(FVector2D(6.35f, -14.0f), FVector2D(8.0f, -13.5f)), Slab, 1, true);  // north strip = the header landing the top tread steps off west from
+		// Railings at the hole: the west edge keeps its step-off gap at the north end,
+		// level with the top tread. They collide with second-floor bodies and are
+		// invisible to ground-floor sight and walking -- the span test does both.
+		const FHISolidSpan Rail{ F1, RailTop };
+		// West edge: starts south of the step-off (the gap is y -13.5..-13.1, level with
+		// the header landing). Its push-out radius is also what makes the 0.25 m west
+		// sliver between railing and band unreachable -- a resolved body centre cannot be
+		// west of x 6.77 there, and 6.77 is inside the band, i.e. ON the stairs.
+		Add(FBox2D(FVector2D(6.25f, -13.1f), FVector2D(6.35f, -10.5f)), Rail, 1, false);
+		Add(FBox2D(FVector2D(6.35f, -10.6f), FVector2D(7.875f, -10.5f)), Rail, 1, false);
+		// Roofs as decks: the rear single-storey half keeps the old 3.0 cap; the front
+		// two-storey half gets its ceiling at 5.75.
+		Add(FBox2D(FVector2D(-8.0f, -19.0f), FVector2D(8.0f, -14.0f)),
+			FHISolidSpan{ WallHeight, WallHeight + 0.15f }, 0, true);
+		Add(FBox2D(FVector2D(-8.0f, -14.0f), FVector2D(8.0f, -8.0f)),
+			FHISolidSpan{ FrontRoofLo, FrontRoofLo + 0.15f }, 1, true);
+		return Out;
+	}();
+	return S;
+}
+
+const TArray<FHISim::FHIStairBand>& FHISim::Stairs()
+{
+	static const TArray<FHIStairBand> S = []()
+	{
+		FHIStairBand B;
+		// The slice's run (HOUSE-DESIGN.md §3): kitchen east strip, bottom south by the
+		// exterior wall, top north at the header landing, a full storey over 4.4 m --
+		// 16 risers of 0.1875, 15 treads of 0.293. TWO corrections made while writing the
+		// geometry, both recorded in the doc: (1) a first draft put the run in the study
+		// (rear half), where a man's head at the top tread is 4.8 m up under a 3.0 m roof;
+		// (2) the band spans the FULL stairwell width to the east wall's inner face
+		// (7.875), because a 1.0 m band left a 0.275 m slab-free sliver beside the top
+		// tread where a second-floor body would stand on nothing.
+		B.Rect = FBox2D(FVector2D(6.60f, -13.50f), FVector2D(7.875f, -9.10f));
+		B.Bottom = FVector2D(7.24f, -9.10f);
+		B.Top = FVector2D(7.24f, -13.50f);
+		B.BottomH = 0.0f;
+		B.TopH = WallHeight;
+		B.FloorLow = 0;
+		B.FloorHigh = 1;
+		return TArray<FHIStairBand>{ B };
+	}();
+	return S;
+}
+
+bool FHISim::InStairBand(const FVector2D& Pos)
+{
+	for (const FHIStairBand& B : Stairs())
+	{
+		if (B.Contains(Pos))
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+float FHISim::FloorHeight(int32 Floor)
+{
+	// The slice's two floors, a full storey apart. Phase 2's basement at -2.44 turns this
+	// into a table; the function shape already fits.
+	return Floor * WallHeight;
+}
+
+bool FHISim::DeckCovers(const FVector2D& Pos)
+{
+	// A WALKABLE deck: the slab, whose top IS the second floor. The roofs are decks for
+	// collision purposes but their tops (3.15 rear, 5.90 front) are nobody's floor here,
+	// and the rear one is sealed off by the floor-1 north wall anyway.
+	for (const FHISolid& S : WorldSolids())
+	{
+		if (S.bDeck && S.Span.MinZ < FloorHeight(1)
+			&& FMath::IsNearlyEqual(S.Span.MaxZ, FloorHeight(1), 0.01f)
+			&& S.Rect.IsInsideOrOn(Pos))   // IsInside is STRICT -- the SelfCheck lesson
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+float FHISim::FloorZAt(const FVector2D& Pos, int32 Floor)
+{
+	for (const FHIStairBand& B : Stairs())
+	{
+		if (B.Contains(Pos))
+		{
+			// DECK BEATS BAND: the south deck strip lies above the flight's foot inside
+			// the band's own footprint (band y -13.5..-9.1, deck B y -10.5..-8). A
+			// second-floor body standing on that strip is ON THE DECK; deriving it from
+			// the band would teleport it 2 m down onto the treads below.
+			if (Floor == 1 && DeckCovers(Pos))
+			{
+				return FloorHeight(1);
+			}
+			return B.HeightAt(Pos);
+		}
+	}
+	return FloorHeight(Floor);
+}
+
+void FHISim::ApplyElevation(const FVector2D& Pos, int32& Floor, float& Z)
+{
+	if (Floor == 1 && DeckCovers(Pos))
+	{
+		Z = FloorHeight(1);
+		return;
+	}
+	for (const FHIStairBand& B : Stairs())
+	{
+		if (B.Contains(Pos))
+		{
+			Floor = B.FloorAt(Pos);
+			Z = B.HeightAt(Pos);
+			return;
+		}
+	}
+	Z = FloorHeight(Floor);
+}
+
+FVector2D FHISim::ResolveCircleZ(const FVector2D& InPos, float Radius, float Z)
+{
+	FVector2D Pos = InPos;
+	// ON THE FLIGHT, THE FLIGHT OWNS THE BODY. The railings model the DECK edge, and the
+	// stairs pass under the hole's south railing: at the crossing a climber's head is at
+	// 3.09 against the railing's 3.00 underside, and from Z=1.2 up his cylinder tip is in
+	// the span while his feet are metres below the deck. Measured 2026-10-15: without this
+	// skip a DESCENDING player froze mid-flight at Z=1.31 -- the railing's push-out
+	// equilibrium, exactly radius 0.42 north of it, the stuck detector silent because the
+	// push-out still "moved" him. Railing-CLASS solids only (floor-1, topping out about a
+	// metre above the deck); the floor-1 north wall (span to 5.75) still stops a climber
+	// at the top tread, which is a wall doing its job.
+	// ...but only for a body actually ON the flight: the south deck strip sits above the
+	// foot of the stairs inside the same footprint, and a second-floor body standing
+	// there (Z = 3.0) must still be kept off the hole by its railing. The top tread's
+	// standing height is 2.97, so "below deck level" cleanly separates the two.
+	const bool bOnStairs = InStairBand(Pos) && Z < FloorHeight(1) - 0.02f;
+	for (const FHISolid& S : WorldSolids())
+	{
+		// Decks are stood ON, never walked into.
+		if (S.bDeck)
+		{
+			continue;
+		}
+		if (bOnStairs && S.Floor == 1 && S.Span.MaxZ <= FloorHeight(1) + 1.05f)
+		{
+			continue;
+		}
+		// STRICT span overlap against the body cylinder [Z, Z+BodyHeight]: a
+		// second-floor body at Z == a ground-floor wall's MaxZ is above that wall's
+		// storey, not inside it, and the stringer catches a man mid-flight while the
+		// railing catches him at the top -- one rule, both floors, no special cases.
+		if (!(Z < S.Span.MaxZ && Z + BodyHeight > S.Span.MinZ))
+		{
+			continue;
+		}
+		// The same push-out ResolveCircle performs, solid by solid -- with ONE addition:
+		// ROUNDED CORNERS -- NARROWED 2026-10-15 after measuring both failure modes.
+		// A run's END becomes the closest feature when the body is PAST THE END PLANE on
+		// the run's long axis: the closest point snaps to the end corner and the push aims
+		// diagonally off it. Square corners make statues: measured 2026-10-15
+		// (ThiefUpstairs at the stringer's top face) -- a face push normal points straight
+		// out of the wall, a waypoint can sit exactly along the wall on the far side,
+		// desired and normal become antiparallel, the wall-slide projection is zero, and
+		// the stuck reroute just re-aims at the same pin. A diagonal corner push always
+		// leaves the slide a component along the wall toward the open side.
+		//
+		// The snap must NOT fire for a body BESIDE THE LONG FACE near an end. The first,
+		// broader version did, and built the Shove orbit (measured 2026-10-15): a thief
+		// sliding west along the divider's push-out equilibrium, bound for the 4 m hall
+		// gap that would have let him through, reached 0.385 m from the east run's west
+		// end (x 2.0). The corner snap replaced the true face point (0.341 m away -- he
+		// genuinely overlapped the band by 0.079) with the farther corner (0.514 m --
+		// "free"), so he walked south off the equilibrium into the band; the radial corner
+		// push and its slide tangent then pumped him east along the corner circle until
+		// the snap condition lapsed, where the face push re-acquired at nearly full depth
+		// and launched him 0.3 m north back to the equilibrium. A closed 16-frame limit
+		// cycle at x 2.35...2.42 with the stuck detector silent -- Moved ~ Want on every
+		// frame -- orbiting for the whole 20 s window. Beside the face, the face push is
+		// the geometrically correct answer and the slide already handles the end: once the
+		// projection passes the run's end, the clamp itself picks the corner and he walks
+		// around it into the gap.
+		const FBox2D& R = S.Rect;
+		FVector2D Closest(
+			FMath::Clamp(Pos.X, R.Min.X, R.Max.X),
+			FMath::Clamp(Pos.Y, R.Min.Y, R.Max.Y));
+		if (R.Max.X - R.Min.X >= R.Max.Y - R.Min.Y)
+		{
+			// Long axis X: the ends are the Min.X / Max.X faces (the divider's runs, the
+			// north and south walls). Past an end plane, snap the thin axis to its end.
+			if ((Pos.X < R.Min.X || Pos.X > R.Max.X) && Pos.Y >= R.Min.Y && Pos.Y <= R.Max.Y)
+			{
+				const float ToMin = Pos.Y - R.Min.Y;
+				const float ToMax = R.Max.Y - Pos.Y;
+				if (ToMin < Radius && ToMin <= ToMax)      { Closest.Y = R.Min.Y; }
+				else if (ToMax < Radius && ToMax < ToMin)  { Closest.Y = R.Max.Y; }
+			}
+		}
+		else
+		{
+			// Long axis Y: the ends are the Min.Y / Max.Y faces (the stringer).
+			if ((Pos.Y < R.Min.Y || Pos.Y > R.Max.Y) && Pos.X >= R.Min.X && Pos.X <= R.Max.X)
+			{
+				const float ToMin = Pos.X - R.Min.X;
+				const float ToMax = R.Max.X - Pos.X;
+				if (ToMin < Radius && ToMin <= ToMax)      { Closest.X = R.Min.X; }
+				else if (ToMax < Radius && ToMax < ToMin)  { Closest.X = R.Max.X; }
+			}
+		}
+		const FVector2D D = Pos - Closest;
+		const float D2 = D.SizeSquared();
+		if (D2 >= Radius * Radius)
+		{
+			continue;
+		}
+		if (D2 < 1e-9f)
+		{
+			const float Left = Pos.X - R.Min.X;
+			const float Right = R.Max.X - Pos.X;
+			const float Near = Pos.Y - R.Min.Y;
+			const float Far = R.Max.Y - Pos.Y;
+			const float M = FMath::Min(FMath::Min(Left, Right), FMath::Min(Near, Far));
+			if (M == Left)       { Pos.X = R.Min.X - Radius; }
+			else if (M == Right) { Pos.X = R.Max.X + Radius; }
+			else if (M == Near)  { Pos.Y = R.Min.Y - Radius; }
+			else                 { Pos.Y = R.Max.Y + Radius; }
+			continue;
+		}
+		const float Dist = FMath::Sqrt(D2);
+		Pos += D * ((Radius - Dist) / Dist);
+	}
+	return Pos;
+}
+
 const TArray<FVector2D>& FHISim::LootPositions()
 {
 	static const TArray<FVector2D> L = {
@@ -1123,7 +1639,9 @@ const TArray<FString>& FHISim::LootNodes()
 const TArray<FString>& FHISim::SearchNodes()
 {
 	// kitchen is deliberate: searching that cannot come up empty is not searching.
-	static const TArray<FString> S = { TEXT("living"), TEXT("kitchen"), TEXT("bedroom"), TEXT("study") };
+	// `upstairs` joined at the fork: the slice's single second-floor room is searchable,
+	// which is what makes a thief cross floors in the headline regression test.
+	static const TArray<FString> S = { TEXT("living"), TEXT("kitchen"), TEXT("bedroom"), TEXT("study"), TEXT("upstairs") };
 	return S;
 }
 
@@ -1133,6 +1651,10 @@ const TArray<FString>& FHISim::NodeNames()
 		TEXT("van"), TEXT("doorOut"), TEXT("doorIn"), TEXT("frontHub"),
 		TEXT("living"), TEXT("kitchen"), TEXT("opening"),
 		TEXT("bedroom"), TEXT("study"),
+		// The fork's slice nodes (HOUSE-DESIGN.md §3): the stair foot in the kitchen's
+		// south-east corner, the landing in front of it, the top tread, the step-off
+		// notch at the top, and the single second-floor room.
+		TEXT("stairFootG"), TEXT("stairFootL"), TEXT("stairTopG"), TEXT("stairLanding"), TEXT("upstairs"),
 	};
 	return N;
 }
@@ -1149,6 +1671,33 @@ const TArray<FVector2D>& FHISim::NodePositions()
 		FVector2D( 0.0f, -14.0f),   // opening
 		FVector2D(-4.4f, -15.6f),   // bedroom
 		FVector2D( 6.5f, -15.5f),   // study
+		FVector2D( 7.24f,  -8.85f), // stairFootG (floor 0, in front of the bottom tread)
+		// THE FOOT LANDING, due south of the bottom tread and out of the band. It exists
+		// because of a measured statue, the foot mirror of the stairLanding freeze at the
+		// top (ThiefDescends, 2026-10-15): the waypoint pop fired 0.3 m INSIDE the band,
+		// and the kitchen waypoint sits at y -9.6 -- a descent pinned at the stringer's
+		// push-out face x 7.04 slid south exactly to that latitude, where the desired
+		// heading (due west) became antiparallel to the push normal (due east): zero
+		// slide, zero progress, stuck at (7.04, -9.60) for the remaining 72 s while the
+		// reroute rebuilt the same trap. With this node the leg out of stairFootG points
+		// SOUTH, straight out of the band, before anything turns west.
+		FVector2D( 7.24f,  -8.60f), // stairFootL (floor 0, the foot landing)
+		FVector2D( 7.24f, -13.30f), // stairTopG  (floor 1, on the header landing)
+		// THE STEP-OFF WAYPOINT, in the gap beside the west railing (y -13.5..-13.1),
+		// west of the sliver on deck A. It exists because of a measured freeze, not
+		// tidiness (ThiefUpstairs, 2026-10-15): with upstairs as stairTopG's only
+		// neighbour, the pop 0.6 m short turned the thief WEST at mid-flight height,
+		// where the stringer caught him, and the wall-slide's surviving component was
+		// SOUTH -- away from the gap, back down the run. He pinned at (7.04, -12.20),
+		// the upstairs waypoint's exact latitude, for the rest of the 90 s. With this
+		// node the leg out of stairTopG points WEST-NORTH, so the same slide carries a
+		// climber UP to the gap -- the geometry now steers toward the exit, not away.
+		FVector2D( 6.00f, -13.35f), // stairLanding (floor 1, the step-off notch)
+		// (0,-12.2), NOT the plan-centre (0,-11): the walk line through the step-off gap
+		// has to pass north of the west railing (y -13.1..-10.5). stairLanding->upstairs
+		// crosses x 6.25..6.35 at y -13.31..-13.29, clear of it; the old stairTopG->(0,-11)
+		// line crossed at y -13.0, inside the railing.
+		FVector2D( 0.0f,  -12.2f),  // upstairs   (floor 1, centre of the partial storey)
 	};
 	return P;
 }
@@ -1161,12 +1710,41 @@ const TArray<TArray<FString>>& FHISim::NodeEdges()
 		{ TEXT("doorOut"), TEXT("frontHub") },                  // doorIn
 		{ TEXT("doorIn"), TEXT("living"), TEXT("kitchen"), TEXT("opening") }, // frontHub
 		{ TEXT("frontHub") },                                   // living
-		{ TEXT("frontHub") },                                   // kitchen
+		{ TEXT("frontHub"), TEXT("stairFootL") },               // kitchen
 		{ TEXT("frontHub"), TEXT("bedroom"), TEXT("study") },   // opening
 		{ TEXT("opening") },                                    // bedroom
 		{ TEXT("opening") },                                    // study
+		{ TEXT("stairFootL"), TEXT("stairTopG") },              // stairFootG
+		{ TEXT("stairFootG"), TEXT("kitchen") },                // stairFootL
+		{ TEXT("stairFootG"), TEXT("stairLanding") },           // stairTopG
+		{ TEXT("stairTopG"), TEXT("upstairs") },                // stairLanding
+		{ TEXT("stairLanding") },                               // upstairs
 	};
 	return E;
+}
+
+const TArray<int32>& FHISim::NodeFloors()
+{
+	static const TArray<int32> F = {
+		0, 0, 0, 0, 0, 0, 0, 0, 0,   // Godot's nine, all ground
+		0,                           // stairFootG
+		0,                           // stairFootL
+		1,                           // stairTopG
+		1,                           // stairLanding
+		1,                           // upstairs
+	};
+	return F;
+}
+
+bool FHISim::IsStairEdge(const FString& A, const FString& B)
+{
+	const int32 Ia = NodeNames().IndexOfByKey(A);
+	const int32 Ib = NodeNames().IndexOfByKey(B);
+	if (Ia == INDEX_NONE || Ib == INDEX_NONE)
+	{
+		return false;
+	}
+	return NodeFloors()[Ia] != NodeFloors()[Ib];
 }
 
 // ------------------------------------------------------------------------ geometry
@@ -1253,23 +1831,66 @@ FVector FHISim::CameraOffset(float Yaw, float Pitch, float Back, float Up, float
 	return -View * Back + FVector(0.0f, 0.0f, Up) + Right * Side;
 }
 
+namespace
+{
+	/**
+	 * One solid's contribution to the height-aware sight test, EXACTLY: clip the segment
+	 * to the t-interval where its height lies inside the span, then intersect only that
+	 * sub-segment with the footprint. z(t) is linear and spans are flat, so the clip is
+	 * two lerps.
+	 *
+	 * This replaced a conservative form on 2026-10-15 (the three-floor fork). The old
+	 * test rejected a span only when the segment's WHOLE Z range lay outside it and then
+	 * ran the WHOLE plan segment against the footprint. With one storey the approximation
+	 * never fired; with slabs it fires exactly where it must not -- a homeowner at the
+	 * stair foot (6.0, -11, eyes 1.62) looking up at a man on the second floor (7.1, -12,
+	 * eyes 4.62) crosses slab height 2.75 at (6.41, -11.38), inside the stairwell hole,
+	 * but his own feet are inside the slab's footprint and the conservative form called
+	 * the sight line blocked. Defending the stairwell is a core scenario. Exact is a
+	 * strict refinement: it only ever clears false blocks, so every truly-blocked
+	 * assertion still holds. HOUSE-DESIGN.md §1.
+	 */
+	bool SpannedRectBlocks(const FVector& A, const FVector& B, const FBox2D& Rect,
+		const FHISim::FHISolidSpan& Span)
+	{
+		const float DZ = B.Z - A.Z;
+		float TLo = 0.0f;
+		float THi = 1.0f;
+		if (FMath::Abs(DZ) < KINDA_SMALL_NUMBER)
+		{
+			// Flat segment: inside the span along its whole length, or never inside.
+			if (A.Z < Span.MinZ || A.Z > Span.MaxZ)
+			{
+				return false;
+			}
+		}
+		else
+		{
+			float T1 = (Span.MinZ - A.Z) / DZ;
+			float T2 = (Span.MaxZ - A.Z) / DZ;
+			if (T1 > T2)
+			{
+				Swap(T1, T2);
+			}
+			TLo = FMath::Max(TLo, T1);
+			THi = FMath::Min(THi, T2);
+			if (THi <= TLo)
+			{
+				return false;
+			}
+		}
+		const FVector P0 = A + (B - A) * TLo;
+		const FVector P1 = A + (B - A) * THi;
+		return FHISim::SegRect(FVector2D(P0.X, P0.Y), FVector2D(P1.X, P1.Y), Rect);
+	}
+}
+
 bool FHISim::LosBlocked3D(const FVector& A, const FVector& B,
 	const TArray<FBox2D>& InSolids, const TArray<FHISolidSpan>& Spans)
 {
-	const float SegLo = FMath::Min(A.Z, B.Z);
-	const float SegHi = FMath::Max(A.Z, B.Z);
 	for (int32 Idx = 0; Idx < InSolids.Num(); ++Idx)
 	{
-		// Vertical reject first, and it is the whole point of the function: a solid the
-		// segment never reaches in height cannot stop it, however its footprint lies. This
-		// is what lets a floor slab sit above a pair of ground-floor eyes without blocking
-		// them, and what would let a low obstacle be seen over.
-		const FHISolidSpan& Span = Spans[Idx];
-		if (SegHi < Span.MinZ || SegLo > Span.MaxZ)
-		{
-			continue;
-		}
-		if (SegRect(FVector2D(A.X, A.Y), FVector2D(B.X, B.Y), InSolids[Idx]))
+		if (SpannedRectBlocks(A, B, InSolids[Idx], Spans[Idx]))
 		{
 			return true;
 		}
@@ -1282,7 +1903,24 @@ bool FHISim::LosBlocked3D(const FVector& A, const FVector& B)
 	return LosBlocked3D(A, B, Solids(), SolidSpans());
 }
 
-float FHISim::RayCastPx(const FVector2D& From, const FVector2D& Dir, float MaxT)
+bool FHISim::LosBlockedWorld(const FVector& A, const FVector& B)
+{
+	for (const FHISolid& S : WorldSolids())
+	{
+		if (SpannedRectBlocks(A, B, S.Rect, S.Span))
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+namespace
+{
+
+// The longhand ray-vs-AABB core, shared by the legacy ground-floor cast and the
+// floor-aware visibility polygon. Takes the rectangle list so the two cannot drift.
+float RayCastRects(const FVector2D& From, const FVector2D& Dir, float MaxT, const TArray<FBox2D>& Rects)
 {
 	// The hottest function in the game: the visibility polygon calls it hundreds of times
 	// per frame. Written out longhand with no allocation, exactly as in sim.gd, because an
@@ -1294,7 +1932,7 @@ float FHISim::RayCastPx(const FVector2D& From, const FVector2D& Dir, float MaxT)
 	const float DX = Dir.X;
 	const float DZ = Dir.Y;
 
-	for (const FBox2D& S : Solids())
+	for (const FBox2D& S : Rects)
 	{
 		float TMin = 0.0f;
 		float TMax = MaxT;
@@ -1351,6 +1989,15 @@ float FHISim::RayCastPx(const FVector2D& From, const FVector2D& Dir, float MaxT)
 	return Best;
 }
 
+} // namespace
+
+float FHISim::RayCastPx(const FVector2D& From, const FVector2D& Dir, float MaxT)
+{
+	// Ground-floor semantics preserved exactly: legacy callers cast against Solids(), the
+	// same walls+furniture projection they always did.
+	return RayCastRects(From, Dir, MaxT, Solids());
+}
+
 bool FHISim::CanSee(const FVector2D& A, const FVector2D& B, float MaxRange)
 {
 	if (FVector2D::Distance(A, B) > MaxRange)
@@ -1371,16 +2018,89 @@ bool FHISim::ThiefSees(const FVector2D& ThiefPos, float ThiefYaw, const FVector2
 		<= FMath::DegreesToRadians(ThiefFovDeg * 0.5f);
 }
 
-TArray<FVector2D> FHISim::VisibilityPolygon(const FVector2D& From, float MaxRange)
+bool FHISim::WalkBlocked(const FVector2D& A, const FVector2D& B, int32 Floor)
 {
+	const float Z = FloorHeight(Floor);
+	for (const FHISolid& S : WorldSolids())
+	{
+		if (S.bDeck || S.Floor != Floor)
+		{
+			continue;
+		}
+		// Only what a walking body's cylinder strictly overlaps can stop the walk --
+		// the same rule ResolveCircleZ enforces, applied to a segment instead of a disc.
+		if (!(Z < S.Span.MaxZ && Z + BodyHeight > S.Span.MinZ))
+		{
+			continue;
+		}
+		if (SegRect(A, B, S.Rect))
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+bool FHISim::CanSee3D(const FVector& A, const FVector& B, float MaxRange)
+{
+	// Feet in, eyes computed here -- callers pass positions carrying Z from
+	// FloorZAt, never pre-raised eye points, so the eye height cannot drift between
+	// call sites. Range is 3-D: a man two metres below you down a stairwell is not
+	// at pistol range just because his plan projection is close.
+	if (FVector::Dist(A, B) > MaxRange)
+	{
+		return false;
+	}
+	const FVector EyeA(A.X, A.Y, A.Z + EyeHeight);
+	const FVector EyeB(B.X, B.Y, B.Z + EyeHeight);
+	return !LosBlockedWorld(EyeA, EyeB);
+}
+
+bool FHISim::ThiefSees3D(const FVector& ThiefPos, float ThiefYaw, const FVector& PlayerPos)
+{
+	if (!CanSee3D(ThiefPos, PlayerPos, ThiefSight))
+	{
+		return false;
+	}
+	// The FOV cone stays a plan test: a man turns his head on the flat, whatever his
+	// elevation, and the bearing to a target up or down a stairwell is the plan bearing.
+	const float Bearing = FMath::Atan2(PlayerPos.Y - ThiefPos.Y, PlayerPos.X - ThiefPos.X);
+	return FMath::Abs(FMath::FindDeltaAngleRadians(Bearing, ThiefYaw))
+		<= FMath::DegreesToRadians(ThiefFovDeg * 0.5f);
+}
+
+TArray<FBox2D> FHISim::FloorSolidRects(int32 Floor)
+{
+	// The same filter WalkBlocked uses: decks are stood ON, never looked through at, and
+	// every other solid belongs to exactly one storey by its Floor tag.
+	TArray<FBox2D> Out;
+	for (const FHISolid& S : WorldSolids())
+	{
+		if (!S.bDeck && S.Floor == Floor)
+		{
+			Out.Add(S.Rect);
+		}
+	}
+	return Out;
+}
+
+TArray<FVector2D> FHISim::VisibilityPolygon(const FVector2D& From, float MaxRange, int32 Floor)
+{
+	// FLOOR-AWARE since the fork: a man on the second floor must not get the ground
+	// floor's walls on his minimap, and vice versa. Floor 0 takes Solids() exactly as
+	// before -- the legacy behaviour is the floor-0 case of this function, not a second
+	// code path.
 	// The +/-1e-4 neighbours of each corner angle are the whole trick: the centre ray grazes
 	// the corner exactly, and its two neighbours land just inside and just outside, so the
 	// ring has vertices on both sides of every occluder edge instead of one sample slipping
 	// through the seam between two solids.
-	TArray<float> Angles;
-	Angles.Reserve(Solids().Num() * 12 + 64);
+	const TArray<FBox2D> FloorRects = Floor == 0 ? TArray<FBox2D>() : FloorSolidRects(Floor);
+	const TArray<FBox2D>& Rects = Floor == 0 ? Solids() : FloorRects;
 
-	for (const FBox2D& S : Solids())
+	TArray<float> Angles;
+	Angles.Reserve(Rects.Num() * 12 + 64);
+
+	for (const FBox2D& S : Rects)
 	{
 		const FVector2D Corners[4] = {
 			FVector2D(S.Min.X, S.Min.Y),
@@ -1412,7 +2132,7 @@ TArray<FVector2D> FHISim::VisibilityPolygon(const FVector2D& From, float MaxRang
 	for (const float A : Angles)
 	{
 		const FVector2D Dir(FMath::Cos(A), FMath::Sin(A));
-		Points.Add(From + Dir * RayCastPx(From, Dir, MaxRange));
+		Points.Add(From + Dir * RayCastRects(From, Dir, MaxRange, Rects));
 	}
 	return Points;
 }
@@ -1601,17 +2321,53 @@ float FHISim::SteerAround(float A, const FVector2D& From, const FVector2D& Playe
 
 FString FHISim::NearestNode(const FVector2D& P)
 {
-	FString Best = TEXT("frontHub");
+	// GROUND FLOOR, deliberately: every legacy caller means "the floor you stand on",
+	// which before the fork was the only floor. The Navigation test caught the day this
+	// briefly returned `upstairs` for a point in the front hall -- plan distance 0.0 to
+	// a node 3 m overhead. INDEX_NONE (any floor) belongs to the safety-net fall-through
+	// inside the two-argument form, not to the default.
+	return NearestNode(P, 0);
+}
+
+FString FHISim::NearestNode(const FVector2D& P, int32 Floor)
+{
+	// Floor == INDEX_NONE means "any floor" -- the legacy single-argument behaviour. A
+	// filtered call considers only that floor's nodes, because an unfiltered Voronoi
+	// hands a ground-floor thief the node stacked directly above him and routes him into
+	// a slab. Safety net: if the filter finds NOTHING (a floor with no nodes -- cannot
+	// happen in this graph, but a silent frontHub default is how the freeze of
+	// 2026-10-15 hid), fall through to the unfiltered nearest.
+	FString Best;
 	float BestD = TNumericLimits<float>::Max();
 	const TArray<FString>& Names = NodeNames();
 	const TArray<FVector2D>& Poses = NodePositions();
+	const TArray<int32>& Floors = NodeFloors();
 	for (int32 Idx = 0; Idx < Names.Num(); ++Idx)
 	{
+		if (Floor != INDEX_NONE && Floors[Idx] != Floor)
+		{
+			continue;
+		}
 		const float D = FVector2D::DistSquared(Poses[Idx], P);
 		if (D < BestD)
 		{
 			BestD = D;
 			Best = Names[Idx];
+		}
+	}
+	if (Best.IsEmpty())
+	{
+		// The filtered pass found nothing -- the promised unfiltered fall-through. It
+		// cannot recurse: INDEX_NONE never skips a node, and the graph is never empty.
+		float AnyD = TNumericLimits<float>::Max();
+		for (int32 Idx = 0; Idx < Names.Num(); ++Idx)
+		{
+			const float D = FVector2D::DistSquared(Poses[Idx], P);
+			if (D < AnyD)
+			{
+				AnyD = D;
+				Best = Names[Idx];
+			}
 		}
 	}
 	return Best;
@@ -1742,6 +2498,19 @@ bool FHISim::StepThief(FHIThief& Thief, FHIPlayer& Player, TArray<FHILootItem>& 
 
 	FVector2D TPos = Thief.Pos;
 	FVector2D PPos = Player.Pos;
+	// Effective distance to a point ON A FLOOR: plan distance plus TWELVE metres per
+	// storey of difference. Twelve is measured, not tuned: the slice detour from the
+	// front hub to the upstairs room is 3.1 m of plan to the stair foot + 4.4 m of
+	// flight at 0.7x pace + 3.3 m across the deck ~= 12.7 m of walking. A penalty of
+	// 6 let `upstairs` (plan-near everything, being 3 m above the middle of the house)
+	// beat unsearched ground rooms -- measured in the MovingHeist trace of 2026-10-15:
+	// at (1.24,-10.21) it tied `study` at 7.47 and won on float noise, and the heist
+	// died in an orbit around the camped homeowner. For TARGET CHOICE only: routes are
+	// graph paths, and the graph knows the real way round.
+	auto FloorDist = [&Thief, &TPos](const FVector2D& Plan, int32 OnFloor)
+	{
+		return FVector2D::Distance(TPos, Plan) + 12.0f * FMath::Abs(OnFloor - Thief.Floor);
+	};
 
 	// Fear settles when nothing is happening. It does not un-decide a decision already
 	// taken, which is why `mode == "flee"` below is sticky.
@@ -1790,7 +2559,7 @@ bool FHISim::StepThief(FHIThief& Thief, FHIPlayer& Player, TArray<FHILootItem>& 
 		Thief.Mode = TEXT("flee");
 		if (Thief.Route.Num() == 0)
 		{
-			Thief.Route = RouteTo(NearestNode(TPos), TEXT("van"));
+			Thief.Route = RouteTo(NearestNode(TPos, Thief.Floor), TEXT("van"));
 		}
 		// Gone once the route to the van is finished AND he is clear of the house. The
 		// test is the route emptying, not a distance: the "van" node sits at z 5.0 and
@@ -1810,7 +2579,7 @@ bool FHISim::StepThief(FHIThief& Thief, FHIPlayer& Player, TArray<FHILootItem>& 
 		Thief.Mode = TEXT("carry");
 		if (Thief.Route.Num() == 0)
 		{
-			Thief.Route = RouteTo(NearestNode(TPos), TEXT("van"));
+			Thief.Route = RouteTo(NearestNode(TPos, Thief.Floor), TEXT("van"));
 		}
 		if (FVector2D::Distance(TPos, Drop) < DropRange)
 		{
@@ -1864,17 +2633,22 @@ bool FHISim::StepThief(FHIThief& Thief, FHIPlayer& Player, TArray<FHILootItem>& 
 				int32 Best = Known[0];
 				for (const int32 Cand : Known)
 				{
-					if (FVector2D::Distance(TPos, Loot[Cand].Pos)
-						< FVector2D::Distance(TPos, Loot[Best].Pos))
+					if (FloorDist(Loot[Cand].Pos, Loot[Cand].Floor)
+						< FloorDist(Loot[Best].Pos, Loot[Best].Floor))
 					{
 						Best = Cand;
 					}
 				}
 				Thief.Target = Loot[Best].Label;
 				TgtIdx = Best;
-				Thief.Route = RouteToWithAppend(NearestNode(TPos), Loot[Best].Node, Loot[Best].Pos);
+				Thief.Route = RouteToWithAppend(NearestNode(TPos, Thief.Floor), Loot[Best].Node, Loot[Best].Pos);
 			}
-			if (FVector2D::Distance(TPos, Loot[TgtIdx].Pos) < GrabRange && Thief.Regrab <= 0.0f)
+			// The plan distance is not enough: a second-floor node can sit 3 m above a
+			// ground-floor room IN PLAN ONLY. He reaches an item when his hands are at its
+			// height, not when his shadow is next to it.
+			const float LootZ = FloorZAt(Loot[TgtIdx].Pos, Loot[TgtIdx].Floor);
+			if (FVector2D::Distance(TPos, Loot[TgtIdx].Pos) < GrabRange
+				&& FMath::Abs(Thief.Z - LootZ) < 0.6f && Thief.Regrab <= 0.0f)
 			{
 				Loot[TgtIdx].bTaken = true;
 				Thief.Carry = Loot[TgtIdx].Label;
@@ -1914,8 +2688,8 @@ bool FHISim::StepThief(FHIThief& Thief, FHIPlayer& Player, TArray<FHILootItem>& 
 					{
 						continue;
 					}
-					if (FVector2D::Distance(TPos, NodePositions()[NIdx])
-						< FVector2D::Distance(TPos, NodePositions()[RIdx]))
+					if (FloorDist(NodePositions()[NIdx], NodeFloors()[NIdx])
+						< FloorDist(NodePositions()[RIdx], NodeFloors()[RIdx]))
 					{
 						Room = N;
 					}
@@ -1923,7 +2697,7 @@ bool FHISim::StepThief(FHIThief& Thief, FHIPlayer& Player, TArray<FHILootItem>& 
 				if (Thief.Target != Room)
 				{
 					Thief.Target = Room;
-					Thief.Route = RouteTo(NearestNode(TPos), Room);
+					Thief.Route = RouteTo(NearestNode(TPos, Thief.Floor), Room);
 				}
 				else if (Thief.Route.Num() == 0)
 				{
@@ -1939,7 +2713,7 @@ bool FHISim::StepThief(FHIThief& Thief, FHIPlayer& Player, TArray<FHILootItem>& 
 					// With three thieves the others paper over it; the survivor of a
 					// homeowner who has dropped two of them freezes the same way, and the
 					// round can then never end. Godot's sim.gd:978-980 has the same shape.
-					Thief.Route = RouteTo(NearestNode(TPos), Room);
+					Thief.Route = RouteTo(NearestNode(TPos, Thief.Floor), Room);
 					if (Thief.Route.Num() == 0)
 					{
 						// The nearest node IS the room, and PathNodes returns an empty path
@@ -1959,7 +2733,10 @@ bool FHISim::StepThief(FHIThief& Thief, FHIPlayer& Player, TArray<FHILootItem>& 
 							{
 								continue;
 							}
-							const float D = FVector2D::DistSquared(Poses[Idx], TPos);
+							// Same floor wins outright: 1e6 is not a distance, it is a storey
+							// change. Only a floor with no other node falls through to the next one.
+							const float D = FVector2D::DistSquared(Poses[Idx], TPos)
+								+ (NodeFloors()[Idx] == Thief.Floor ? 0.0f : 1e6f);
 							if (D < OtherD)
 							{
 								OtherD = D;
@@ -1982,7 +2759,10 @@ bool FHISim::StepThief(FHIThief& Thief, FHIPlayer& Player, TArray<FHILootItem>& 
 				}
 				const int32 RoomIdx = NodeNames().IndexOfByKey(Room);
 				if (RoomIdx != INDEX_NONE
-					&& FVector2D::Distance(TPos, NodePositions()[RoomIdx]) < SearchRange)
+					&& FVector2D::Distance(TPos, NodePositions()[RoomIdx]) < SearchRange
+					// Plan proximity is not presence: the `upstairs` node sits 3 m above
+					// the living room IN PLAN. He searches the room only from its own floor.
+					&& Thief.Floor == NodeFloors()[RoomIdx])
 				{
 					// Dwell here while he looks, then anything in this room is known.
 					Thief.Think = SearchTime;
@@ -2038,7 +2818,28 @@ bool FHISim::StepThief(FHIThief& Thief, FHIPlayer& Player, TArray<FHILootItem>& 
 			continue;
 		}
 		float A = FMath::Atan2(WP.Y - TPos.Y, WP.X - TPos.X);   // (wp - tpos).angle()
-		A = SteerAround(A, TPos, PPos);
+		// Waypoint dwell: the orbit breaker below needs to know how long THIS waypoint has
+		// been the target. Reset on change -- a rebuilt route with the same first waypoint
+		// keeps the clock, which is the point: the trap is per-waypoint, not per-route.
+		if (!WP.Equals(Thief.LastWp, 1e-3f))
+		{
+			Thief.LastWp = WP;
+			Thief.WpT = 0.0f;
+		}
+		Thief.WpT += Dt;
+		// No avoidance orbit inside a stair band and none above the ground floor.
+		// The band is single file -- a deflection steers a climber into the stringer --
+		// and the slice's upstairs is one open room with nothing to pincer on. The
+		// inherited ground-floor behaviour, pincer fix included, is untouched.
+		// ...and none forever: after OrbitBreakTime on one waypoint he walks straight at
+		// it and shoulders past (the separation rule already says the homeowner yields,
+		// and ThiefShove is firing by then anyway). Without this the tangential orbit
+		// around a camped waypoint node is a stable attractor -- the MovingHeist trace
+		// ran it for 120 s at stuck=0.00, moving every frame, arriving never.
+		if (Thief.Floor == 0 && !InStairBand(TPos) && Thief.WpT < OrbitBreakTime)
+		{
+			A = SteerAround(A, TPos, PPos);
+		}
 		// Come about at a finite rate instead of snapping, and lose pace while still
 		// turning into the new heading -- a person does not walk full speed sideways.
 		// FMath::FindDeltaAngleRadians(A1, A2) returns A2 - A1 wrapped into [-PI, PI] -- the
@@ -2052,7 +2853,9 @@ bool FHISim::StepThief(FHIThief& Thief, FHIPlayer& Player, TArray<FHILootItem>& 
 		Thief.Yaw = FMath::FindDeltaAngleRadians(
 			0.0f, Thief.Yaw + FMath::Clamp(Diff, -ThiefTurnRate * Dt, ThiefTurnRate * Dt));
 		const float Align = FMath::Clamp(1.0f - FMath::Abs(Diff) / 3.14159265358979f, 0.55f, 1.0f);
-		const float Wish = ThiefSpeed * SpeedScale * Align;
+		// Stairs cost pace: the flight is climbed at StairPace whatever the hurry.
+		const float Pace = InStairBand(TPos) ? SpeedScale * StairPace : SpeedScale;
+		const float Wish = ThiefSpeed * Pace * Align;
 		const float Cur = Thief.Speed;
 		Thief.Speed = MoveToward(Cur, Wish, (Wish > Cur ? ThiefAccel : ThiefDecel) * Dt);
 		// `step` is the distance he ACTUALLY covered, which is what the stuck detector
@@ -2074,7 +2877,7 @@ bool FHISim::StepThief(FHIThief& Thief, FHIPlayer& Player, TArray<FHILootItem>& 
 		// through the hall gap, which is the way the route meant all along.
 		{
 			const FVector2D Stepped = TPos;
-			const FVector2D Resolved = ResolveCircle(Stepped, ThiefRadius);
+			const FVector2D Resolved = ResolveCircleZ(Stepped, ThiefRadius, Thief.Z);
 			if (!Resolved.Equals(Stepped, 1e-4f))
 			{
 				FVector2D PushN = Resolved - Stepped;              // out of the solid
@@ -2083,7 +2886,7 @@ bool FHISim::StepThief(FHIThief& Thief, FHIPlayer& Player, TArray<FHILootItem>& 
 				FVector2D Tangent = StepDir - StepDir.Dot(PushN) * PushN;
 				if (Tangent.SizeSquared() > 0.0025f)               // head-on contact: no slide
 				{
-					TPos = ResolveCircle(Resolved + Tangent.GetSafeNormal() * Thief.Step, ThiefRadius);
+					TPos = ResolveCircleZ(Resolved + Tangent.GetSafeNormal() * Thief.Step, ThiefRadius, Thief.Z);
 				}
 				else
 				{
@@ -2117,16 +2920,20 @@ bool FHISim::StepThief(FHIThief& Thief, FHIPlayer& Player, TArray<FHILootItem>& 
 	// `StepIntruders` below -- and together they leave every intruder standing on the
 	// driveway for the whole round.
 	Thief.Pos = TPos;
+	// Wherever the step landed him is where the floor is. Derived, never integrated.
+	ApplyElevation(Thief.Pos, Thief.Floor, Thief.Z);
 
 	// ---- solid bodies. Applied once both have moved; the homeowner's own step is taken
 	// by the caller before this. Skipped when step_intruders resolves the group at once.
 	if (bSeparate)
 	{
-		const TArray<FVector2D> Pair = SeparateBodies(PPos, TPos);
+		const TArray<FVector2D> Pair = SeparateBodiesZ(PPos, Player.Z, TPos, Thief.Z);
 		PPos = Pair[0];
 		TPos = Pair[1];
 		Player.Pos = PPos;
+		ApplyElevation(Player.Pos, Player.Floor, Player.Z);
 		Thief.Pos = TPos;
+		ApplyElevation(Thief.Pos, Thief.Floor, Thief.Z);
 	}
 
 	// ---- stuck detection: re-route rather than stand still forever
@@ -2174,7 +2981,7 @@ bool FHISim::StepThief(FHIThief& Thief, FHIPlayer& Player, TArray<FHILootItem>& 
 				Back = Thief.Target;
 			}
 		}
-		Thief.Route = RouteTo(NearestNode(TPos), Back);
+		Thief.Route = RouteTo(NearestNode(TPos, Thief.Floor), Back);
 		FHIEvent Ev;
 		Ev.Type = TEXT("reroute");
 		Events.Add(Ev);
@@ -2182,7 +2989,12 @@ bool FHISim::StepThief(FHIThief& Thief, FHIPlayer& Player, TArray<FHILootItem>& 
 
 	// ---- aim, then shoot. Sight is recomputed AFTER moving: he can step behind cover
 	// during this same step, and firing through a wall would be a bug.
-	const bool bCan = Player.bAlive && ThiefSees(TPos, Thief.Yaw, PPos);
+	// 3-D sight: eyes at Z + EyeHeight against every floor's walls, the slab with
+	// its hole, the railings and both roofs -- exact span clipping, so looking UP the
+	// stairwell through the hole works and looking through the deck does not.
+	const bool bCan = Player.bAlive && ThiefSees3D(
+		FVector(TPos.X, TPos.Y, Thief.Z), Thief.Yaw,
+		FVector(PPos.X, PPos.Y, Player.Z));
 	if (bCan)
 	{
 		Thief.Aim = FMath::Min(Thief.Aim + Dt, ThiefAimTime);
@@ -2221,12 +3033,18 @@ bool FHISim::StepThief(FHIThief& Thief, FHIPlayer& Player, TArray<FHILootItem>& 
 
 void FHISim::SelfCheck()
 {
-	checkf(Walls().Num() == 7, TEXT("expected 7 walls, got %d"), Walls().Num());
+	// SELF-CONSISTENCY v2 (2026-10-15). v1 asserted Godot's literals; the fork's whole
+	// point is that the house no longer matches Godot, so the counts are now the slice's
+	// (HOUSE-DESIGN.md §3) and the interesting checks are COMPUTED: a count can be right
+	// while the geometry is nonsense, and a stair that arrives inside a slab is exactly
+	// the nonsense a literal cannot catch.
+	checkf(Walls().Num() == 8, TEXT("expected 8 ground-floor walls (7 + stringer), got %d"), Walls().Num());
 	checkf(House.Min.Equals(FVector2D(-8.0f, -19.0f)), TEXT("house min wrong"));
 	checkf(House.Max.Equals(FVector2D(8.0f, -8.0f)), TEXT("house max wrong"));
-	checkf(NodeNames().Num() == 9, TEXT("expected 9 nav nodes, got %d"), NodeNames().Num());
+	checkf(NodeNames().Num() == 14, TEXT("expected 14 nav nodes (9 + foot, foot landing, top, step-off, upstairs), got %d"), NodeNames().Num());
 	checkf(NodePositions().Num() == NodeNames().Num(), TEXT("nav node pos/name mismatch"));
 	checkf(NodeEdges().Num() == NodeNames().Num(), TEXT("nav node edge/name mismatch"));
+	checkf(NodeFloors().Num() == NodeNames().Num(), TEXT("nav node floor/name mismatch"));
 	checkf(LootPositions().Num() == 3, TEXT("expected 3 loot spots"));
 	checkf(LootLabels().Num() == 3 && LootNodes().Num() == 3, TEXT("loot array mismatch"));
 
@@ -2237,5 +3055,92 @@ void FHISim::SelfCheck()
 		checkf(SearchNodes().Contains(LootNodes()[Idx]),
 			TEXT("loot '%s' sits in node '%s', which is not searchable"),
 			*LootLabels()[Idx], *LootNodes()[Idx]);
+	}
+
+	// ---- the graph must be SYMMETRIC (BFS walks edges one way only; an asymmetric edge
+	// is a route there and no route back) and every node must be reachable from the van,
+	// or a thief can be ordered somewhere he can never go -- the shape of the 2026-10-15
+	// frontHub freeze, checked at load time instead of discovered at runtime.
+	const TArray<FString>& Names = NodeNames();
+	const TArray<TArray<FString>>& Edges = NodeEdges();
+	for (int32 Idx = 0; Idx < Names.Num(); ++Idx)
+	{
+		for (const FString& Next : Edges[Idx])
+		{
+			const int32 Jdx = Names.IndexOfByKey(Next);
+			checkf(Jdx != INDEX_NONE, TEXT("edge from '%s' to unknown node '%s'"),
+				*Names[Idx], *Next);
+			checkf(Edges[Jdx].Contains(Names[Idx]),
+				TEXT("edge '%s'->'%s' is not symmetric"), *Names[Idx], *Next);
+		}
+	}
+	{
+		TSet<FString> Reach;
+		TArray<FString> Queue{ TEXT("van") };
+		Reach.Add(TEXT("van"));
+		while (Queue.Num() > 0)
+		{
+			const FString Cur = Queue.Pop();
+			const int32 Idx = Names.IndexOfByKey(Cur);
+			for (const FString& Next : Edges[Idx])
+			{
+				if (!Reach.Contains(Next))
+				{
+					Reach.Add(Next);
+					Queue.Add(Next);
+				}
+			}
+		}
+		checkf(Reach.Num() == Names.Num(),
+			TEXT("nav graph not fully reachable from van: %d of %d"), Reach.Num(), Names.Num());
+	}
+
+	// ---- stairs: a stair edge is exactly a floor change, floors change by exactly one
+	// per flight, and -- the check the first draft of this house would have failed, the
+	// study stairs that arrived under a 3.0 m roof -- EVERYWHERE a standing body's head
+	// is above slab height, the body must be under open sky: no deck may cover that spot.
+	for (int32 Idx = 0; Idx < Names.Num(); ++Idx)
+	{
+		for (const FString& Next : Edges[Idx])
+		{
+			const int32 Jdx = Names.IndexOfByKey(Next);
+			const bool bStair = IsStairEdge(Names[Idx], Next);
+			const int32 DFl = NodeFloors()[Jdx] - NodeFloors()[Idx];
+			checkf(bStair == (DFl != 0),
+				TEXT("edge '%s'->'%s': stair/floor mismatch"), *Names[Idx], *Next);
+			checkf(!bStair || FMath::Abs(DFl) == 1,
+				TEXT("edge '%s'->'%s' skips storeys"), *Names[Idx], *Next);
+		}
+	}
+	for (const FHIStairBand& B : Stairs())
+	{
+		// Sample the flight: any point where a body's head clears 2.75 must not have a
+		// deck over it. 21 samples over a 4.4 m run is one per ~21 cm -- finer than a
+		// tread, so no hole can hide between samples.
+		for (int32 K = 0; K <= 20; ++K)
+		{
+			const FVector2D P = B.Bottom + (B.Top - B.Bottom) * (K / 20.0f);
+			const float H = B.HeightAt(P);
+			const float Head = H + BodyHeight;
+			for (const FHISolid& S : WorldSolids())
+			{
+				if (!S.bDeck)
+				{
+					continue;
+				}
+				const bool bOverlaps = H < S.Span.MaxZ && Head > S.Span.MinZ;
+				checkf(!(bOverlaps && S.Rect.IsInsideOrOn(P)),
+					TEXT("stair headroom violated at (%.2f, %.2f) h=%.2f by deck [%.2f,%.2f]"),
+					P.X, P.Y, H, S.Span.MinZ, S.Span.MaxZ);
+			}
+		}
+		// The band's top must arrive ON its upper floor: standing at the top point, the
+		// derived Z is the top height and the floor is FloorHigh -- which also proves the
+		// top point is inside the band's own rectangle, the alignment slippage guard.
+		int32 Fl = 0;
+		float Z = 0.0f;
+		ApplyElevation(B.Top, Fl, Z);
+		checkf(Fl == B.FloorHigh && FMath::IsNearlyEqual(Z, B.TopH, 0.01f),
+			TEXT("stair top does not arrive on floor %d (got %d, z=%.2f)"), B.FloorHigh, Fl, Z);
 	}
 }

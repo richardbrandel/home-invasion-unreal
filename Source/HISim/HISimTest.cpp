@@ -27,11 +27,15 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHISimWorldData,
 
 bool FHISimWorldData::RunTest(const FString& Parameters)
 {
-	// Fails loudly if any constant disagrees with the Godot original.
+	// Fails loudly if the world data disagrees with itself or with the slice spec
+	// (HOUSE-DESIGN.md §3). This block used to pin Godot's literals; the 2026-10-15
+	// fork moved the pins to the slice's own numbers, and SelfCheck v2 now COMPUTES the
+	// interesting invariants (graph symmetry, reachability, stair headroom) instead of
+	// counting rows.
 	FHISim::SelfCheck();
 
-	TestEqual(TEXT("wall count"), FHISim::Walls().Num(), 7);
-	TestEqual(TEXT("nav node count"), FHISim::NodeNames().Num(), 9);
+	TestEqual(TEXT("wall count"), FHISim::Walls().Num(), 8);  // Godot's 7 + the stair stringer
+	TestEqual(TEXT("nav node count"), FHISim::NodeNames().Num(), 14);
 	TestEqual(TEXT("loot count"), FHISim::LootPositions().Num(), 3);
 
 	// "each loot spot is reachable from its nav node" -- straight line from the node to
@@ -49,7 +53,8 @@ bool FHISimWorldData::RunTest(const FString& Parameters)
 		const FVector2D NodePos = FHISim::NodePositions()[NodeIdx];
 		TestFalse(FString::Printf(TEXT("loot '%s' reachable from '%s'"),
 			*FHISim::LootLabels()[Idx], *NodeKey),
-			FHISim::LosBlocked(NodePos, FHISim::LootPositions()[Idx]));
+			FHISim::WalkBlocked(NodePos, FHISim::LootPositions()[Idx],
+				FHISim::NodeFloors()[NodeIdx]));
 	}
 
 	// "every nav edge is a clear straight line" -- the graph is only usable if its edges
@@ -67,8 +72,17 @@ bool FHISimWorldData::RunTest(const FString& Parameters)
 			{
 				continue;
 			}
-			TestFalse(FString::Printf(TEXT("nav edge %s -> %s crosses a solid"), *From, *To),
-				FHISim::LosBlocked(A, FHISim::NodePositions()[Jdx]));
+			// Floor-aware, tested on the edge's LOW floor. A stair edge's collisions
+			// live at climbing height -- the stringer below, nothing at the treads --
+			// and the top half of a flight legitimately crosses a railing FOOTPRINT at
+			// a height where the body is below the railing's span. The 2026-10-15 run
+			// measured exactly that: the old 2-D assertion failed three stair edges
+			// that are physically clear.
+			const int32 EdgeFloor = FMath::Min(
+				FHISim::NodeFloors()[Idx], FHISim::NodeFloors()[Jdx]);
+			TestFalse(FString::Printf(TEXT("nav edge %s -> %s crosses a solid on floor %d"),
+				*From, *To, EdgeFloor),
+				FHISim::WalkBlocked(A, FHISim::NodePositions()[Jdx], EdgeFloor));
 		}
 	}
 
@@ -2491,6 +2505,627 @@ bool FHISimVerbs::RunTest(const FString& Parameters)
 		TestTrue(FString::Printf(TEXT("knocking the loot loose (carry now '%s')"), *R.Intruders[0].Carry),
 			R.Intruders[0].Carry.IsEmpty());
 	}
+
+	return true;
+}
+
+// ------------------------------------------------- vertical slice: the floor model
+//
+// The 2026-10-15 fork gave the house a second storey. These tests pin the slice of
+// HOUSE-DESIGN.md §3 AS BUILT: the stair band's geometry (x 6.60..7.875,
+// y -13.50..-9.10, bottom h 0 at the south end, top h 3.0 at the north), the slab
+// hole (x 6.35..7.875, y -13.50..-10.50), the railings (span [3.0, 4.0]) and the
+// stringer (span [0, 3.0], x 6.50..6.62, y -13.875..-9.1).
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHISimFloorModel,
+	"HI.Sim.FloorModel",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FHISimFloorModel::RunTest(const FString& Parameters)
+{
+	FHISim::SelfCheck();
+
+	// ---- FloorZAt: the band interpolates, flat floors are flat.
+	TestTrue(TEXT("band bottom is floor height"),
+		FMath::IsNearlyEqual(FHISim::FloorZAt(FVector2D(7.24f, -9.10f), 0), 0.0f, 0.01f));
+	// The exact top corner: FBox2D::IsInside is STRICT in UE -- this returned the flat
+	// floor height (3.0 by luck there, 0.0 at the bottom edge) until Contains moved to
+	// IsInsideOrOn, and SelfCheck v2's arrival assertion caught it on its first run.
+	TestTrue(TEXT("band top is floor height (inclusive edge)"),
+		FMath::IsNearlyEqual(FHISim::FloorZAt(FVector2D(7.24f, -13.50f), 1), 3.0f, 0.01f));
+	TestTrue(TEXT("band interpolates linearly"),
+		FMath::IsNearlyEqual(FHISim::FloorZAt(FVector2D(7.24f, -11.30f), 0), 1.5f, 0.02f));
+	TestTrue(TEXT("flat ground floor is 0"),
+		FMath::IsNearlyEqual(FHISim::FloorZAt(FVector2D(0.0f, -11.0f), 0), 0.0f, 0.001f));
+	TestTrue(TEXT("flat second floor is one storey"),
+		FMath::IsNearlyEqual(FHISim::FloorZAt(FVector2D(0.0f, -11.0f), 1), 3.0f, 0.001f));
+	TestEqual(TEXT("FloorHeight is linear in storeys (basement becomes a table in phase 2)"),
+		FHISim::FloorHeight(2), 6.0f);
+
+	// ---- ApplyElevation: derived, never integrated -- and the flip is at the midpoint.
+	{
+		int32 F = 0; float Z = 0.0f;
+		FHISim::ApplyElevation(FVector2D(7.24f, -11.29f), F, Z);
+		TestEqual(TEXT("just south of the midpoint stays on the low floor"), F, 0);
+		TestTrue(TEXT("and carries the band height"), FMath::IsNearlyEqual(Z, 1.493f, 0.02f));
+		F = 0; Z = 0.0f;
+		FHISim::ApplyElevation(FVector2D(7.24f, -11.31f), F, Z);
+		TestEqual(TEXT("just north of the midpoint is the high floor"), F, 1);
+		TestTrue(TEXT("and carries the band height"), FMath::IsNearlyEqual(Z, 1.507f, 0.02f));
+		// The foot, from BELOW: a ground-floor body on the bottom tread derives the band.
+		F = 0; Z = 3.0f;
+		FHISim::ApplyElevation(FVector2D(7.24f, -9.11f), F, Z);
+		TestEqual(TEXT("a ground body at the foot stays on the low floor"), F, 0);
+		TestTrue(TEXT("at foot height"), FMath::IsNearlyEqual(Z, 0.007f, 0.02f));
+		// ...and from ABOVE: the south deck strip covers this same plan point -- bottom
+		// tread underneath, second-floor decking over it -- and DECK BEATS BAND for a
+		// floor-1 body. This pin said "returns the low floor" until 2026-10-15, encoding
+		// band-wins; the deck-B overlap made that a teleport, dropping a floor-1 man
+		// walking north on the strip 2 m onto the treads mid-stride.
+		F = 1; Z = 0.0f;
+		FHISim::ApplyElevation(FVector2D(7.24f, -9.11f), F, Z);
+		TestEqual(TEXT("a second-floor body at the foot stands on the deck strip"), F, 1);
+		TestTrue(TEXT("at storey height, not tread height"), FMath::IsNearlyEqual(Z, 3.0f, 0.001f));
+		// The same two worlds 1.2 m up the run, where the deck is 2.2 m over the treads.
+		F = 0; Z = 3.0f;
+		FHISim::ApplyElevation(FVector2D(7.24f, -10.3f), F, Z);
+		TestTrue(FString::Printf(TEXT("under the strip, a ground body is on the treads (got %.2f)"), Z),
+			F == 0 && FMath::IsNearlyEqual(Z, 0.82f, 0.02f));
+		F = 1; Z = 0.0f;
+		FHISim::ApplyElevation(FVector2D(7.24f, -10.3f), F, Z);
+		TestTrue(TEXT("on the strip, the deck holds him"),
+			F == 1 && FMath::IsNearlyEqual(Z, 3.0f, 0.001f));
+		F = 1; Z = 0.0f;
+		FHISim::ApplyElevation(FVector2D(6.0f, -12.0f), F, Z);
+		TestTrue(TEXT("the deck holds a second-floor body at storey height"),
+			FMath::IsNearlyEqual(Z, 3.0f, 0.001f) && F == 1);
+	}
+
+	// ---- The flight climbs monotonically: 0.05 m samples from foot to top.
+	{
+		float Prev = -1.0f;
+		bool bMono = true;
+		for (float Y = -9.10f; Y >= -13.50f; Y -= 0.05f)
+		{
+			const float H = FHISim::FloorZAt(FVector2D(7.24f, Y), 0);
+			if (H < Prev - 1e-4f) { bMono = false; }
+			Prev = H;
+		}
+		TestTrue(TEXT("height never decreases walking up the flight"), bMono);
+	}
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHISimStairCollision,
+	"HI.Sim.StairCollision",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FHISimStairCollision::RunTest(const FString& Parameters)
+{
+	FHISim::SelfCheck();
+
+	// ---- ONE rule, both floors: the body cylinder [Z, Z+1.8] must STRICTLY overlap a
+	// solid's span for it to block. At ground Z the stringer (span [0,3]) walls the
+	// flight off from the kitchen; at Z=3.0 the same body steps over the stringer and
+	// the railing (span [3,4]) catches it instead.
+	{
+		const FVector2D P(6.70f, -11.0f);
+		const FVector2D AtGround = FHISim::ResolveCircleZ(P, 0.42f, 0.0f);
+		TestTrue(FString::Printf(TEXT("the stringer walls off the flight at ground level (got %.2f)"), AtGround.X),
+			FMath::IsNearlyEqual(AtGround.X, 7.04f, 0.01f));
+		// The Z=3 body here floats over the hole -- unreachable on foot, which is why
+		// it pins the RULE, not a route: at deck height the railings apply even in-band
+		// (a man on the south deck strip stands above the flight's foot, inside the same
+		// footprint, and must not walk off the hole's edge).
+		const FVector2D Upstairs = FHISim::ResolveCircleZ(P, 0.42f, 3.0f);
+		TestTrue(FString::Printf(TEXT("at Z=3 the stringer is stepped over and the railing blocks (got %.2f)"), Upstairs.X),
+			FMath::IsNearlyEqual(Upstairs.X, 6.77f, 0.01f));
+		// Below deck height, IN the band, the railings do not apply -- the flight owns
+		// the body. Without this the south railing pinned a descending player at Z=1.31
+		// (measured, 2026-10-15): his cylinder tip reached into the [3,4] span while
+		// his feet were 1.8 m below the deck, and the push-out equilibrium held him
+		// exactly one radius north of it, the stuck detector silent.
+		const FVector2D OnFlight(7.24f, -10.75f);
+		TestTrue(TEXT("a mid-flight body passes under the south railing"),
+			FHISim::ResolveCircleZ(OnFlight, 0.42f, 1.12f).Equals(OnFlight, 0.001f));
+	}
+	{
+		const FVector2D West(6.0f, -11.5f);
+		const FVector2D R = FHISim::ResolveCircleZ(West, 0.42f, 3.0f);
+		TestTrue(FString::Printf(TEXT("the railing's west face pushes a deck body back (got %.2f)"), R.X),
+			FMath::IsNearlyEqual(R.X, 5.83f, 0.01f));
+	}
+
+	// ---- Decks never block: standing under the slab is legal (it is the kitchen), and
+	// the fridge underfoot on the ground floor cannot shove a man on the second.
+	{
+		const FVector2D Under(7.24f, -10.0f);
+		TestTrue(TEXT("ground floor under the slab is free"),
+			FHISim::ResolveCircleZ(Under, 0.42f, 0.0f).Equals(Under, 0.001f));
+		const FVector2D OverFridge(5.5f, -13.45f);
+		TestTrue(TEXT("ground furniture does not touch a second-floor body"),
+			FHISim::ResolveCircleZ(OverFridge, 0.42f, 3.0f).Equals(OverFridge, 0.001f));
+		TestTrue(TEXT("...but it does touch a ground-floor body"),
+			!FHISim::ResolveCircleZ(OverFridge, 0.42f, 0.0f).Equals(OverFridge, 0.01f));
+	}
+
+	// ---- Second-floor walls exist only at second-floor height. The probe sits in the
+	// hall gap, where the ground floor is OPEN (the divider's doorway) and the floor-1
+	// north wall above it is not -- an east-wall version of this pin would have been
+	// blocked on both floors by the ground exterior wall and proven nothing.
+	{
+		const FVector2D Gap(0.0f, -13.80f);
+		const FVector2D R = FHISim::ResolveCircleZ(Gap, 0.42f, 3.0f);
+		TestTrue(FString::Printf(TEXT("the floor-1 north wall stops a deck body (got %.2f)"), R.Y),
+			FMath::IsNearlyEqual(R.Y, -13.455f, 0.01f));
+		TestTrue(TEXT("...and the hall gap is air to the ground floor"),
+			FHISim::ResolveCircleZ(Gap, 0.42f, 0.0f).Equals(Gap, 0.001f));
+	}
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHISimCrossFloorSight,
+	"HI.Sim.CrossFloorSight",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FHISimCrossFloorSight::RunTest(const FString& Parameters)
+{
+	FHISim::SelfCheck();
+
+	// Positions carry FEET Z; CanSee3D raises the eyes itself.
+
+	// ---- THE HEADLINE: the stairwell is a sight tube. The ground-floor eyes see the
+	// second-floor body through the slab hole, over the railing's span, past the
+	// stringer's top corner. The conservative version of LosBlocked3D (clamp-into-span,
+	// then a full-length 2-D test) false-blocked exactly this -- the exact t-interval
+	// clip is what makes the flight playable.
+	TestTrue(TEXT("the stairwell is a sight tube (foot of stairs sees the header landing)"),
+		FHISim::CanSee3D(FVector(7.24f, -9.6f, 0.0f), FVector(7.24f, -13.6f, 3.0f)));
+	TestTrue(TEXT("sight down the stairwell is symmetric"),
+		FHISim::CanSee3D(FVector(7.24f, -13.6f, 3.0f), FVector(7.24f, -9.6f, 0.0f)));
+
+	// ---- The same plan line at the same heights, ONE METRE WEST: through the slab
+	// instead of the hole. Blocked. This pair is the regression pin for span-exactness.
+	// x=6.1, NOT 6.0: the counter (x up to 6.05) blocks the 6.0 line at ground height,
+	// so that version passed with the slab logic deleted -- a check that cannot fail.
+	TestFalse(TEXT("the slab hides the second floor from the kitchen"),
+		FHISim::CanSee3D(FVector(6.1f, -11.0f, 0.0f), FVector(6.1f, -13.0f, 3.0f)));
+
+	// ---- Floor discipline on one plan line: the stringer (span [0,3]) blocks
+	// ground-floor eyes at x=5.0..7.24 south-bound... the pair below looks along the
+	// SAME plan segment at two heights and gets opposite answers.
+	TestFalse(TEXT("the stringer blocks ground-floor sight along the flight"),
+		FHISim::CanSee3D(FVector(5.0f, -11.5f, 0.0f), FVector(7.24f, -13.6f, 0.0f)));
+	TestTrue(TEXT("second-floor eyes (4.62) see over the 1 m railing along the same line"),
+		FHISim::CanSee3D(FVector(5.0f, -11.5f, 3.0f), FVector(7.24f, -13.6f, 3.0f)));
+
+	// ---- Range is 3-D: two metres of storey counts against the pistol range.
+	TestFalse(TEXT("CanSee3D range is three-dimensional"),
+		FHISim::CanSee3D(FVector(0.0f, 5.0f, 0.0f), FVector(0.0f, 35.0f, 0.0f), 28.0f));
+
+	// ---- ThiefSees3D: CanSee3D plus the plan cone. North is -PI/2 in atan2 terms.
+	const float North = -0.5f * PI;
+	TestTrue(TEXT("the thief at the foot of the stairs sees the man on the landing"),
+		FHISim::ThiefSees3D(FVector(7.24f, -9.6f, 0.0f), North, FVector(7.24f, -13.6f, 3.0f)));
+	TestFalse(TEXT("...but not with his back turned"),
+		FHISim::ThiefSees3D(FVector(7.24f, -9.6f, 0.0f), North + PI, FVector(7.24f, -13.6f, 3.0f)));
+	TestFalse(TEXT("the slab still hides the second floor from the thief's cone"),
+		FHISim::ThiefSees3D(FVector(6.1f, -11.0f, 0.0f), North, FVector(6.1f, -13.0f, 3.0f)));
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHISimNodeFloors,
+	"HI.Sim.NodeFloors",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FHISimNodeFloors::RunTest(const FString& Parameters)
+{
+	FHISim::SelfCheck();
+
+	const TArray<FString>& Names = FHISim::NodeNames();
+	const int32 IFoot = Names.IndexOfByKey(TEXT("stairFootG"));
+	const int32 IFootL = Names.IndexOfByKey(TEXT("stairFootL"));
+	const int32 ITop = Names.IndexOfByKey(TEXT("stairTopG"));
+	const int32 IUp = Names.IndexOfByKey(TEXT("upstairs"));
+	const int32 IKitchen = Names.IndexOfByKey(TEXT("kitchen"));
+	TestTrue(TEXT("the slice's five stair nodes exist"),
+		IFoot != INDEX_NONE && IFootL != INDEX_NONE && ITop != INDEX_NONE && IUp != INDEX_NONE);
+	if (IFoot == INDEX_NONE || IFootL == INDEX_NONE || ITop == INDEX_NONE || IUp == INDEX_NONE || IKitchen == INDEX_NONE)
+	{
+		return false;
+	}
+	TestEqual(TEXT("stairFootG is on the ground floor"), FHISim::NodeFloors()[IFoot], 0);
+	TestEqual(TEXT("stairFootL is on the ground floor"), FHISim::NodeFloors()[IFootL], 0);
+	TestFalse(TEXT("stairFootL is out of the band -- the leg out of the flight turns west only AFTER this"),
+		FHISim::InStairBand(FHISim::NodePositions()[IFootL]));
+	TestEqual(TEXT("stairTopG is on the second floor"), FHISim::NodeFloors()[ITop], 1);
+	TestEqual(TEXT("upstairs is on the second floor"), FHISim::NodeFloors()[IUp], 1);
+
+	TestTrue(TEXT("the flight's graph edge IS the floor change"),
+		FHISim::IsStairEdge(TEXT("stairFootG"), TEXT("stairTopG"))
+		&& FHISim::IsStairEdge(TEXT("stairTopG"), TEXT("stairFootG")));
+	TestFalse(TEXT("kitchen -> stairFootG walks flat"),
+		FHISim::IsStairEdge(TEXT("kitchen"), TEXT("stairFootG")));
+	TestFalse(TEXT("stairTopG -> upstairs walks flat"),
+		FHISim::IsStairEdge(TEXT("stairTopG"), TEXT("upstairs")));
+
+	// ---- NearestNode is floor-filtered. The single-argument form means GROUND FLOOR:
+	// the day it briefly delegated INDEX_NONE (any floor), a point in the front hall
+	// snapped to `upstairs` -- plan distance 0.0 to a node three metres overhead.
+	TestEqual(TEXT("single-arg NearestNode is ground-floor semantics"),
+		FHISim::NearestNode(FVector2D(0.0f, -11.2f)), FString(TEXT("frontHub")));
+	TestEqual(TEXT("floor 0 filters to frontHub"),
+		FHISim::NearestNode(FVector2D(0.0f, -11.2f), 0), FString(TEXT("frontHub")));
+	TestEqual(TEXT("floor 1 filters to upstairs at the same plan point"),
+		FHISim::NearestNode(FVector2D(0.0f, -11.2f), 1), FString(TEXT("upstairs")));
+	TestEqual(TEXT("the upstairs room node owns its floor"),
+		FHISim::NearestNode(FVector2D(0.0f, -12.2f), 1), FString(TEXT("upstairs")));
+
+	// ---- The path to the second floor goes through the flight, in order.
+	// PathNodes excludes the start node (RouteTo semantics: the route you WALK).
+	const TArray<FString> Path = FHISim::PathNodes(TEXT("van"), TEXT("upstairs"));
+	TestEqual(TEXT("the path's first hop from the van is the door"),
+		Path[0], FString(TEXT("doorOut")));
+	TestEqual(TEXT("the path ends upstairs"), Path.Last(), FString(TEXT("upstairs")));
+	const int32 A = Path.IndexOfByKey(TEXT("stairFootG"));
+	const int32 B = Path.IndexOfByKey(TEXT("stairTopG"));
+	TestTrue(FString::Printf(TEXT("the flight is one hop, foot then top (A=%d B=%d)"), A, B),
+		A != INDEX_NONE && B == A + 1);
+	TestTrue(FString::Printf(TEXT("and the foot landing is the hop before the foot (A=%d)"), A),
+		A > 0 && Path[A - 1] == TEXT("stairFootL"));
+	const int32 C = Path.IndexOfByKey(TEXT("stairLanding"));
+	TestTrue(FString::Printf(TEXT("then the step-off landing, then the room (B=%d C=%d)"), B, C),
+		C == B + 1 && Path[C + 1] == TEXT("upstairs"));
+
+	// ---- WalkBlocked: per-floor walkability, the world-data contract.
+	TestFalse(TEXT("kitchen -> stairFootL is clear on floor 0 (counter moved for this)"),
+		FHISim::WalkBlocked(FVector2D(4.5f, -9.6f), FVector2D(7.24f, -8.60f), 0));
+	TestFalse(TEXT("stairFootL -> stairFootG is clear on floor 0 (the leg straight out of the band)"),
+		FHISim::WalkBlocked(FVector2D(7.24f, -8.60f), FVector2D(7.24f, -8.85f), 0));
+	TestFalse(TEXT("stairTopG -> upstairs is clear on floor 1 (node moved for this)"),
+		FHISim::WalkBlocked(FVector2D(7.24f, -13.30f), FVector2D(0.0f, -12.20f), 1));
+	TestFalse(TEXT("stairTopG -> stairLanding is clear on floor 1 (through the step-off gap)"),
+		FHISim::WalkBlocked(FVector2D(7.24f, -13.30f), FVector2D(6.0f, -13.35f), 1));
+	TestFalse(TEXT("stairLanding -> upstairs is clear on floor 1"),
+		FHISim::WalkBlocked(FVector2D(6.0f, -13.35f), FVector2D(0.0f, -12.2f), 1));
+	TestTrue(TEXT("the OLD upstairs node line crossed the west railing on floor 1"),
+		FHISim::WalkBlocked(FVector2D(7.24f, -13.30f), FVector2D(0.0f, -11.00f), 1));
+	TestTrue(TEXT("the flight's plan crosses the south railing at floor-1 height..."),
+		FHISim::WalkBlocked(FVector2D(7.24f, -8.85f), FVector2D(7.24f, -13.30f), 1));
+	TestFalse(TEXT("...which is why stair edges are walk-tested on their LOW floor"),
+		FHISim::WalkBlocked(FVector2D(7.24f, -8.85f), FVector2D(7.24f, -13.30f), 0));
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHISimSeparationZ,
+	"HI.Sim.SeparationZ",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FHISimSeparationZ::RunTest(const FString& Parameters)
+{
+	FHISim::SelfCheck();
+
+	// ---- Legacy behaviour stands: overlapping bodies on one floor are separated.
+	{
+		const TArray<FVector2D> R = FHISim::SeparateBodiesZ(
+			FVector2D(0.0f, -10.4f), 0.0f, FVector2D(0.0f, -10.0f), 0.0f);
+		TestTrue(FString::Printf(TEXT("same-floor overlap separates to body distance (got %.2f)"),
+			FVector2D::Distance(R[0], R[1])),
+			FMath::IsNearlyEqual(FVector2D::Distance(R[0], R[1]), 0.84f, 0.01f));
+	}
+
+	// ---- Through a slab: the same plan point, one storey apart -- they cannot touch.
+	{
+		const TArray<FVector2D> R = FHISim::SeparateBodiesZ(
+			FVector2D(5.0f, -11.0f), 3.0f, FVector2D(5.0f, -11.0f), 0.0f);
+		TestTrue(TEXT("bodies on different storeys do not interact"),
+			R[0].Equals(FVector2D(5.0f, -11.0f), 0.001f) && R[1].Equals(FVector2D(5.0f, -11.0f), 0.001f));
+	}
+
+	// ---- On the flight: single file. Both bodies inside the band, overlapping in plan,
+	// 0.2 m apart in Z -- WITHOUT the stair skip they would be shoved sideways off the
+	// treads; with it, they are untouched.
+	{
+		const TArray<FVector2D> R = FHISim::SeparateBodiesZ(
+			FVector2D(7.24f, -11.0f), 1.30f, FVector2D(7.24f, -11.3f), 1.50f);
+		TestTrue(TEXT("no separation inside the stair band"),
+			R[0].Equals(FVector2D(7.24f, -11.0f), 0.001f) && R[1].Equals(FVector2D(7.24f, -11.3f), 0.001f));
+	}
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHISimCrossFloorVerbs,
+	"HI.Sim.CrossFloorVerbs",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FHISimCrossFloorVerbs::RunTest(const FString& Parameters)
+{
+	FHISim::SelfCheck();
+
+	// ---- A shove is a 3-D reach test: the man directly overhead is 0 m away in plan
+	// and three metres away in fact. Out of reach, no event.
+	{
+		FHISim::FHIPlayer Player = FHISim::CreatePlayer();
+		Player.Pos = FVector2D(0.0f, -11.6f);
+		Player.Yaw = PI;                    // facing north, toward the thief
+		Player.ShoveCd = 0.0f;
+		FHISim::FHIThief Thief = FHISim::CreateThief();
+		Thief.Pos = FVector2D(0.0f, -12.05f);
+		Thief.Floor = 1; Thief.Z = 3.0f;    // on the deck, directly "in front"
+		TArray<FHISim::FHILootItem> Loot = FHISim::CreateLoot();
+		TArray<FHISim::FHIEvent> Events;
+		TestFalse(TEXT("a shove does not reach through a slab"),
+			FHISim::Shove(Player, Thief, Loot, Events));
+		TestEqual(TEXT("and raises no event"), Events.Num(), 0);
+
+		Thief.Floor = 0; Thief.Z = 0.0f;    // same plan point, ground floor
+		TestTrue(TEXT("the same shove connects on one floor"),
+			FHISim::Shove(Player, Thief, Loot, Events));
+	}
+	{
+		FHISim::FHIPlayer Player = FHISim::CreatePlayer();
+		Player.Pos = FVector2D(0.0f, -12.05f);
+		Player.Floor = 1; Player.Z = 3.0f;
+		FHISim::FHIThief Thief = FHISim::CreateThief();
+		Thief.Pos = FVector2D(0.0f, -11.6f);
+		Thief.Floor = 0; Thief.Z = 0.0f;
+		Thief.ShoveCd = 0.0f;
+		TArray<FHISim::FHIEvent> Events;
+		TestFalse(TEXT("the thief's shove does not reach up through a slab either"),
+			FHISim::ThiefShove(Thief, Player, Events));
+		Player.Floor = 0; Player.Z = 0.0f;
+		TestTrue(TEXT("...but it connects on one floor"),
+			FHISim::ThiefShove(Thief, Player, Events));
+	}
+
+	// ---- A dropped item stays on the floor it was dropped ON -- the loot carries its
+	// storey so the grab gate can refuse the man standing under the deck.
+	{
+		FHISim::FHIThief Thief = FHISim::CreateThief();
+		Thief.Pos = FVector2D(0.0f, -12.2f);
+		Thief.Floor = 1; Thief.Z = 3.0f;
+		Thief.Carry = TEXT("TV");
+		TArray<FHISim::FHILootItem> Loot = FHISim::CreateLoot();
+		int32 TvIdx = INDEX_NONE;
+		for (int32 I = 0; I < Loot.Num(); ++I)
+		{
+			Loot[I].Floor = 0;
+			if (Loot[I].Label == TEXT("TV")) { Loot[I].bTaken = true; TvIdx = I; }
+		}
+		TArray<FHISim::FHIEvent> Events;
+		FHISim::DropCarried(Thief, Loot, Events);
+		TestTrue(TEXT("the drop happened"), TvIdx != INDEX_NONE && !Loot[TvIdx].bTaken);
+		TestEqual(TEXT("the dropped TV keeps the second floor"), Loot[TvIdx].Floor, 1);
+		TestTrue(TEXT("it lands at his feet"),
+			FVector2D::Distance(Loot[TvIdx].Pos, Thief.Pos) < 0.35f);
+		TestTrue(TEXT("and the grab gate math says a ground-floor man cannot take it"),
+			FMath::Abs(0.0f - FHISim::FloorZAt(Loot[TvIdx].Pos, Loot[TvIdx].Floor)) >= 0.6f);
+	}
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHISimPlayerClimb,
+	"HI.Sim.PlayerClimb",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FHISimPlayerClimb::RunTest(const FString& Parameters)
+{
+	FHISim::SelfCheck();
+
+	// ---- Walk north from the kitchen into the flight: Z rises, never falls, the floor
+	// flips ONCE at the midpoint, StairPace caps the climb, and the floor-1 north wall
+	// stops him at the top. Then turn around: the mirror image on the way down.
+	const float Dt = 1.0f / 60.0f;
+	FHISim::FHIRound R = FHISim::FHIRound::Start(1);
+	// Park the only thief 40 m south: this test measures the climb, not a gunfight.
+	R.Intruders[0].Pos = FVector2D(0.0f, 40.0f);
+	R.Player.Pos = FVector2D(7.24f, -8.95f);
+	R.Player.Yaw = PI;                       // facing north, into the stairs
+	FHISim::FHIInput In;
+	In.Axis = FVector2D(0.0f, 1.0f);         // and holding forward
+
+	float PrevZ = R.Player.Z;
+	int32 PrevFloor = R.Player.Floor;
+	int32 Flips = 0;
+	float FlipZ = -1.0f;
+	bool bBand = false, bWasBand = false, bMono = true, bMidFlight = false;
+	float MaxSpd = 0.0f, ZMin = R.Player.Z;
+	for (int32 F = 0; F < 300; ++F)
+	{
+		R.Step(In, Dt);
+		const bool bNowBand = FHISim::InStairBand(R.Player.Pos);
+		if (bNowBand)
+		{
+			bBand = true;
+			if (R.Player.Z + 1e-4f < PrevZ) { bMono = false; }
+			if (R.Player.Z > 0.3f && R.Player.Z < 2.7f) { bMidFlight = true; }
+			// Pace on STEADY band frames: the entry frame still carries 4.2 m/s of
+			// momentum while MoveToward decelerates to the paced wish.
+			if (bWasBand) { MaxSpd = FMath::Max(MaxSpd, R.Player.Vel.Size()); }
+		}
+		bWasBand = bNowBand;
+		if (R.Player.Floor != PrevFloor) { ++Flips; FlipZ = R.Player.Z; PrevFloor = R.Player.Floor; }
+		ZMin = FMath::Min(ZMin, R.Player.Z);
+		PrevZ = R.Player.Z;
+	}
+	TestTrue(TEXT("the walk entered the stair band"), bBand);
+	TestTrue(TEXT("mid-flight happened (not a teleport between floors)"), bMidFlight);
+	TestTrue(TEXT("Z never decreases while climbing"), bMono);
+	TestEqual(TEXT("the floor flips exactly once"), Flips, 1);
+	TestTrue(FString::Printf(TEXT("the flip is at the midpoint height (got %.2f)"), FlipZ),
+		FlipZ > 1.35f && FlipZ < 1.65f);
+	TestEqual(TEXT("he arrives on the second floor"), R.Player.Floor, 1);
+	// 2.97, not 3.0: the north wall's push-out (y -13.455) stops him on the TOP TREAD,
+	// 0.045 m south of the band's end -- the landing itself starts at the deck.
+	TestTrue(FString::Printf(TEXT("at the top of the flight (got %.2f)"), R.Player.Z),
+		R.Player.Z > 2.90f && R.Player.Z < 3.01f);
+	TestTrue(FString::Printf(TEXT("the floor-1 north wall stopped him (y %.2f)"), R.Player.Pos.Y),
+		R.Player.Pos.Y > -13.80f);
+	TestTrue(FString::Printf(TEXT("stairs cost pace: max band speed %.2f <= 2.94+eps"), MaxSpd),
+		MaxSpd < 3.0f);
+	TestTrue(TEXT("never fell through anything"), ZMin > -0.01f);
+	TestTrue(TEXT("round still in play"), R.State == FHISim::EHIRoundState::Play);
+
+	// ---- And back down.
+	R.Player.Yaw = 0.0f;                    // south
+	PrevZ = R.Player.Z; PrevFloor = R.Player.Floor;
+	Flips = 0; FlipZ = -1.0f; bMono = true;
+	for (int32 F = 0; F < 300; ++F)
+	{
+		R.Step(In, Dt);
+		if (FHISim::InStairBand(R.Player.Pos) && R.Player.Z > PrevZ + 1e-4f) { bMono = false; }
+		if (R.Player.Floor != PrevFloor) { ++Flips; FlipZ = R.Player.Z; PrevFloor = R.Player.Floor; }
+		PrevZ = R.Player.Z;
+	}
+	TestEqual(TEXT("the floor flips back exactly once"), Flips, 1);
+	TestTrue(FString::Printf(TEXT("at the midpoint height again (got %.2f)"), FlipZ),
+		FlipZ > 1.35f && FlipZ < 1.65f);
+	TestEqual(TEXT("he is back on the ground floor"), R.Player.Floor, 0);
+	TestTrue(FString::Printf(TEXT("at ground height (got %.2f)"), R.Player.Z),
+		FMath::IsNearlyEqual(R.Player.Z, 0.0f, 0.01f));
+	TestTrue(TEXT("and walked off the foot of the stairs"), !FHISim::InStairBand(R.Player.Pos));
+	TestTrue(TEXT("round still in play after the round trip"),
+		R.State == FHISim::EHIRoundState::Play);
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHISimThiefUpstairs,
+	"HI.Sim.ThiefUpstairs",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FHISimThiefUpstairs::RunTest(const FString& Parameters)
+{
+	FHISim::SelfCheck();
+
+	// ---- THE HEADLINE AI TEST: every ground room already searched, so the only place
+	// left to look is upstairs -- a thief in the front hall has to route through the
+	// graph, climb the flight at StairPace, flip floors at the midpoint and arrive at a
+	// second-floor search node. Bounded: the 2026-10-15 orbit trap (camped waypoint +
+	// tangential steering) ran 120 s at stuck=0.00; this must finish in 45.
+	const float Dt = 1.0f / 60.0f;
+	FHISim::FHIThief Thief = FHISim::CreateThief();
+	Thief.Pos = FVector2D(0.0f, -9.6f);      // doorIn
+	Thief.Floor = 0;
+	Thief.Z = 0.0f;
+	const TCHAR* Done[] = { TEXT("living"), TEXT("kitchen"), TEXT("bedroom"), TEXT("study") };
+	for (const TCHAR* Room : Done) { Thief.Searched.Add(Room); }
+
+	FHISim::FHIPlayer Player = FHISim::CreatePlayer();
+	Player.Pos = FVector2D(6.0f, -18.0f);    // study corner: the divider hides him, no interference
+	TArray<FHISim::FHILootItem> Loot = FHISim::CreateLoot();
+	TArray<FHISim::FHIEvent> Events;
+
+	float T = 0.0f, TArrive = -1.0f, ZMax = 0.0f, ZMin = 9.9f;
+	int32 ArriveFloor = -1;
+	float ArriveZ = -1.0f, ArriveDist = -1.0f;
+	bool bMidFlight = false;
+	const int32 UpIdx = FHISim::NodeNames().IndexOfByKey(TEXT("upstairs"));
+	while (T < 90.0f && TArrive < 0.0f)
+	{
+		FHISim::StepThief(Thief, Player, Loot, Events, Dt);
+		Events.Reset();
+		T += Dt;
+		ZMax = FMath::Max(ZMax, Thief.Z);
+		ZMin = FMath::Min(ZMin, Thief.Z);
+		if (FHISim::InStairBand(Thief.Pos) && Thief.Z > 0.3f && Thief.Z < 2.7f) { bMidFlight = true; }
+		if (Thief.Searched.Contains(TEXT("upstairs")))
+		{
+			TArrive = T;
+			ArriveFloor = Thief.Floor;
+			ArriveZ = Thief.Z;
+			ArriveDist = FVector2D::Distance(Thief.Pos, FHISim::NodePositions()[UpIdx]);
+		}
+	}
+	TestTrue(FString::Printf(TEXT("he searched upstairs at all (%.1fs)"), T), TArrive > 0.0f);
+	TestTrue(FString::Printf(TEXT("...within the bound (%.1fs <= 45)"), TArrive), TArrive > 0.0f && TArrive < 45.0f);
+	TestTrue(TEXT("he actually climbed (mid-flight, not a teleport)"), bMidFlight);
+	TestEqual(TEXT("he arrived on the second floor"), ArriveFloor, 1);
+	TestTrue(FString::Printf(TEXT("at storey height (got %.2f)"), ArriveZ),
+		FMath::IsNearlyEqual(ArriveZ, 3.0f, 0.05f));
+	TestTrue(FString::Printf(TEXT("at the node (got %.2f m)"), ArriveDist), ArriveDist < 1.7f);
+	TestTrue(FString::Printf(TEXT("Z stayed physical the whole way (%.2f..%.2f)"), ZMin, ZMax),
+		ZMin > -0.01f && ZMax < 3.01f);
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHISimThiefDescends,
+	"HI.Sim.ThiefDescends",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FHISimThiefDescends::RunTest(const FString& Parameters)
+{
+	FHISim::SelfCheck();
+
+	// ---- The mirror, and the grab-gate's regression pin: a thief on the second floor
+	// directly above the known TV is 0.0 m from it IN PLAN and must not be able to take
+	// it through the deck. He has to walk to the flight, come down, and grab it ON THE
+	// GROUND FLOOR -- the Z gate (|Thief.Z - FloorZAt(loot)| < 0.6) is the only thing
+	// separating those two worlds.
+	const float Dt = 1.0f / 60.0f;
+	FHISim::FHIThief Thief = FHISim::CreateThief();
+	Thief.Pos = FVector2D(-5.3f, -12.9f);    // above the living-room TV spot
+	// Floor is CARRIED state off the band -- ApplyElevation derives Z from the floor you
+	// are on; it does not guess you onto the deck above you. He starts ON the second floor.
+	Thief.Floor = 1;
+	Thief.Z = 0.0f;
+	FHISim::ApplyElevation(Thief.Pos, Thief.Floor, Thief.Z);
+	TestEqual(TEXT("the deck takes him to the second floor"), Thief.Floor, 1);
+
+	TArray<FHISim::FHILootItem> Loot = FHISim::CreateLoot();
+	int32 TvIdx = INDEX_NONE;
+	for (int32 I = 0; I < Loot.Num(); ++I)
+	{
+		if (Loot[I].Label == TEXT("TV")) { Loot[I].bKnown = true; TvIdx = I; }
+	}
+	TestTrue(TEXT("the TV exists"), TvIdx != INDEX_NONE);
+
+	FHISim::FHIPlayer Player = FHISim::CreatePlayer();
+	Player.Pos = FVector2D(6.0f, -18.0f);    // out of sight, out of the run
+	TArray<FHISim::FHIEvent> Events;
+
+	// Phase A: three seconds standing on the loot's plan projection. The grab must NOT
+	// happen -- the legacy 2-D distance test would have taken it on frame one.
+	float T = 0.0f;
+	for (int32 F = 0; F < 180; ++F)
+	{
+		FHISim::StepThief(Thief, Player, Loot, Events, Dt);
+		Events.Reset();
+		T += Dt;
+	}
+	TestFalse(TEXT("the grab gate refuses through-slab picks"), Loot[TvIdx].bTaken);
+
+	// Phase B: bounded -- he routes to the flight, descends, and takes it on floor 0.
+	int32 GrabFloor = -1;
+	float GrabZ = -9.9f, TGrab = -1.0f, ZMin = Thief.Z, ZMax = Thief.Z;
+	while (T < 90.0f && !Loot[TvIdx].bTaken)
+	{
+		FHISim::StepThief(Thief, Player, Loot, Events, Dt);
+		Events.Reset();
+		T += Dt;
+		ZMin = FMath::Min(ZMin, Thief.Z);
+		ZMax = FMath::Max(ZMax, Thief.Z);
+		if (Loot[TvIdx].bTaken)
+		{
+			TGrab = T;
+			GrabFloor = Thief.Floor;
+			GrabZ = Thief.Z;
+		}
+	}
+	TestTrue(FString::Printf(TEXT("he came down and got it (%.1fs)"), T), Loot[TvIdx].bTaken);
+	TestTrue(FString::Printf(TEXT("within the bound (%.1fs <= 60)"), TGrab), TGrab > 0.0f && TGrab < 60.0f);
+	TestEqual(TEXT("the grab happened on the ground floor"), GrabFloor, 0);
+	TestTrue(FString::Printf(TEXT("at grab height (got %.2f)"), GrabZ), FMath::Abs(GrabZ) < 0.6f);
+	TestEqual(TEXT("and he is carrying it"), Thief.Carry, FString(TEXT("TV")));
+	TestTrue(FString::Printf(TEXT("Z stayed physical (%.2f..%.2f)"), ZMin, ZMax),
+		ZMin > -0.01f && ZMax < 3.01f);
 
 	return true;
 }
