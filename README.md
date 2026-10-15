@@ -1,8 +1,15 @@
-# Home Invasion — Unreal port
+# Home Invasion — Unreal
 
-The Unreal Engine 5.8.3 port of **Home Invasion**. The Godot game in
-`../home-invasion-godot/` is the working version and the source of truth for
-behaviour; this project exists to recreate it in Unreal without rewriting the design.
+The Unreal Engine 5.8.3 build of **Home Invasion**. It began as a port of the Godot game in
+`../home-invasion-godot/`, and through 2026-10-15 the port's rule was that Godot is the
+source of truth. **That day Richard commissioned the three-floor house and ended the parity
+obligation: "break the parity with the Godot version and you can stop updating Godot."** The
+Godot repository is frozen — no fixes, no features, including the frontHub freeze recorded in
+bug 24 below — and this project is now the only one that moves. The inherited machinery (the
+sim core, the verbs, the round flow) keeps its ported discipline; the house itself — basement,
+ground floor, second floor, stairs — is this project's own, with no Godot counterpart. The
+fork terms in full: `docs/PARITY.md`, "THE FORK — 2026-10-15". Everything below that predates
+the fork describes the port and stays true of its inherited parts.
 
 ## The specification, and why this port is testable
 

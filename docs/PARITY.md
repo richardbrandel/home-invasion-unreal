@@ -12,6 +12,28 @@ The recorded reasons are the two deliberate port decisions — which live in
 re-litigate"), **not** in this repository's README — plus the fix-list table at
 `README.md` "the fix list, item by item".
 
+## THE FORK — 2026-10-15
+
+**Richard commissioned the three-floor house and ended the port's parity obligation in the
+same message: "break the parity with the Godot version and you can stop updating Godot."**
+From this point the project is a sequel-scale build on the ported engine, not a port. What
+that means mechanically, so the rule below does not get misapplied by the next reader:
+
+- **The Godot repository is frozen.** No patches, no bug fixes, no features — including the
+  frontHub freeze (`sim.gd:977-979, :1082-1083, :1098-1106`) and the steer pincer, which
+  stay in the original as recorded, unfixed, deliberate.
+- **The house is Unreal's own.** Floors, stairs, the room program (basement / first / second),
+  and every coordinate that comes with them have no Godot counterpart. "The port is wrong"
+  cannot apply to a thing the original does not contain.
+- **The inherited machinery keeps its parity discipline where it still applies.** The sim
+  core (step order, constants, state machine), the verbs, the round flow, the HUD grammar:
+  where the three-floor work CHANGES these, the change carries a recorded reason like any
+  `deliberate` row — usually "the floors required it" plus what was measured. Where it merely
+  extends them, the extension is judged on its own merits, not against Godot.
+- The audit below remains the record of the port AS OF the fork. Rows are not rewritten to
+  suit the new house; new divergences are recorded in the code and the changelog, and this
+  file's open items stay open or close on their own terms.
+
 ## How to read a row
 
 | Tag | Meaning | What to do |
