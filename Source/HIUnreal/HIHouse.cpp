@@ -762,6 +762,58 @@ void AHIHouse::BuildFurniture(const FString& Label, const FBox2D& Rect, float Ba
 
 	const float Top = Base + Height;
 
+	// Real scanned models (Poly Haven CC0, no account, 2026-10-19) for the pieces a box
+	// cannot read as. The model REPLACES the body: its own triangle collision blocks a
+	// bullet exactly where the drawn mesh is, which is more honest than the box it replaces,
+	// and the sim's sight (full-storey span over the row's rect) is unchanged. If the model
+	// is missing the row falls through to the procedural composition below.
+	auto ModelFor = [](const FString& L) -> const TCHAR*
+	{
+		if (L == TEXT("sofa"))         return TEXT("Sofa_01");
+		if (L == TEXT("armchair"))     return TEXT("ArmChair_01");
+		if (L == TEXT("dining_table")) return TEXT("dining_table");
+		if (L == TEXT("chair"))        return TEXT("dining_chair_02");
+		if (L == TEXT("coffee_table")) return TEXT("modern_coffee_table_01");
+		if (L == TEXT("nightstand"))   return TEXT("ClassicNightstand_01");
+		if (L == TEXT("bookshelf"))    return TEXT("wooden_bookshelf_worn");
+		return nullptr;
+	};
+	if (const TCHAR* Model = ModelFor(Label))
+	{
+		const FString Path = FString::Printf(
+			TEXT("/Game/HIImported/models/%s/StaticMeshes/%s.%s"), Model, Model, Model);
+		if (UStaticMesh* Mesh = LoadObject<UStaticMesh>(nullptr, *Path))
+		{
+			const FBoxSphereBounds B = Mesh->GetBounds();
+			const FVector MS = B.BoxExtent * 2.0f;   // full mesh size, in UU
+			if (MS.X > 1.0f && MS.Y > 1.0f && MS.Z > 1.0f)
+			{
+				const FVector Scale(S.X * HI_METERS_TO_UU / MS.X,
+					S.Y * HI_METERS_TO_UU / MS.Y,
+					Height * HI_METERS_TO_UU / MS.Z);
+				const FVector Target(C.X, C.Y, Base + Height * 0.5f);
+				UStaticMeshComponent* Comp = NewObject<UStaticMeshComponent>(this);
+				Comp->SetStaticMesh(Mesh);
+				Comp->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+				Comp->SetCollisionResponseToAllChannels(ECR_Ignore);
+				Comp->SetCollisionResponseToChannel(ECC_Visibility, ECR_Block);
+				Comp->SetCollisionResponseToChannel(ECC_PhysicsBody, ECR_Block);
+				Comp->SetMobility(EComponentMobility::Static);
+				Comp->RegisterComponent();
+				Comp->AttachToComponent(RootComponent, FAttachmentTransformRules::KeepWorldTransform);
+				Comp->SetWorldScale3D(Scale);
+				// The model's pivot is rarely its bounds centre; offset so the BOUNDS land
+				// centred on the row, not the pivot.
+				Comp->SetWorldLocation(Target * HI_METERS_TO_UU - B.Origin * Scale);
+				return;
+			}
+		}
+		else
+		{
+			UE_LOG(LogTemp, Warning, TEXT("HI: no model at %s -- run tools/fetch-models.py"), *Path);
+		}
+	}
+
 	// --- soft seating: fabric body, taller back on the -X edge, arms, two cushions
 	if (Label == TEXT("sofa") || Label == TEXT("armchair"))
 	{

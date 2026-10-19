@@ -61,6 +61,15 @@ chairs got a leaning back; and the VAN got a hooded cab, raked windscreen, side
 mirrors, door seams, head/tail lights and bumpers. Still box-primitives, so still
 geometric — but the angles, gaps and layers now break the flat-slab silhouette.
 
+`[2026-10-19 asset pass]` — Richard: "the procedural is not real enough, go the asset
+route." Seven pieces are now REAL scanned models (Poly Haven, CC0, no account, per his
+source algorithm): the sofa, armchair, dining table, four dining chairs, coffee table,
+three nightstands and the bookshelf. Each model replaces its box, and its own triangle
+collision stops the bullet where the mesh is — the sim's sight is unchanged.
+`tools/fetch-models.py` records the download. Still box-procedural (no no-account
+source): beds, the van, the fridge, washer/dryer, the bathroom fixtures, the wardrobe,
+dresser and desk.
+
 ### 2. "The outside doesn't look like a neighborhood"
 
 Also true: beyond the house footprint there is a ground plane, the van, and sky.
