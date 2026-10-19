@@ -21,6 +21,7 @@ const FLinearColor FHIMaterials::Door          = FLinearColor(0.26f, 0.15f, 0.09
 const FLinearColor FHIMaterials::Trim          = FLinearColor(0.94f, 0.93f, 0.90f);
 const FLinearColor FHIMaterials::Glass         = FLinearColor(0.16f, 0.21f, 0.26f);
 const FLinearColor FHIMaterials::Van           = FLinearColor(0.22f, 0.36f, 0.24f);
+const FLinearColor FHIMaterials::GTOGreen      = FLinearColor(0.06f, 0.13f, 0.07f);
 const FLinearColor FHIMaterials::Tyre          = FLinearColor(0.05f, 0.05f, 0.055f);
 const FLinearColor FHIMaterials::Coat          = FLinearColor(0.14f, 0.13f, 0.18f);
 const FLinearColor FHIMaterials::PlayerSkin    = FLinearColor(0.62f, 0.66f, 0.74f);

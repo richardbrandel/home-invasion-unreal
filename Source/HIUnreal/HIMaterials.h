@@ -80,6 +80,8 @@ struct FHIMaterials
 	static const FLinearColor Trim;
 	static const FLinearColor Glass;
 	static const FLinearColor Van;
+	/** The 1968 GTO's deep green (2026-10-19): darker than the van's work-truck green. */
+	static const FLinearColor GTOGreen;
 	/** Tyres, and van glass reuses `Glass`. Contrast is the only detail this project has. */
 	static const FLinearColor Tyre;
 	/**

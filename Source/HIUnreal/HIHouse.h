@@ -247,6 +247,10 @@ public:
 	UPROPERTY(VisibleAnywhere, Category = "Home Invasion")
 	TObjectPtr<class UInstancedStaticMeshComponent> VanDetailInstances;
 
+	/** The 1968 GTO's deep-green body (2026-10-19): its own component, its own colour. */
+	UPROPERTY(VisibleAnywhere, Category = "Home Invasion")
+	TObjectPtr<class UInstancedStaticMeshComponent> GTOInstances;
+
 	/**
 	 * One wall-mounted fitting: a socket, a switch or the thermostat, in metres.
 	 *

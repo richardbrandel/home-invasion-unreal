@@ -222,6 +222,7 @@ AHIHouse::AHIHouse()
 	DoorHeadInstances = MakeDecor(TEXT("DoorHead"), Cube, WallInstances);
 	VanInstances = MakeDecor(TEXT("Van"), Cube, WallInstances);
 	VanDetailInstances = MakeDecor(TEXT("VanDetail"), Cube, WallInstances);
+	GTOInstances = MakeDecor(TEXT("GTO"), Cube, WallInstances);
 }
 
 UInstancedStaticMeshComponent* AHIHouse::MakeDecor(const TCHAR* Name, UStaticMesh* Cube,
@@ -798,8 +799,66 @@ void AHIHouse::BuildNeighborhood()
 			}
 		};
 		Car(-5.5f, 8.3f);
-		Car(5.5f, 8.3f);
 		Car(11.0f, 8.3f);
+
+		// The 1968 Pontiac GTO (2026-10-19, "make one look like a dark green GTO"). A
+		// muscle car is the LONG hood and the SHORT deck, so the whole profile leans on that:
+		// a 1.9 m hood against a 1.0 m tail, a fastback roof that runs down into the deck,
+		// flared fenders over a narrower waist, twin hood scoops, quad headlights, a
+		// body-coloured Endura nose and a chrome rear bumper.
+		{
+			const float W = 1.9f;
+			// Coke-bottle body: a narrower waist, flared fenders over both axles.
+			AddBox(GTOInstances, FVector(5.5f, 8.3f, 0.50f), FVector(4.90f, 1.72f, 0.36f));
+			AddBox(GTOInstances, FVector(5.5f - 1.55f, 8.3f, 0.50f), FVector(1.35f, 1.90f, 0.36f));
+			AddBox(GTOInstances, FVector(5.5f + 1.35f, 8.3f, 0.50f), FVector(1.10f, 1.90f, 0.36f));
+			// The long hood, gently sloped to the nose.
+			AddBoxR(GTOInstances, FVector(5.5f - 1.45f, 8.3f, 0.76f), FVector(1.85f, 1.86f, 0.10f),
+				FRotator(-5.0f, 0.0f, 0.0f));
+			// Raked windscreen.
+			AddBoxR(GlassInstances, FVector(5.5f - 0.35f, 8.3f, 1.06f), FVector(0.06f, 1.60f, 0.50f),
+				FRotator(48.0f, 0.0f, 0.0f));
+			// Fastback: roof then rear glass, one slope down to the deck.
+			AddBoxR(GTOInstances, FVector(5.5f + 0.05f, 8.3f, 1.27f), FVector(0.55f, 1.60f, 0.10f),
+				FRotator(-4.0f, 0.0f, 0.0f));
+			AddBoxR(GlassInstances, FVector(5.5f + 0.65f, 8.3f, 1.16f), FVector(0.06f, 1.54f, 0.46f),
+				FRotator(-24.0f, 0.0f, 0.0f));
+			// The short rear deck.
+			AddBox(GTOInstances, FVector(5.5f + 1.50f, 8.3f, 0.98f), FVector(1.00f, 1.72f, 0.14f));
+			// Twin hood scoops.
+			AddBox(VanDetailInstances, FVector(5.5f - 1.35f, 8.3f - 0.34f, 0.88f), FVector(0.40f, 0.16f, 0.06f));
+			AddBox(VanDetailInstances, FVector(5.5f - 1.35f, 8.3f + 0.34f, 0.88f), FVector(0.40f, 0.16f, 0.06f));
+			// The Endura front bumper, body-coloured and proud of the nose.
+			AddBox(GTOInstances, FVector(5.5f - 2.47f, 8.3f, 0.42f), FVector(0.16f, 1.90f, 0.24f));
+			// Grille and quad headlights (two per side).
+			AddBox(VanDetailInstances, FVector(5.5f - 2.44f, 8.3f, 0.52f), FVector(0.06f, 1.30f, 0.14f));
+			for (float SY : { -0.58f, 0.58f })
+			{
+				AddBox(TrimInstances, FVector(5.5f - 2.46f, 8.3f + SY, 0.56f), FVector(0.06f, 0.34f, 0.12f));
+				AddBox(TrimInstances, FVector(5.5f - 2.46f, 8.3f + SY * 0.55f, 0.56f), FVector(0.06f, 0.34f, 0.12f));
+			}
+			// Chrome rear bumper.
+			AddBox(TrimInstances, FVector(5.5f + 2.05f, 8.3f, 0.42f), FVector(0.10f, 1.80f, 0.18f));
+			// Rocker panels and a door seam.
+			AddBox(VanDetailInstances, FVector(5.5f, 8.3f - 0.87f, 0.35f), FVector(3.0f, 0.04f, 0.12f));
+			AddBox(VanDetailInstances, FVector(5.5f, 8.3f + 0.87f, 0.35f), FVector(3.0f, 0.04f, 0.12f));
+			AddBox(VanDetailInstances, FVector(5.5f - 0.10f, 8.3f - 0.87f, 0.60f), FVector(0.04f, 0.04f, 0.30f));
+			// Four wheels, the front axle farther forward for the muscle-car stance.
+			for (float SX : { -1.55f, 1.35f })
+			{
+				for (float SY : { -0.78f, 0.78f })
+				{
+					WheelInstances->AddInstance(FTransform(
+						FRotator(0.0f, 0.0f, 90.0f),
+						FVector(5.5f + SX, 8.3f + SY, 0.32f) * HI_METERS_TO_UU,
+						FVector(0.66f, 0.66f, 0.24f)), false);
+					WheelRimInstances->AddInstance(FTransform(
+						FRotator(0.0f, 0.0f, 90.0f),
+						FVector(5.5f + SX, 8.3f + SY, 0.32f) * HI_METERS_TO_UU,
+						FVector(0.34f, 0.34f, 0.27f)), false);
+				}
+			}
+		}
 	}
 
 	// Trees on the lawn beside the driveway: a dark trunk under two stacked green boxes.
@@ -1072,7 +1131,7 @@ void AHIHouse::Build()
 		StreetInstances, NeighborInstances, TreeInstances, WheelInstances, WheelRimInstances,
 		GroundInstance, FloorInstance, BasementFloorInstances, RoofInstance, CeilingInstance,
 		TrimInstances, WindowInstances, GlassInstances, FittingInstances, PropInstances,
-		CoatInstances, DoorHeadInstances, VanInstances, VanDetailInstances })
+		CoatInstances, DoorHeadInstances, VanInstances, VanDetailInstances, GTOInstances })
 	{
 		if (Comp != nullptr)
 		{
@@ -1327,6 +1386,7 @@ void AHIHouse::Build()
 	FHIMaterials::Textured(DoorHeadInstances, TEXT("ceiling_plaster"), 40.0f * (2.0f / 16.0f));
 	FHIMaterials::Tint(VanInstances, FHIMaterials::Van);
 	FHIMaterials::Tint(VanDetailInstances, FHIMaterials::Tyre);
+	FHIMaterials::Tint(GTOInstances, FHIMaterials::GTOGreen);
 
 	BuildDressing();
 	BuildNeighborhood();
@@ -1343,7 +1403,7 @@ void AHIHouse::Build()
 	// together cover the 48 non-flat rows. Every other component must simply be non-zero, or
 	// something in this function silently did not run.
 	UE_LOG(LogTemp, Display,
-		TEXT("HI: house built -- walls=%d basement_walls=%d furniture=%d furniture_soft=%d furniture_appliance=%d furniture_dark=%d furn_woodd=%d furn_softd=%d furn_appd=%d furn_darkd=%d ground=%d floor=%d basement_floor=%d roof=%d ceiling=%d trim=%d frames=%d glass=%d fittings=%d props=%d coat=%d door_head=%d van=%d van_detail=%d slabs=%d stairs=%d railings=%d street=%d neighbor=%d trees=%d wheels=%d rims=%d"),
+		TEXT("HI: house built -- walls=%d basement_walls=%d furniture=%d furniture_soft=%d furniture_appliance=%d furniture_dark=%d furn_woodd=%d furn_softd=%d furn_appd=%d furn_darkd=%d ground=%d floor=%d basement_floor=%d roof=%d ceiling=%d trim=%d frames=%d glass=%d fittings=%d props=%d coat=%d door_head=%d van=%d van_detail=%d gto=%d slabs=%d stairs=%d railings=%d street=%d neighbor=%d trees=%d wheels=%d rims=%d"),
 		WallInstances->GetInstanceCount(),
 		WallBasementInstances->GetInstanceCount(),
 		FurnitureInstances->GetInstanceCount(),
@@ -1364,6 +1424,7 @@ void AHIHouse::Build()
 		DoorHeadInstances->GetInstanceCount(),
 		VanInstances->GetInstanceCount(),
 		VanDetailInstances->GetInstanceCount(),
+		GTOInstances->GetInstanceCount(),
 		SlabInstances->GetInstanceCount(),
 		StairInstances->GetInstanceCount(),
 		RailingInstances->GetInstanceCount(),
