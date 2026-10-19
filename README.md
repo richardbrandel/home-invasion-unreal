@@ -150,6 +150,16 @@ ssh ubuntu-dev 'cd /data/projects/HIUnreal && \
 | `-HISoak=SEC` | run a round and print `HISOAK RESULT=…`, then quit |
 | `-HIThieves=N` | how many intruders (default 3) |
 
+**The phase-2 cross-floor sight recipe** (the frames that back HOUSE-DESIGN §7's
+"asserted in sim AND in a frame", trio round, `-HINoThiefDamage` so Louise survives the
+series):
+
+```sh
+# player chair east of the stairwell hole, looking west/up through it at seconds 45/60/75
+-HIShot=xssight -HIShotSeries=45,60,75 -HIShotPos=0.5,-12.5 -HIShotYaw=220 -HIShotPitch=25
+-HIShot=xs2     -HIShotSeries=45,60,75 -HIShotPos=0.1,-12.9 -HIShotYaw=212 -HIShotPitch=30
+```
+
 **Screenshot arguments are read from `FCommandLine::Get()` by hand, not by `FParse::Value`,
 and there is a reason** — see the porting hazards. The screenshot path is printed to the log
 on every scripted run, because "the file was never written" and "the game did not run" look
