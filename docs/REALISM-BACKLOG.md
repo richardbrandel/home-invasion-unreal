@@ -11,6 +11,13 @@ Scope note: the house geometry itself is not on this list — that is
 falls, furniture-height sight lines and big-loot-on-stairs (HOUSE-DESIGN.md §6);
 they land here as items with owners.
 
+**Refreshed 2026-10-19, post phase 2.** The full three-floor house is now built and
+committed (that work is HOUSE-DESIGN scope, not this list); **none of the realism items
+below is implemented.** Items 6, 9–12, 16 and 17 carry a `[phase 2 status]` note where
+the completed house changed their ground truth, and items 19–28 are new from that build.
+Richard's instruction this round: *"realism is the next task — make a list of what you
+think needs to be done."*
+
 ---
 
 ## Richard's three (verbatim from the 2026-10-15 instruction)
@@ -130,6 +137,13 @@ proposal — carrying upstairs at 0.5×, downstairs at 0.35×, and the big items
 (TV, safe) refuse stairs entirely solo (forces a decision: leave it, or the
 second thief helps — co-op carry is a bigger feature).
 
+`[phase 2 status]` — now measured, and mostly moot. The solo sweep carries the
+Laptop down the flight to the van at full stair pace with zero extra cost
+(181.5 s round, HOUSE-DESIGN §8.7). A laptop is light, so 0.7× is arguably
+correct for it; the TV and Safe both stay ground-floor in the current loot
+layout, so "big loot on stairs" cannot happen today. Re-open only if loot moves
+upstairs.
+
 ### 7. Sound through floors
 
 Audio already consumes `Who->Z` for position (HIGameMode.cpp, verified
@@ -162,6 +176,12 @@ model: keep the movement box, remove railings from the sight list (or give them
 baluster gaps). Small, but visible every time the player looks down the
 stairwell.
 
+`[phase 2 status]` — the railing set is now THREE pieces, not one (basement-head
+low railing, second-floor slab-hole south lip, and the stairwell screen's top
+metre doubling as the f1 east-lip railing — HOUSE-DESIGN §8.2). All three need
+the same baluster/cap-rail visual, and the "blocks sight" fix has to clear the
+sight list for all three, not just the one.
+
 ### 10. Windows on the second floor
 
 `WallFittings()` derives window holes from the ground-floor walls only (it
@@ -172,6 +192,10 @@ is the actor-layer work to put openings in floor-1 walls, plus the sight
 consequence: a window is a sight tube between floors of the *outside* — the
 player on the lawn can see into the upstairs rooms, and thieves should too.
 
+`[phase 2 status]` — the second floor now EXISTS (br2, br3, bath2, office, linen,
+HOUSE-DESIGN §8.1), so this is no longer "blank walls to come" but "five real
+rooms with no windows." Unchanged otherwise.
+
 ### 11. Cinderblock basement
 
 Richard's brief: *"the basement will be an open area with cinderblock walls, and
@@ -181,6 +205,11 @@ appliances as identifiable objects (water heater: white cylinder, flue, pipes;
 furnace: grey cabinet, ductwork rising into the ceiling). The two lally columns
 in the design are a realism win here too: real basements have them.
 
+`[phase 2 status]` — the basement geometry IS built now (baseOpen, utility, the
+mech-room doorway, the B flight — HOUSE-DESIGN §8.1), so this item narrows to
+the pure material + appliance pass, exactly as the brief stated. No longer
+"geometry to come."
+
 ### 12. Minimap floor awareness
 
 The minimap and `VisibilityPolygon` run on the ground-floor projection
@@ -189,6 +218,10 @@ upstairs, the minimap shows the floor *below* you. Options: (a) filter the
 projection to the player's floor and hide furniture/walls of other floors,
 (b) keep one map but mark the stairwell and grey out the other floor, (c) two
 inset maps. Richard plays the minimap hard — his call.
+
+`[phase 2 status]` — there are now THREE floors (f−1/f0/f1), so the minimap is
+blind on two of them, not one. The decision below is now three-way (or a floor
+switcher), and it is the item most likely to annoy Richard in actual play.
 
 ### 13. Stair treads as geometry
 
@@ -224,6 +257,11 @@ their stairs (top, bottom, or both — often on a 3-way switch). One lamp entry 
 the stair head fixes it; the second floor already proved the slab carries light
 correctly.
 
+`[phase 2 status]` — re-measure before trusting the old number: the 14-lamp pass
+added a hall lamp "between the stairwell walls" (0.65, −14.25) and an
+upstairs-hall lamp (0.45, −13.50). Whether the flight still reads as a dark wedge
+is now a fresh capture, not a given.
+
 ### 17. The over-the-shoulder camera fights the railings
 
 The camera rides ~1.2 m behind the player and its collision probe treats the
@@ -233,6 +271,11 @@ stairwell (measured, 2026-10-15 landing capture). Options: let the camera probe
 ignore railing solids (walking collision is the sim's job, the railings stay
 drawn), or shorten the arm near ledges. This is game-feel, and it will bite every
 player who goes upstairs.
+
+`[phase 2 status]` — the railing set is now three pieces (see item 9), so the
+camera probe has three places to fight instead of one: the basement head, the
+second-floor slab hole, and the screen. The fix should exempt ALL railing solids
+from the probe in one rule, not per-piece.
 
 ### 18. The pitch clamp hides the player's own feet on stairs
 
@@ -244,18 +287,103 @@ stairs now in the game, looking down matters. Richard's call: widen the clamp
 
 ---
 
+## My phase-2 additions (2026-10-19)
+
+These came out of building and watching the full three-floor house. Same style:
+a measured fact, a proposal, a decision for Richard.
+
+### 19. Footsteps — nobody has any
+
+There is no footstep audio at all; the only movement-adjacent sounds are the shot
+and the `Impact` thud (item 20). The player's own footsteps are the single
+biggest "am I in a real house" cue, and a thief's footsteps on the stairs are a
+gameplay cue — you hear him coming up. Proposal: footstep samples per surface
+(wood, carpet, tile, concrete), tied to the walk/run cycle; the per-room floor
+finish (item 24) is the surface map. The sim already knows every body's speed and
+floor; only the sound event and the surface mapping are new.
+
+### 20. The impact/flesh sounds are placeholders
+
+`FHIAudio::Impact` (HIAudio.cpp:305-308) plays the Godot `impact.wav` — the
+comment calls it "the old stand-in, and audibly a placeholder once you have the
+real one." It already splits `bFlesh` (bullet-on-body vs bullet-on-wall, different
+pitch/volume); it just needs two real samples. Cheap and self-contained.
+
+### 21. The night house is silent between shots
+
+Between gunshots the house is dead silent — no exterior bed (distant traffic,
+wind), no interior bed (house settling, appliance hum). One looping exterior bed
+plus one interior bed, with the interior bed attenuated when the listener is
+across a deck (reuses item 7's through-floor model), is the whole thing.
+
+### 22. Searching thieves read as pacing, not searching
+
+The `look_around` clip was never imported (OPEN-QUESTIONS item 4), so a thief in
+the search phase plays the `walk` clip — he looks like he is pacing a hallway,
+not hunting. Importing `look_around` (or a head-scan) makes the search phase
+legible: "he is looking for me." The clip set is otherwise complete — aim, walk,
+run, crouch_idle/walk, idle, pistol_idle, reload, shoot, death (HICharAnim.cpp).
+
+### 23. Loot is carried, not held
+
+Loot "rides the hand bone" (README); there is no carry pose or held prop. The
+carrier is the round's centre of attention once the grab happens — measured ~78 s
+of the 181.5 s solo round (43%) is spent carrying (TV 17.6 s, Safe 36.5 s, Laptop
+23.5 s). A two-handed carry pose for the TV, one-handed for the laptop, and the
+prop actually in-hand rather than teleported to the hand bone, is the fix.
+
+### 24. Interior finishes
+
+Beyond the basement's cinderblock (item 11), the house reads as flat colour.
+Drywall/wallpaper walls, wood floor (living/master), carpet (bedrooms), tile
+(baths/kitchen), baseboards and door casings. The per-room floor finish is also
+the surface map item 19's footsteps key off, so these two items ship together.
+
+### 25. The house exterior
+
+Item 2 is the NEIGHBORHOOD; the house itself is still a mass with cut-out
+openings. Siding or brick cladding, roof shingles and the gable, gutters/fascia,
+a real front door and porch light. The player stands on this threshold every
+round, and the thieves' drop view frames it.
+
+### 26. Muzzle flash and shell casings
+
+The shot is a discrete event with a position, but produces no light and no brass.
+At night the player's own muzzle flash should be a light event (ties to item 14's
+"muzzle flash as a light event" note), and ejected casings a few static meshes
+that despawn after seconds. One emissive flash mesh + one casing prop + a spawn
+rule.
+
+### 27. Blood where the round actually hit
+
+OPEN-QUESTIONS item 6.3 already owns this: five blood decals, bone offsets
+provisional. Listed here so the realism pass does not forget it — blood should
+appear where the bullet lands, not at a stock offset. Small, but it is the only
+feedback the player gets that a hit connected.
+
+### 28. A non-lethal hit produces no reaction
+
+Death is handled — `death` clip + death latch (HICharAnim.cpp:278,
+HIGameMode.cpp:1419). But there is no hit/flinch clip in the set (verified), so a
+shot that does NOT kill leaves the intruder walking in his current pose until the
+killing blow. A flinch clip is the gap; whether Richard wants it is a feel call
+(a flinch on every graze can read as stutter).
+
+---
+
 ## Suggested order (if Richard wants one)
 
 1. **Item 5** (furniture-height sight) — cheapest, biggest gameplay-feel change,
    machinery already built.
-2. **Item 1** (furniture models, sofa/bed/TV first) — the thing Richard named,
+2. **Items 19 + 20 + 21** (footsteps, impact sounds, ambient bed) — the audio trio,
+   all no-sim-risk, and audio is most of "feels real" for the least effort.
+3. **Item 1** (furniture models, sofa/bed/TV first) — the thing Richard named,
    and the living room is where players look.
-3. **Item 3** (van) — named, cover-art object, self-contained.
-4. **Item 2** (neighborhood shell) — named, mostly static scenery.
-5. Item 4 (falls) — small mechanic with big tactical consequence, needs the
+4. **Item 3** (van) — named, cover-art object, self-contained.
+5. **Item 2** (neighborhood shell) — named, mostly static scenery.
+6. **Item 4** (falls) — small mechanic with big tactical consequence, needs the
    lethality decision first.
-6. Everything else in the order Richard's taste dictates.
+7. Everything else in the order Richard's taste dictates.
 
-None of this blocks the vertical slice or phase 2; none of it changes the sim's
-determinism contract (every proposal above is either visual-only or a data rule
-in the same style as the existing ones).
+None of this changes the sim's determinism contract — every proposal above is
+either visual-only or a data rule in the same style as the existing ones.
