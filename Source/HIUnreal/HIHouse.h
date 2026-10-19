@@ -105,6 +105,9 @@ public:
 	 *  One dark component so a wheel is a disc, never a block (2026-10-19). */
 	UPROPERTY(VisibleAnywhere, Category = "Home Invasion")
 	TObjectPtr<class UInstancedStaticMeshComponent> WheelInstances;
+	/** The silver hubcap inside each tire (a smaller, lighter cylinder, 2026-10-19). */
+	UPROPERTY(VisibleAnywhere, Category = "Home Invasion")
+	TObjectPtr<class UInstancedStaticMeshComponent> WheelRimInstances;
 
 	/**
 	 * The lawn, over the sim's world bounds, DELIBERATELY WITHOUT COLLISION.

@@ -177,6 +177,7 @@ AHIHouse::AHIHouse()
 			Cylinder = CylinderFinder.Object;
 		}
 		WheelInstances = MakeDecor(TEXT("Wheels"), Cylinder, WallInstances);
+		WheelRimInstances = MakeDecor(TEXT("WheelRims"), Cylinder, WallInstances);
 	}
 
 	// ---- everything below is decoration, and none of it collides. See the header.
@@ -664,7 +665,11 @@ void AHIHouse::BuildDressing()
 				WheelInstances->AddInstance(FTransform(
 					FRotator(90.0f, 0.0f, 0.0f),
 					FVector(CX + SX * (Size.X * 0.5f + 0.08f), CY + SY, 0.34f) * HI_METERS_TO_UU,
-					FVector(0.22f, 0.68f, 0.68f)), /*bWorldSpace=*/false);
+					FVector(0.68f, 0.68f, 0.22f)), /*bWorldSpace=*/false);
+				WheelRimInstances->AddInstance(FTransform(
+					FRotator(90.0f, 0.0f, 0.0f),
+					FVector(CX + SX * (Size.X * 0.5f + 0.08f), CY + SY, 0.34f) * HI_METERS_TO_UU,
+					FVector(0.34f, 0.34f, 0.25f)), /*bWorldSpace=*/false);
 			}
 		}
 	}
@@ -770,6 +775,9 @@ void AHIHouse::BuildNeighborhood()
 			// Door seams, one per side.
 			AddBox(VanDetailInstances, FVector(CX + 0.15f, CY - W * 0.5f - 0.02f, 0.62f), FVector(0.03f, 0.03f, 0.30f));
 			AddBox(VanDetailInstances, FVector(CX + 0.15f, CY + W * 0.5f + 0.02f, 0.62f), FVector(0.03f, 0.03f, 0.30f));
+			// Rocker panels: a dark strip along the bottom of each side, between the wheels.
+			AddBox(VanDetailInstances, FVector(CX, CY - W * 0.5f - 0.015f, 0.36f), FVector(L - 0.4f, 0.03f, 0.12f));
+			AddBox(VanDetailInstances, FVector(CX, CY + W * 0.5f + 0.015f, 0.36f), FVector(L - 0.4f, 0.03f, 0.12f));
 			// Side mirrors on stalks.
 			AddBox(VanDetailInstances, FVector(CX - 0.55f, CY - W * 0.5f - 0.06f, 1.10f), FVector(0.10f, 0.04f, 0.08f));
 			AddBox(VanDetailInstances, FVector(CX - 0.55f, CY + W * 0.5f + 0.06f, 1.10f), FVector(0.10f, 0.04f, 0.08f));
@@ -781,7 +789,11 @@ void AHIHouse::BuildNeighborhood()
 					WheelInstances->AddInstance(FTransform(
 						FRotator(0.0f, 0.0f, 90.0f),
 						FVector(CX + SX, CY + SY, 0.31f) * HI_METERS_TO_UU,
-						FVector(0.62f, 0.22f, 0.62f)), /*bWorldSpace=*/false);
+						FVector(0.62f, 0.62f, 0.22f)), /*bWorldSpace=*/false);
+					WheelRimInstances->AddInstance(FTransform(
+						FRotator(0.0f, 0.0f, 90.0f),
+						FVector(CX + SX, CY + SY, 0.31f) * HI_METERS_TO_UU,
+						FVector(0.32f, 0.32f, 0.25f)), /*bWorldSpace=*/false);
 				}
 			}
 		};
@@ -1057,7 +1069,7 @@ void AHIHouse::Build()
 		FurnitureSoftInstances, FurnitureApplianceInstances, FurnitureDarkInstances,
 		FurnitureSoftDecorInstances, FurnitureApplianceDecorInstances, FurnitureDarkDecorInstances,
 		FurnitureWoodDecorInstances,
-		StreetInstances, NeighborInstances, TreeInstances, WheelInstances,
+		StreetInstances, NeighborInstances, TreeInstances, WheelInstances, WheelRimInstances,
 		GroundInstance, FloorInstance, BasementFloorInstances, RoofInstance, CeilingInstance,
 		TrimInstances, WindowInstances, GlassInstances, FittingInstances, PropInstances,
 		CoatInstances, DoorHeadInstances, VanInstances, VanDetailInstances })
@@ -1275,6 +1287,7 @@ void AHIHouse::Build()
 	FHIMaterials::Textured(NeighborInstances, TEXT("ceiling_plaster"), 20.0f);
 	FHIMaterials::Tint(TreeInstances, FHIMaterials::Grass);
 	FHIMaterials::Tint(WheelInstances, FHIMaterials::Tyre);
+	FHIMaterials::Tint(WheelRimInstances, FHIMaterials::Trim);
 	// The decks: every deck in WorldSolids is drawn by SlabInstances now -- the ground
 	// deck, the storey slab AND the roof deck -- because the sim says each of them stops a
 	// bullet, and the invariant at the top of this header forbids a solid the sim knows
@@ -1330,7 +1343,7 @@ void AHIHouse::Build()
 	// together cover the 48 non-flat rows. Every other component must simply be non-zero, or
 	// something in this function silently did not run.
 	UE_LOG(LogTemp, Display,
-		TEXT("HI: house built -- walls=%d basement_walls=%d furniture=%d furniture_soft=%d furniture_appliance=%d furniture_dark=%d furn_woodd=%d furn_softd=%d furn_appd=%d furn_darkd=%d ground=%d floor=%d basement_floor=%d roof=%d ceiling=%d trim=%d frames=%d glass=%d fittings=%d props=%d coat=%d door_head=%d van=%d van_detail=%d slabs=%d stairs=%d railings=%d street=%d neighbor=%d trees=%d wheels=%d"),
+		TEXT("HI: house built -- walls=%d basement_walls=%d furniture=%d furniture_soft=%d furniture_appliance=%d furniture_dark=%d furn_woodd=%d furn_softd=%d furn_appd=%d furn_darkd=%d ground=%d floor=%d basement_floor=%d roof=%d ceiling=%d trim=%d frames=%d glass=%d fittings=%d props=%d coat=%d door_head=%d van=%d van_detail=%d slabs=%d stairs=%d railings=%d street=%d neighbor=%d trees=%d wheels=%d rims=%d"),
 		WallInstances->GetInstanceCount(),
 		WallBasementInstances->GetInstanceCount(),
 		FurnitureInstances->GetInstanceCount(),
@@ -1357,7 +1370,8 @@ void AHIHouse::Build()
 		StreetInstances->GetInstanceCount(),
 		NeighborInstances->GetInstanceCount(),
 		TreeInstances->GetInstanceCount(),
-		WheelInstances->GetInstanceCount());
+		WheelInstances->GetInstanceCount(),
+		WheelRimInstances->GetInstanceCount());
 	UE_LOG(LogTemp, Display, TEXT("HI: shape material %s"),
 		FHIMaterials::ShapeMaterial() != nullptr ? TEXT("loaded") : TEXT("MISSING -- everything will be default grey"));
 }
