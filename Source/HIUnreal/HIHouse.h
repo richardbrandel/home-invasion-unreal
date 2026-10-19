@@ -101,6 +101,10 @@ public:
 	TObjectPtr<class UInstancedStaticMeshComponent> NeighborInstances;
 	UPROPERTY(VisibleAnywhere, Category = "Home Invasion")
 	TObjectPtr<class UInstancedStaticMeshComponent> TreeInstances;
+	/** Round wheels (the engine Cylinder, not a cube) -- the van and the cars share them.
+	 *  One dark component so a wheel is a disc, never a block (2026-10-19). */
+	UPROPERTY(VisibleAnywhere, Category = "Home Invasion")
+	TObjectPtr<class UInstancedStaticMeshComponent> WheelInstances;
 
 	/**
 	 * The lawn, over the sim's world bounds, DELIBERATELY WITHOUT COLLISION.

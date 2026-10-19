@@ -167,6 +167,17 @@ AHIHouse::AHIHouse()
 	StreetInstances = MakeDecor(TEXT("Street"), Cube, WallInstances);
 	NeighborInstances = MakeDecor(TEXT("Neighbors"), Cube, WallInstances);
 	TreeInstances = MakeDecor(TEXT("Trees"), Cube, WallInstances);
+	// Round wheels: the engine Cylinder (not the cube), so a wheel is a disc, never a block.
+	{
+		UStaticMesh* Cylinder = nullptr;
+		static ConstructorHelpers::FObjectFinder<UStaticMesh> CylinderFinder(
+			TEXT("/Engine/BasicShapes/Cylinder.Cylinder"));
+		if (CylinderFinder.Succeeded())
+		{
+			Cylinder = CylinderFinder.Object;
+		}
+		WheelInstances = MakeDecor(TEXT("Wheels"), Cylinder, WallInstances);
+	}
 
 	// ---- everything below is decoration, and none of it collides. See the header.
 	GroundInstance = MakeDecor(TEXT("Ground"), Cube, WallInstances);
@@ -644,14 +655,16 @@ void AHIHouse::BuildDressing()
 		AddBox(VanDetailInstances, FVector(CX, CY - 2.30f, 0.35f), FVector(Size.X * 0.90f, 0.12f, 0.25f));
 		AddBox(VanDetailInstances, FVector(CX, CY + Size.Y * 0.5f + 0.02f, 0.35f), FVector(Size.X * 0.90f, 0.12f, 0.25f));
 		// Four wheels, standing proud of the body on both sides, and DARK. See the header:
-		// green wheels on a green body is a table.
+		// green wheels on a green body is a table. Round now (the engine Cylinder on its
+		// side), not square blocks.
 		for (float SX : { -1.0f, 1.0f })
 		{
 			for (float SY : { -1.55f, 1.55f })
 			{
-				AddBox(VanDetailInstances,
-					FVector(CX + SX * (Size.X * 0.5f + 0.08f), CY + SY, 0.34f),
-					FVector(0.22f, 0.68f, 0.68f));
+				WheelInstances->AddInstance(FTransform(
+					FRotator(90.0f, 0.0f, 0.0f),
+					FVector(CX + SX * (Size.X * 0.5f + 0.08f), CY + SY, 0.34f) * HI_METERS_TO_UU,
+					FVector(0.22f, 0.68f, 0.68f)), /*bWorldSpace=*/false);
 			}
 		}
 	}
@@ -717,16 +730,58 @@ void AHIHouse::BuildNeighborhood()
 
 	// Three parked cars on the street, one each side of the driveway and one further up.
 	{
+		// A sedan, not a box (2026-10-19, "the cars look real boxy"): a chassis, a sloped
+		// hood, a raked windscreen and backlight, a cabin and roof, a trunk, a grille,
+		// lights, bumpers, mirrors, door seams, and round wheels. Length runs along X (the
+		// road), so every slope is a PITCH (about Y).
 		auto Car = [&](float CX, float CY)
 		{
-			AddBox(VanInstances, FVector(CX, CY, 0.55f), FVector(4.2f, 1.8f, 0.55f));
-			AddBox(VanInstances, FVector(CX, CY, 1.0f), FVector(2.2f, 1.6f, 0.35f));
-			for (float SX : { -1.4f, 1.4f })
+			const float L = 4.4f, W = 1.8f;
+			// Chassis: the lower body, full length and width, sitting over the wheels.
+			AddBox(VanInstances, FVector(CX, CY, 0.47f), FVector(L, W, 0.30f));
+			// Trunk deck, from the backlight down to the tail.
+			AddBox(VanInstances, FVector(CX + 1.05f, CY, 0.82f), FVector(1.15f, W, 0.34f));
+			// Greenhouse: the cabin glass, narrower than the body.
+			AddBox(VanInstances, FVector(CX + 0.15f, CY, 1.18f), FVector(1.30f, W - 0.10f, 0.46f));
+			// Roof cap.
+			AddBox(VanInstances, FVector(CX + 0.15f, CY, 1.42f), FVector(1.20f, W - 0.10f, 0.06f));
+			// Sloped hood: the front edge drops toward the bumper.
+			AddBoxR(VanInstances, FVector(CX - 1.30f, CY, 0.78f), FVector(1.45f, W - 0.02f, 0.10f),
+				FRotator(-9.0f, 0.0f, 0.0f));
+			// Raked windscreen and backlight (glass), leaning back and forward respectively.
+			AddBoxR(GlassInstances, FVector(CX - 0.45f, CY, 1.18f), FVector(0.06f, W - 0.16f, 0.52f),
+				FRotator(34.0f, 0.0f, 0.0f));
+			AddBoxR(GlassInstances, FVector(CX + 0.72f, CY, 1.16f), FVector(0.06f, W - 0.16f, 0.48f),
+				FRotator(-32.0f, 0.0f, 0.0f));
+			// Side glass, both doors.
+			AddBox(GlassInstances, FVector(CX + 0.15f, CY - W * 0.5f - 0.02f, 1.18f),
+				FVector(1.00f, 0.04f, 0.34f));
+			AddBox(GlassInstances, FVector(CX + 0.15f, CY + W * 0.5f + 0.02f, 1.18f),
+				FVector(1.00f, 0.04f, 0.34f));
+			// Grille and headlights at the front, taillights at the rear.
+			AddBox(VanDetailInstances, FVector(CX - L * 0.5f - 0.02f, CY, 0.55f), FVector(0.06f, W * 0.6f, 0.18f));
+			AddBox(TrimInstances, FVector(CX - L * 0.5f - 0.03f, CY - W * 0.32f, 0.62f), FVector(0.06f, 0.34f, 0.12f));
+			AddBox(TrimInstances, FVector(CX - L * 0.5f - 0.03f, CY + W * 0.32f, 0.62f), FVector(0.06f, 0.34f, 0.12f));
+			AddBox(TrimInstances, FVector(CX + L * 0.5f + 0.03f, CY - W * 0.32f, 0.82f), FVector(0.06f, 0.34f, 0.12f));
+			AddBox(TrimInstances, FVector(CX + L * 0.5f + 0.03f, CY + W * 0.32f, 0.82f), FVector(0.06f, 0.34f, 0.12f));
+			// Bumpers.
+			AddBox(VanDetailInstances, FVector(CX - L * 0.5f, CY, 0.34f), FVector(0.10f, W * 0.95f, 0.16f));
+			AddBox(VanDetailInstances, FVector(CX + L * 0.5f, CY, 0.34f), FVector(0.10f, W * 0.95f, 0.16f));
+			// Door seams, one per side.
+			AddBox(VanDetailInstances, FVector(CX + 0.15f, CY - W * 0.5f - 0.02f, 0.62f), FVector(0.03f, 0.03f, 0.30f));
+			AddBox(VanDetailInstances, FVector(CX + 0.15f, CY + W * 0.5f + 0.02f, 0.62f), FVector(0.03f, 0.03f, 0.30f));
+			// Side mirrors on stalks.
+			AddBox(VanDetailInstances, FVector(CX - 0.55f, CY - W * 0.5f - 0.06f, 1.10f), FVector(0.10f, 0.04f, 0.08f));
+			AddBox(VanDetailInstances, FVector(CX - 0.55f, CY + W * 0.5f + 0.06f, 1.10f), FVector(0.10f, 0.04f, 0.08f));
+			// Four round wheels (the engine Cylinder on its side).
+			for (float SX : { -1.35f, 1.35f })
 			{
-				for (float SY : { -0.7f, 0.7f })
+				for (float SY : { -0.78f, 0.78f })
 				{
-					AddBox(VanDetailInstances, FVector(CX + SX, CY + SY, 0.3f),
-						FVector(0.24f, 0.6f, 0.6f));
+					WheelInstances->AddInstance(FTransform(
+						FRotator(0.0f, 0.0f, 90.0f),
+						FVector(CX + SX, CY + SY, 0.31f) * HI_METERS_TO_UU,
+						FVector(0.62f, 0.22f, 0.62f)), /*bWorldSpace=*/false);
 				}
 			}
 		};
@@ -1002,7 +1057,7 @@ void AHIHouse::Build()
 		FurnitureSoftInstances, FurnitureApplianceInstances, FurnitureDarkInstances,
 		FurnitureSoftDecorInstances, FurnitureApplianceDecorInstances, FurnitureDarkDecorInstances,
 		FurnitureWoodDecorInstances,
-		StreetInstances, NeighborInstances, TreeInstances,
+		StreetInstances, NeighborInstances, TreeInstances, WheelInstances,
 		GroundInstance, FloorInstance, BasementFloorInstances, RoofInstance, CeilingInstance,
 		TrimInstances, WindowInstances, GlassInstances, FittingInstances, PropInstances,
 		CoatInstances, DoorHeadInstances, VanInstances, VanDetailInstances })
@@ -1219,6 +1274,7 @@ void AHIHouse::Build()
 	FHIMaterials::Tint(NeighborInstances, FHIMaterials::WallExterior);
 	FHIMaterials::Textured(NeighborInstances, TEXT("ceiling_plaster"), 20.0f);
 	FHIMaterials::Tint(TreeInstances, FHIMaterials::Grass);
+	FHIMaterials::Tint(WheelInstances, FHIMaterials::Tyre);
 	// The decks: every deck in WorldSolids is drawn by SlabInstances now -- the ground
 	// deck, the storey slab AND the roof deck -- because the sim says each of them stops a
 	// bullet, and the invariant at the top of this header forbids a solid the sim knows
@@ -1274,7 +1330,7 @@ void AHIHouse::Build()
 	// together cover the 48 non-flat rows. Every other component must simply be non-zero, or
 	// something in this function silently did not run.
 	UE_LOG(LogTemp, Display,
-		TEXT("HI: house built -- walls=%d basement_walls=%d furniture=%d furniture_soft=%d furniture_appliance=%d furniture_dark=%d furn_woodd=%d furn_softd=%d furn_appd=%d furn_darkd=%d ground=%d floor=%d basement_floor=%d roof=%d ceiling=%d trim=%d frames=%d glass=%d fittings=%d props=%d coat=%d door_head=%d van=%d van_detail=%d slabs=%d stairs=%d railings=%d street=%d neighbor=%d trees=%d"),
+		TEXT("HI: house built -- walls=%d basement_walls=%d furniture=%d furniture_soft=%d furniture_appliance=%d furniture_dark=%d furn_woodd=%d furn_softd=%d furn_appd=%d furn_darkd=%d ground=%d floor=%d basement_floor=%d roof=%d ceiling=%d trim=%d frames=%d glass=%d fittings=%d props=%d coat=%d door_head=%d van=%d van_detail=%d slabs=%d stairs=%d railings=%d street=%d neighbor=%d trees=%d wheels=%d"),
 		WallInstances->GetInstanceCount(),
 		WallBasementInstances->GetInstanceCount(),
 		FurnitureInstances->GetInstanceCount(),
@@ -1300,7 +1356,8 @@ void AHIHouse::Build()
 		RailingInstances->GetInstanceCount(),
 		StreetInstances->GetInstanceCount(),
 		NeighborInstances->GetInstanceCount(),
-		TreeInstances->GetInstanceCount());
+		TreeInstances->GetInstanceCount(),
+		WheelInstances->GetInstanceCount());
 	UE_LOG(LogTemp, Display, TEXT("HI: shape material %s"),
 		FHIMaterials::ShapeMaterial() != nullptr ? TEXT("loaded") : TEXT("MISSING -- everything will be default grey"));
 }
