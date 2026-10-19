@@ -166,6 +166,10 @@ struct HISIM_API FHISim
 	/** Front door gap in the south wall, x -1..1. Godot Vector2(-1, 1), unchanged. */
 	static const FVector2D DoorGap;
 	static const FBox2D Bounds;
+	/** Louise's walk limit (Richard, 2026-10-19: "the street is a good limit"). The yard is
+	 * not infinite, so she may walk up to the street's south kerb but not across it. The
+	 * intruders keep the full Bounds -- the van sits ON the street at y 7..9.4. */
+	static constexpr float PlayerNorthLimit = 6.6f;
 
 	static const FBox2D Van;
 	/** Godot Vector2(0, 4.5) -- the drop point at the van. */

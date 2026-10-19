@@ -993,6 +993,10 @@ void FHISim::FHIRound::Step(const FHIInput& Input, float Dt)
 		// shove a man on the second floor, and the stringer wall catches a climber.
 		P = ResolveCircleZ(P, PlayerRadius, Player.Z);
 		P = ClampToWorld(P, PlayerRadius);
+		// The street is the walk limit: the yard is not infinite (Richard, 2026-10-19), so
+		// she may reach the sidewalk south of the street but not cross into it. Intruders are
+		// NOT limited -- their van and Drop are on and past the street.
+		P.Y = FMath::Min(P.Y, PlayerNorthLimit - PlayerRadius);
 		// A wall has to STOP him, not let momentum pile up against it.
 		const FVector2D Moved = P - Player.Pos;
 		if (Moved.Size() < V.Size() * Dt * 0.5f)

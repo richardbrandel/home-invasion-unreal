@@ -660,12 +660,13 @@ void AHIHouse::BuildDressing()
 void AHIHouse::BuildNeighborhood()
 {
 	// Realism item 2, "the outside doesn't look like a neighborhood" (2026-10-19): a street
-	// under the van, a sidewalk, a driveway to the front door, three neighbor shells, two
-	// parked cars, three trees, a street light and a mailbox. Everything is DECOR laid proud
-	// of the lawn, so the sim's Bounds and the collision invariant are untouched. Positions
-	// and proportions are a first pass for Richard's eye; the shapes read as their type.
+	// with a centre line and curbs, a sidewalk, a driveway, five gabled neighbor houses with
+	// doors and windows, three parked cars, four trees, a street light and a mailbox. All
+	// decor, laid proud of the lawn, so the sim's Bounds and collision are untouched. The
+	// street is also Louise's walk limit (FHISim::PlayerNorthLimit), so the houses across it
+	// are scenery she can see but never reach.
 	{
-		const float SZ = 0.02f;   // proud of the lawn, no z-fight
+		const float SZ = 0.02f;
 		auto Strip = [&](float X1, float X2, float Y1, float Y2)
 		{
 			AddBox(StreetInstances, FVector((X1 + X2) * 0.5f, (Y1 + Y2) * 0.5f, 0.01f),
@@ -674,30 +675,52 @@ void AHIHouse::BuildNeighborhood()
 		Strip(-45.0f, 45.0f, 6.6f, 10.0f);    // the street, containing the van (y 7..9.4)
 		Strip(-45.0f, 45.0f, 5.4f, 6.6f);     // its south sidewalk
 		Strip(-1.6f, 1.6f, -7.75f, 6.6f);     // the driveway to the front door
+		// The kerbs: two slightly proud edges either side of the sidewalk, so the walk and
+		// the road read as separate surfaces rather than two grey strips.
+		Strip(-45.0f, 45.0f, 6.6f, 6.74f);
+		Strip(-45.0f, 45.0f, 5.26f, 5.4f);
+		// The lane's centre line, dashed.
+		for (float X = -43.0f; X <= 43.0f; X += 3.0f)
+		{
+			AddBox(TrimInstances, FVector(X, 8.3f, 0.015f), FVector(1.5f, 0.10f, 0.02f));
+		}
 	}
 
-	// Neighbor shells: a plaster box under a flat overhanging roof and a central ridge. They
-	// are shells -- nobody enters them, so no doors or windows, and a flat roof over a box
-	// reads as "a house down the street" from the lawn.
+	// Neighbor houses: a plaster box under a PITCHED roof, a dark front door and two windows
+	// facing the street. Gabled so they read as houses, not sheds.
 	{
 		const float WallH = 4.6f;
+		const float Rise = 1.6f;
 		auto House = [&](float CX, float CY, float W, float D)
 		{
+			const float HalfD = D * 0.5f + 0.2f;
+			const float Slope = FMath::Sqrt(HalfD * HalfD + Rise * Rise);
+			const float Pitch = FMath::RadiansToDegrees(FMath::Atan2(Rise, HalfD));
 			AddBox(NeighborInstances, FVector(CX, CY, WallH * 0.5f), FVector(W, D, WallH));
-			AddBox(RoofInstance, FVector(CX, CY, WallH + 0.15f), FVector(W + 0.6f, D + 0.6f, 0.3f));
-			AddBox(RoofInstance, FVector(CX, CY, WallH + 0.5f), FVector(W + 0.2f, D * 0.4f, 0.5f));
+			for (float S : { -1.0f, 1.0f })
+			{
+				AddBoxR(RoofInstance, FVector(CX, CY + S * HalfD * 0.5f, WallH + Rise * 0.5f),
+					FVector(W + 0.4f, Slope, 0.12f), FRotator(0.0f, 0.0f, -S * Pitch));
+			}
+			AddBox(RoofInstance, FVector(CX, CY, WallH + Rise + 0.05f), FVector(W + 0.5f, 0.3f, 0.1f));
+			// Front door and two windows on the street side (the -Y, south face).
+			AddBox(GlassInstances, FVector(CX, CY - D * 0.5f - 0.03f, 1.05f), FVector(0.9f, 0.06f, 2.1f));
+			AddBox(GlassInstances, FVector(CX - W * 0.30f, CY - D * 0.5f - 0.03f, 1.55f), FVector(1.0f, 0.06f, 1.2f));
+			AddBox(GlassInstances, FVector(CX + W * 0.30f, CY - D * 0.5f - 0.03f, 1.55f), FVector(1.0f, 0.06f, 1.2f));
 		};
-		House(-12.0f, 16.0f, 9.0f, 7.0f);
-		House(12.0f, 16.0f, 9.0f, 7.0f);
-		House(0.0f, 22.0f, 10.0f, 7.0f);
+		House(-13.0f, 15.5f, 9.0f, 7.0f);
+		House(13.0f, 15.5f, 9.0f, 7.0f);
+		House(0.0f, 21.0f, 10.0f, 7.0f);
+		House(-26.0f, 16.0f, 8.0f, 6.0f);
+		House(26.0f, 16.0f, 8.0f, 6.0f);
 	}
 
-	// Two parked cars on the street, one each side of the driveway, facing down the road.
+	// Three parked cars on the street, one each side of the driveway and one further up.
 	{
 		auto Car = [&](float CX, float CY)
 		{
-			AddBox(VanInstances, FVector(CX, CY, 0.55f), FVector(4.2f, 1.8f, 0.55f));       // body
-			AddBox(VanInstances, FVector(CX, CY, 1.0f), FVector(2.2f, 1.6f, 0.35f));        // cabin
+			AddBox(VanInstances, FVector(CX, CY, 0.55f), FVector(4.2f, 1.8f, 0.55f));
+			AddBox(VanInstances, FVector(CX, CY, 1.0f), FVector(2.2f, 1.6f, 0.35f));
 			for (float SX : { -1.4f, 1.4f })
 			{
 				for (float SY : { -0.7f, 0.7f })
@@ -709,6 +732,7 @@ void AHIHouse::BuildNeighborhood()
 		};
 		Car(-5.5f, 8.3f);
 		Car(5.5f, 8.3f);
+		Car(11.0f, 8.3f);
 	}
 
 	// Trees on the lawn beside the driveway: a dark trunk under two stacked green boxes.
@@ -722,6 +746,7 @@ void AHIHouse::BuildNeighborhood()
 		Tree(-4.5f, 3.5f, 1.0f);
 		Tree(4.5f, 3.5f, 0.85f);
 		Tree(-9.0f, 12.5f, 1.15f);
+		Tree(9.0f, 12.5f, 1.0f);
 	}
 
 	// A street light at the kerb and a mailbox by the front path.
