@@ -31,6 +31,15 @@ struct HISIM_API FHISim
 	static const FBox2D House;
 	static constexpr float WallHeight = 3.0f;
 	static constexpr float WallThickness = 0.25f;
+	// ---- storey geometry, phase 2 (HOUSE-DESIGN.md §2). Heights are metres above the
+	// ground floor's walking surface. The basement's 2.29 m ceiling + the 0.15 m deck
+	// give 2.44; the ground floor's 2.59 m ceiling + the 0.15 m slab give 2.74.
+	static constexpr float BasementZ = -2.44f;
+	static constexpr float SecondZ = 2.74f;
+	static constexpr float SlabThickness = 0.15f;
+	/** Roof slab [5.18, 5.33]: the second floor's 2.44 m ceiling under a 0.15 m slab. */
+	static constexpr float RoofBottom = 5.18f;
+	static constexpr float RoofTop = 5.33f;
 	/**
 	 * The collision cylinder's height, in metres. A body occupies [Z, Z + BodyHeight];
 	 * a solid blocks it only when that interval strictly overlaps the solid's span --
@@ -111,36 +120,51 @@ struct HISIM_API FHISim
 	static bool InStairBand(const FVector2D& Pos);
 
 	/**
-	 * Height of a flat floor. The slice has two (0 → ground, 1 → the partial second floor
-	 * at WallHeight); the full house's three floors become a table in phase 2.
+	 * Height of a flat floor: the table {-1: BasementZ, 0: 0, 1: SecondZ}. Phase 1's
+	 * Floor*WallHeight was the slice's two-storey version of this.
 	 */
 	static float FloorHeight(int32 Floor);
 
 	/**
 	 * The one elevation truth, read by the sim and the actor layer alike: inside a stair
-	 * band the height interpolates along the run (the Floor argument is ignored there --
-	 * position rules); on flat ground it is the floor's height.
+	 * band the height interpolates along the run; on flat ground it is the floor's height;
+	 * a deck whose surface IS FloorHeight(Floor) beats both (the south deck strip lies
+	 * above the flight's foot inside the band's own footprint).
+	 *
+	 * PHASE 2: the stairwell stacks TWO bands on one plan footprint (B→G under G→2), so
+	 * "inside a band" is ambiguous and the Floor argument picks between them: the band
+	 * whose FloorLow equals Floor wins, else the band whose FloorHigh does.
 	 */
 	static float FloorZAt(const FVector2D& Pos, int32 Floor);
+	/**
+	 * Same, disambiguated by the body's LIVE height instead of its floor label: among the
+	 * bands containing Pos, the one whose HeightAt is nearest Z claims it -- but only
+	 * within BodyHeight, because a surface more than a body height away is one the body
+	 * is UNDER (or over), not ON. A basement walker passing below the upper flight must
+	 * not be teleported onto it, and a floor label alone cannot say which flight a
+	 * mid-point body is on: past its midpoint the B→G climber carries floor 0, the same
+	 * label the G→2 foot stands on. Callers that have a Z (eyes, grab tests, shoves)
+	 * MUST use this overload.
+	 */
+	static float FloorZAt(const FVector2D& Pos, int32 Floor, float Z);
 
 	/**
-	 * Re-derive a body's Z and Floor from its position after any move. The stair-band
-	 * midpoint flips the floor; outside a band the floor stands and Z is flat. Called by
-	 * the player step, the thief step, and every shove displacement -- a body that ends
-	 * up somewhere new must never carry stale elevation.
+	 * Re-derive a body's Z and Floor from its position after any move. Order: a deck
+	 * matching the carried floor confirms it; else the Z-nearest band within BodyHeight
+	 * claims the body and its midpoint rule sets the floor; else the floor stands and Z
+	 * is flat. Called by the player step, the thief step, and every shove displacement.
 	 */
 	static void ApplyElevation(const FVector2D& Pos, int32& Floor, float& Z);
 
-	/* True when a WALKABLE deck (the second-floor slab, span [2.75, 3.0] -- not a roof)
-	 * covers this plan position. Decks beat stair bands where they overlap: the south
-	 * deck strip lies above the flight's foot inside the band's own footprint, and a
-	 * second-floor body standing on it must not be derived down onto the treads. */
-	static bool DeckCovers(const FVector2D& Pos);
-	/** Front door, in the south wall. Godot Vector2(-1, 1). */
+	/**
+	 * True when a WALKABLE deck (a floor slab, not a roof) whose top surface is
+	 * FloorHeight(Floor) covers this plan position. A deck never CHANGES a body's floor,
+	 * it only confirms the one it carries -- that is what keeps a ground-floor body under
+	 * the second-floor slab from being derived up onto it.
+	 */
+	static bool DeckCovers(const FVector2D& Pos, int32 Floor);
+	/** Front door gap in the south wall, x -1..1. Godot Vector2(-1, 1), unchanged. */
 	static const FVector2D DoorGap;
-	/** Opening in the interior wall. Godot Vector2(-2, 2). */
-	static const FVector2D HallGap;
-	static constexpr float InteriorZ = -14.0f;
 	static const FBox2D Bounds;
 
 	static const FBox2D Van;
@@ -278,7 +302,12 @@ struct HISIM_API FHISim
 
 	static constexpr float SearchTime = 1.5f;
 	static constexpr float SearchRange = 1.2f;
-	static constexpr float PoliceTime = 110.0f;
+	/**
+	 * PROPOSED 180 (was 110), flagged for Richard -- HOUSE-DESIGN.md §4.4: nine
+	 * searchable rooms across three floors cannot be cleared in a 116 s round; 180 s
+	 * keeps a full clear possible but not comfortable. Veto restores 110.
+	 */
+	static constexpr float PoliceTime = 180.0f;
 
 	static constexpr float ShoveRange = 1.9f;
 	static constexpr float ShoveArc = 0.6f;
@@ -524,9 +553,52 @@ struct HISIM_API FHISim
 		TArray<FVector2D> Route;
 		FString Mode = TEXT("hunt");
 		float StuckT = 0.0f;
+		/** Fixed-window net-progress check (2026-10-18): where the window started, how
+		 * long it has run, and the step length intended over it. See StuckStep -- the
+		 * per-frame rule cannot see a mutual-push stall whose per-frame net travel
+		 * stays just above its threshold. */
+		FVector2D StuckAnchor = FVector2D::ZeroVector;
+		float StuckAnchorT = 0.0f;
+		float StuckWant = 0.0f;
+		/** Corner-rounding memory for the wall slide's head-on deadzone
+		 * (2026-10-18): the side chosen to round along the contact face, +/-1 in the
+		 * frame Perp = (-PushN.Y, PushN.X); 0 = no live contact. Chosen ONCE per
+		 * commitment and kept -- per-frame re-choosing from the waypoint dithers
+		 * across the waypoint's isocline, and so does clearing on free frames: a
+		 * rounded corner produces one push-less frame, and the tangential branch
+		 * then walks him back up the face (both measured, run 17/18). The commitment
+		 * ends at the waypoint change or after CornerSideT > 3 s (staleness bound,
+		 * ~3.9 m of stepping -- longer than any face in the house). See the deadzone
+		 * branch of the wall slide in StepIntruders. */
+		int32 CornerSide = 0;
+		/** Seconds the current corner-rounding commitment has been live. */
+		float CornerSideT = 0.0f;
+		/** The committed rounding direction, FROZEN at pick time (run 19): the
+		 * per-frame Perp recomputed from the live push normal rotates toward the face
+		 * inside a corner's push-out, and a 0.5 m probe along it then hits the
+		 * body-radius-inflated end of the very face being rounded -- flipping the
+		 * commitment at every end, a full-pace 2.8 m shuttle with stuck=0.00 that no
+		 * detector owns. The frozen vector points along the face the commitment was
+		 * made on and rounds the end cleanly; the probes re-aim only the flip. */
+		FVector2D CornerDir = FVector2D::ZeroVector;
 		/** Seconds spent on the CURRENT waypoint (Route[0]); resets when it changes. */
 		float WpT = 0.0f;
 		FVector2D LastWp = FVector2D::ZeroVector;
+		/** Prepend hysteresis (2026-10-19, SoloProbe S/S2): the waypoint most recently
+	 * popped, and how long ago. RouteFromClear's prepend guard skips prepending a From
+	 * node the walker JUST popped. Measured: 10 of the 33 flat nav edges are
+	 * body-radius-blocked at the door jambs (doors are 0.9-1.2 m, the body 0.84 m, and
+	 * the node-to-node line passes inside the inflated jamb), so traversal depends on
+	 * the corner slide finishing. The flip cycle killed it: blocked leg -> guard
+	 * prepends the From node -> walker pops it up to 0.6 m short -> re-aim is still
+	 * jamb-blocked -> guard prepends the same node again. Every flip changes the first
+	 * waypoint, and a waypoint change clears the corner-rounding commitment, so the
+	 * slide never reached the 0.16-0.36 m effective gap. Two rounds measured it: the
+	 * living doorway (S: 170 s of route=1<->2 oscillation in a 0.4 m band east of the
+	 * wall, stuck=0.00 the whole time) and the br2 door (S2: 112+ s of route=3<->4,
+	 * Laptop never reached). The same class drove run 24's B2 stall-1 at this door. */
+		FVector2D LastPoppedWp = FVector2D::ZeroVector;
+		float LastPoppedAgo = 1e9f;
 		float Aim = 0.0f;
 		float Stagger = 0.0f;
 		int32 Hits = 0;
@@ -818,6 +890,19 @@ struct HISIM_API FHISim
 	 */
 	static bool ThiefShove(FHIThief& Thief, FHIPlayer& Player, TArray<FHIEvent>& Events);
 
+	/**
+	 * One frame of the stuck detector: accumulate or reset `StuckT` from how far the body
+	 * ACTUALLY travelled this frame, and fire the re-route when the stall passes 1.2 s.
+	 *
+	 * `NetMoved` must be measured against the frame-start position AFTER body resolution.
+	 * `StepThief` owns that measurement when it separates in-step; `StepIntruders` owns it
+	 * when it separates the group afterwards -- and before this was split out (2026-10-18)
+	 * the group path had no way to see a jam at all: its thieves measured a full walking
+	 * step every frame because the push-back that undid it ran after the detector.
+	 */
+	static void StuckStep(FHIThief& Thief, float NetMoved, float Dt,
+		const TArray<FHILootItem>& Loot, TArray<FHIEvent>& Events);
+
 	// ------------------------------------------------------------- damage and fear
 	/**
 	 * Tell him he is being shot at. Called when the homeowner fires; `Loudness` scales with
@@ -861,14 +946,38 @@ struct HISIM_API FHISim
 
 	// ------------------------------------------------------------------ pathing
 	/**
+	 * The floor value that means "do not filter by floor" in NearestNode. AS-BUILT
+	 * 2026-10-18: this used to be INDEX_NONE, but INDEX_NONE is -1 -- the basement's
+	 * real floor number -- so every floor -1 query silently ran UNFILTERED and the
+	 * stacked stair feet answered "stairFootG" for a body standing in the basement at
+	 * (-0.70,-11.35). A basement thief rerouted from a ground node walks his route into
+	 * the basement walls and reroutes again for ever: the NodeFloors pin caught it, and
+	 * the heist tests never searched baseOpen/utility. INT32_MIN is no floor.
+	 */
+	static constexpr int32 AnyFloor = TNumericLimits<int32>::Min();
+	/**
 	 * The graph node nearest P ON THE GIVEN FLOOR. Floors matter: the stacked stair nodes
 	 * share one plan position (a straight run under a straight run), so an unfiltered
 	 * Voronoi nearest would hand a ground-floor thief the second-floor node and route him
 	 * through a slab. The old single-argument form stays as floor 0 for the ground-only
-	 * call sites and tests.
+	 * call sites and tests; AnyFloor is the explicit unfiltered query.
 	 */
 	static FString NearestNode(const FVector2D& P);
 	static FString NearestNode(const FVector2D& P, int32 Floor);
+	/**
+	 * The FROM vertex for thief routing: the nearest node on `Floor` whose straight line
+	 * from P is WalkBlocked-clear. AS-BUILT 2026-10-18, measured freeze: a searcher at
+	 * (0.27,-14.10) -- the push-out equilibrium on the stairwell screen's east face --
+	 * got NearestNode == stairHeadB, 1.09 m away THROUGH the full-height screen, and
+	 * because RouteTo drops the From node (Godot parity, pinned) the route became the
+	 * single leg [master]: a due-west bearing, perpendicular into the face pinning him,
+	 * tangent under the wall-slide deadzone, reroute loop forever. NearestNode keeps its
+	 * distance-only contract for every other caller; this form is the walkable answer to
+	 * the same question. `Floor` must be concrete (AnyFloor degrades to NearestNode);
+	 * when NOTHING is clear (a body pinned in a corner) it falls back to NearestNode so
+	 * routing degrades to the old behaviour instead of producing no route at all.
+	 */
+	static FString NearestClearNode(const FVector2D& P, int32 Floor);
 	static TArray<FString> PathNodes(const FString& FromKey, const FString& ToKey);
 	static TArray<FVector2D> RouteTo(const FString& FromKey, const FString& ToKey);
 
@@ -878,10 +987,19 @@ struct HISIM_API FHISim
 	{
 		FBox2D Rect;
 		int32 Floor = 0;
-		// 0 = a full storey (FloorHeight(Floor) + WallHeight). The stringer carries an
-		// override: its top is the slab soffit minus the step-off clearance -- see
-		// WallRows(), where a 3 cm miss is recorded with the freeze it caused.
+		// 0 = the storey default: FloorHeight(Floor + 1) when there is a floor above
+		// (the wall meets the slab that sits on it), else RoofTop for the top storey.
+		// An override means "lower than the storey" -- the slice's stringer recorded a
+		// 3 cm miss here with the freeze it caused; phase 2's stairwell screen carries
+		// one too (railing height above the second floor, not the roof).
 		float TopZ = 0.0f;
+		// 0 = stands on its floor (MinZ is FloorHeight(Floor)). An override raises the
+		// sill: the row starts higher than the floor it belongs to. Phase 2 has exactly
+		// one -- the transom wall over the front door (2.10 m up), which closes the
+		// letterbox the Godot original's 2-D door split left open to the eaves. Rows
+		// with MinZ > 0 are EXCLUDED from Walls(), so the legacy 2-D projection keeps
+		// its walkable door gap exactly as before.
+		float MinZ = 0.0f;
 	};
 	static const TArray<FHIWallRow>& WallRows();
 	static const TArray<FBox2D>& Walls();
@@ -937,6 +1055,12 @@ struct HISIM_API FHISim
 	static const TArray<FBox2D>& FurnitureRects();
 	static const TArray<bool>& FurnitureFlat();
 	/**
+	 * The floor each furniture row stands on, index-aligned with `FurnitureRects`.
+	 * Phase 2: a row's base is `FloorHeight(FurnitureFloors()[Idx])`; the builder draws
+	 * it there and the sight model spans it to its storey's ceiling.
+	 */
+	static const TArray<int32>& FurnitureFloors();
+	/**
 	 * Each item's height `h`, index-aligned with `FurnitureRects`.
 	 *
 	 * Ported from sim.gd's own literal, where every row carries one, and used by `game.gd`
@@ -960,25 +1084,29 @@ struct HISIM_API FHISim
 	static const TArray<FVector2D>& LootPositions();
 	static const TArray<FString>& LootLabels();
 	static const TArray<FString>& LootNodes();
+	/** The storey each loot item sits on, index-aligned with LootPositions(). */
+	static const TArray<int32>& LootFloors();
 	static const TArray<FString>& SearchNodes();
-	/** Navigation graph, in the SAME ORDER as the Godot dictionary literal. */
+	/** Navigation graph, phase 2: the full three-floor house (HOUSE-DESIGN.md §4.7). */
 	static const TArray<FString>& NodeNames();
 	static const TArray<TArray<FString>>& NodeEdges();
 	static const TArray<FVector2D>& NodePositions();
 	/**
-	 * The storey each node sits on, index-aligned with NodeNames(). The first nine are the
-	 * Godot graph's, all floor 0; the stair and second-floor nodes are the fork's. An edge
-	 * whose endpoints differ in floor is a STAIR EDGE by definition -- no separate flag
-	 * table that could disagree with the node data.
+	 * The storey each node sits on, index-aligned with NodeNames(). Stair nodes sit ON
+	 * their flights and carry the floor you step off at. An edge whose endpoints differ
+	 * in floor is a STAIR EDGE by definition -- no separate flag table that could
+	 * disagree with the node data.
 	 */
 	static const TArray<int32>& NodeFloors();
 	/** True when the graph edge A—B is a stair edge (floor differs between endpoints). */
 	static bool IsStairEdge(const FString& A, const FString& B);
 
 	/**
-	 * Throws if the world data disagrees with the Godot original: seven walls, the house
-	 * rectangle, the nav graph, and the loot spots. Called by the tests so a bad constant
-	 * cannot pass silently.
+	 * Throws if the world data disagrees with itself: the table counts, the nav graph's
+	 * symmetry/reachability/walkability, stair-band arrivals and headroom, node and spawn
+	 * standability, and furniture discipline. Called by the tests so a bad constant
+	 * cannot pass silently. Phase 2 (v3): every hand-derived clearance in the house
+	 * schedule is pinned here.
 	 */
 	static void SelfCheck();
 };

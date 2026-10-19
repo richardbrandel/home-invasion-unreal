@@ -5,7 +5,8 @@
 one at a time; strike each through when it is decided, and record the DECISION rather than
 deleting the item, because the reason is usually worth more than the outcome.
 
-Ordered by how much each one unblocks. Status is as of 2026-10-13.
+Ordered by how much each one unblocks. Status is as of 2026-10-13; items 9–13 were added
+2026-10-19 when phase 2 (the full three-floor house) completed.
 
 ---
 
@@ -151,6 +152,16 @@ ever played this. Three sentences of "this annoyed me" are worth more than a day
      idle-death soak from the new spawn measured **36.4 s** (up from 10.87 s at the old spawn,
      and 8.1 s before the hold-fire), all three intruders still alive, no loot delivered,
      `shots=0` — the crew now walks in and comes through the hall before it gets a line on her.
+   - **Update 2026-10-19 — every number above is doubly stale: the spawn moved AGAIN for
+     phase 2.** The full three-floor house put Louise at **(−2.0, −10.6), inside the living
+     room, 0.8 m from its doorway** — Richard's ruling, "defender by position, not by
+     script" (rationale in HOUSE-DESIGN §4.6/§8.7). The kill-zone finding was re-measured
+     at the as-built point and inverted: the Drop sight line now crosses the south wall at
+     x −1.64 (buried — no driveway snipe), while her own line to the entry hall runs
+     through the 1.2 m living doorway (y −10.22). The hold-fire and ThiefShove-no-damage
+     rulings survive unchanged. What a lone thief does about a camping Louise — shoves
+     past, fires eight shots, completes the full 3/3 sweep at 181.5 s with her hp untouched
+     under the `-HINoThiefDamage` diagnostic — is measured in §8.7 and raises item 13.
 
 ## 7. The mouse — OPEN, and possibly already fixed
 
@@ -170,6 +181,81 @@ facing constant itself is measured at 90° from the shoulders and asserted by `H
 barrel-vs-aim **0.0 deg**, gun roll **2.0 deg** from upright. A frame review of the posed capture
 found the pistol gripped in the right hand in a natural aiming stance. The instruments say it is
 straight; whether it LOOKS straight in motion is still only Richard's call, in item 6.
+
+---
+
+## 9. PoliceTime 240 → 180 — MEASURED, Richard's to ratify
+
+Added 2026-10-19. HOUSE-DESIGN §4.4 proposed raising the police clock from the v1 value
+to 180 s for the nine-room house; **the code already ships `PoliceTime = 180.0f`**
+(HISim.h) so the phase-2 numbers below were all measured against it. The final-build
+measurements, every one `ended=round` (a resolved game, not a budget expiry):
+
+| round | time | note |
+|---|---|---|
+| solo clean sweep, Louise parked on the lawn | **175.0 s** | sim probe, no interference |
+| solo clean sweep, Louise alive and camping the living room | **181.5 s** | probe AND game soak, bit-matching; the shove detour costs ~6.5 s |
+| trio sweep, passive Louise | **117.9 s × 3** | bit-identical (7076 sim steps every round) |
+| driven (autopilot Louise) | WON at 24.8 / 25.9 / 26.1 s | the aimbot, balance-silent by design |
+
+The design's promise — "keeps a full clear possible but not comfortable" — measured true
+to the second: 5 s of margin on the clean solo clear, and the camping variant finishes
+1.5 s past the horn. One interaction softens the horn's bite and is itself item 10: with
+thief-only gunfire the police never arm at all, so 180 s only becomes real when the
+player fires. **Decision wanted: ratify 180 (one line keeps it), or name a number.**
+Until then the constant stays 180 and every soak above documents it.
+
+## 10. Thief gunfire never calls the police — measured; since the fork, a pure design question
+
+Added 2026-10-19. The alarm clock (`Alarm`, starts at −1) arms on the PLAYER's first shot
+or the [P] key only. Measured: probe S ran 181.5 s with eight `thiefShot` events and
+`alarm=−1.0` in every sample; the pinned pre-fix variant fired 126 shots over 240 s with
+the same reading. Under the 2026-10-15 fork (PARITY.md) whatever Godot did is no longer
+normative — this is simply what the game does, and whether it is what the game SHOULD do
+is Richard's call: a house full of gunfire the neighbours cannot hear is a design
+statement. Arming on thief shots too would make the 180 s horn bind the solo sweep (see
+item 9's numbers: the camping clear finishes at 181.5 s). Reported, not patched.
+
+## 11. The player's hp IS ThiefMaxHp (78) — measured; since the fork, a pure design question
+
+Added 2026-10-19. `CreatePlayer` sets `P.Hp = ThiefMaxHp` (78.0f): Louise and the
+intruders share one health constant. This corrected a wrong inference mid-session — the
+passive soaks' `hp=78` is FULL health (they took zero damage: suppressed or never hit),
+not "22 damage survived". The driven soaks show real damage working (hp 64/64/71 = 14/14/7
+taken in ~25 s against three shooters). Whether Godot gave the player separate hp is
+unverifiable from this box and, post-fork, beside the point: if Richard wants the defender
+tougher or frailer than a thief, it is one constant — but say so deliberately, because
+today the equality is silent.
+
+## 12. Ten of 33 door edges are narrower than a thief's body — fixed in the walker, data-level fix is Richard's call
+
+Added 2026-10-19. The phase-2 diagnostic dump measured **10 of the 33 flat nav edges
+body-radius-blocked node-to-node** (all ten clear at radius 0; list in HOUSE-DESIGN §8.6):
+doors are 0.9–1.2 m, the body is 0.84 m across, so node-to-node lines cross the effective
+0.06–0.36 m gaps off-centre. Traversal works — the corner slide centres the body — but the
+routing oracle disagrees with the physics, and that mismatch produced the prepend
+ping-pong trap (§8.6, fixed with hysteresis, whole suite green). The honest data-level
+alternatives, if Richard wants the graph to mean what it says: widen the doorways to
+≥ 1.3 m, or add door-centre waypoints to the ten edges. Both change the house or the
+graph's shape, so neither was taken unilaterally. As built, the walker carries the fix.
+
+## 13. A camping homeowner is terrain, not a defender, against a lone thief — measured
+
+Added 2026-10-19. The phase-2 spawn (§8.7, item 6.5's update) puts Louise 0.8 m from the
+living doorway — she commands the most-used entrance on the ground floor. Measured against
+a passive lone thief: he shoves past (two shoves, t=28.7/31.3; shoves stagger and push but
+never damage, per the standing ruling), fires eight shots that never connect in the sim
+probe, and completes the full 3/3 sweep — **181.5 s vs 175.0 s with her parked on the
+lawn: her defence of the doorway costs him ~6.5 s and does not stop him**. In the sim
+probe thief shots carry no damage at all (damage is applied in the game module on events);
+in the suppressed game soak her hp stayed 78 by switch. **The damage-live solo variant
+has since been measured: `player_hp=29` at the end — eight shots for 49 damage, she
+survives — and the sweep timing is bit-identical to the suppressed run (181.5 s, 10890
+sim steps): being shot at does not change his path.** The round only
+becomes a fight when the player shoots back. Is "defender by position" meant to read this
+way with an AI-only Louise? If not, the lever is hers (she never fires — hold-fire covers
+only the opening 4 s of the thieves, and she has no trigger logic of her own), not the
+spawn. Reported, not patched.
 
 ---
 

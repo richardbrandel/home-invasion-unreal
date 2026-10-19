@@ -459,9 +459,9 @@ void AHIGameMode::SetupLighting()
 	{
 		float X;
 		float Y;
-		// The fork's slice: a bulb hangs under a CEILING, and the house now has two of
-		// them at different heights -- 2.60 under the slab's underside in the front half,
-		// 5.35 under the upstairs lid. Ground-floor lamps keep their hand-placed 2.60.
+		// Phase 2: a bulb hangs under a CEILING, and the house now has THREE of them at
+		// different heights -- -0.21 under the ground deck (the basement's), 2.53 under
+		// the slab, 5.12 under the roof deck. Each lamp sits just under its rose.
 		float Z;
 		float Intensity;
 	};
@@ -474,15 +474,25 @@ void AHIGameMode::SetupLighting()
 		// 800-ish lumens, which is one ordinary LED bulb rather than the 2600 this started at.
 		// The first value was chosen against a fixed exposure that has since been reversed,
 		// and against auto-exposure a house lit to 2600 lumens a room looks like an office.
-		{ -5.00f, -11.00f, 2.60f,  900.0f },   // living room (under the slab)
-		{  4.00f, -11.00f, 2.60f,  800.0f },   // kitchen (under the slab)
-		{ -4.00f, -16.50f, 2.60f,  700.0f },   // bedroom
-		{  4.00f, -16.50f, 2.60f,  700.0f },   // study
-		{  0.00f, -14.00f, 2.60f,  700.0f },   // hall
-		// The upstairs bulb: the slab stops light exactly as it stops bullets, so without
-		// this the whole second floor is lit by what leaks through the stairwell hole --
+		// ---- basement (ceiling -0.21)
+		{ -3.50f, -12.50f, -0.35f, 800.0f },   // open area
+		{  4.60f, -15.20f, -0.35f, 600.0f },   // mechanical room
+		// ---- ground (ceiling 2.53)
+		{ -3.60f, -10.00f, 2.39f,  900.0f },   // living room
+		{ -4.40f, -14.20f, 2.39f,  700.0f },   // master bedroom
+		{ -2.60f, -16.00f, 2.39f,  600.0f },   // master bath
+		{  3.60f, -16.00f, 2.39f,  800.0f },   // kitchen
+		{  3.90f, -10.90f, 2.39f,  700.0f },   // dining
+		{  0.30f,  -9.30f, 2.39f,  700.0f },   // entry hall
+		{  0.65f, -14.25f, 2.39f,  700.0f },   // hall, between the stairwell walls
+		// ---- second (ceiling 5.12). The decks stop light exactly as they stop bullets, so
+		// without these the second floor is lit by what leaks through the stairwell hole --
 		// pitch dark with the lamps off, and untestable with them on.
-		{  0.00f, -12.20f, 5.35f,  700.0f },   // upstairs
+		{ -4.20f, -10.40f, 4.98f,  700.0f },   // bedroom 2
+		{ -4.20f, -15.40f, 4.98f,  700.0f },   // bedroom 3
+		{  4.80f, -16.00f, 4.98f,  600.0f },   // bath 2
+		{  4.00f, -10.70f, 4.98f,  700.0f },   // office
+		{  0.45f, -13.50f, 4.98f,  700.0f },   // upstairs hall
 	};
 	for (const FLamp& L : LampSpecs)
 	{
@@ -501,7 +511,12 @@ void AHIGameMode::SetupLighting()
 				LampLitIntensity.Add(L.Intensity);
 				Bulb->SetLightColor(FHIMaterials::WarmLight);
 				Bulb->SetAttenuationRadius(9.0f * HI_METERS_TO_UU);
-				Bulb->SetCastShadows(true);
+				// Shadow-casting point lights are the expensive kind (a cubemap each), and
+				// phase 2 went from 6 lamps to 14. The small rooms -- the two baths and the
+				// mechanical room, all at 600 lm -- drop their shadows: nothing a thief
+				// hides behind lives in a 2 m bathroom, and the frames have to pay for
+				// every one of these on ubuntu-dev's GPU.
+				Bulb->SetCastShadows(L.Intensity >= 700.0f);
 			}
 		}
 	}

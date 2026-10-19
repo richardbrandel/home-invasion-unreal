@@ -31,36 +31,52 @@ namespace
 const TArray<AHIHouse::FFitting>& AHIHouse::WallFittings()
 {
 	// Sockets, switches and a thermostat, in metres: x, y, z, sizeX, sizeY, sizeZ.
+	// PHASE 2: rewritten for the three-floor house; the slice-era coordinates pointed at
+	// walls that no longer exist (the old house was 16 m wide, this one is 12.7).
 	//
 	// EVERY POSITION IS FLUSH AGAINST A WALL FACE, and the arithmetic is written out so it
-	// can be checked rather than trusted. The wall list is `FHISim::Walls()`:
+	// can be checked rather than trusted. The faces this table uses, from `WallRows()`:
 	//
-	//   north      y -19.000 .. -18.750, x -8..8      inner face y = -18.750
-	//   south-west y  -8.250 ..  -8.000, x -8..-1     inner face y =  -8.250
-	//   south-east y  -8.250 ..  -8.000, x  1..8      inner face y =  -8.250
-	//   west       x  -8.000 ..  -7.750, y -19..-8    inner face x =  -7.750
-	//   east       x   7.750 ..   8.000, y -19..-8    inner face x =   7.750
-	//   divider W  y -14.125 .. -13.875, x -8..-2     faces y = -14.125 and y = -13.875
-	//   divider E  y -14.125 .. -13.875, x  2..8      faces y = -14.125 and y = -13.875
+	//   north exterior  band y -17.39..-17.14   interior face y = -17.14 (room side: y >)
+	//   south exterior  band y  -8.00.. -7.75   interior face y =  -8.00 (room side: y <)
+	//   west exterior   band x  -6.35.. -6.10   interior face x =  -6.10 (room side: x >)
+	//   east exterior   band x   6.10..  6.35   interior face x =   6.10 (room side: x <)
+	//   x -1.2 partition  band -1.26..-1.14     faces x = -1.26 (west) / -1.14 (east)
+	//   x  1.83 partition band  1.77.. 1.89     faces x =  1.77 (west) /  1.89 (east)
+	//   x  2.00 partition (floor 1) 1.94..2.06  faces x =  1.94 (west) /  2.06 (east)
+	//   x  3.00 partition (floor -1) 2.94..3.06 face x =   2.94 (west)
 	//
-	// A fitting's centre is the face plus half its own depth, so its back lands ON the wall.
-	// Two of these used to sit in the hall opening (x -2..2) and one inside `DoorGap`
-	// (x -1..1); those are the three that hung in mid-air. Sizes X and Y swap on the side
-	// walls, because the wall is thin in the other axis there.
+	// A fitting's centre is the face plus half its own depth toward the room, so its back
+	// lands ON the wall. Sizes X and Y swap on the side walls, because the wall is thin in
+	// the other axis there. Heights are floor-relative: ground sockets at 0.30, switches at
+	// 1.25 (second floor: +2.74; basement: -2.44). `HI.Unreal.WallFittings` keeps them
+	// honest -- the slice learned the hard way that a fitting "by the front door" sitting
+	// INSIDE the door gap hangs in mid-air, visible from the spawn as a floating pale box.
 	static const TArray<FFitting> F = {
-		// ---- sockets, just above the floor
-		{ -1.20f, -18.720f, 0.30f, 0.09f, 0.06f, 0.13f },   // bedroom, north wall
-		{  1.20f, -18.720f, 0.30f, 0.09f, 0.06f, 0.13f },   // study, north wall
-		{  7.720f, -15.62f, 0.30f, 0.06f, 0.09f, 0.13f },   // kitchen, east wall
-		{ -7.720f, -11.00f, 0.30f, 0.06f, 0.09f, 0.13f },   // living room, west wall
-		// ---- switches, at hand height
-		{ -2.35f, -14.155f, 1.25f, 0.09f, 0.06f, 0.09f },   // bedroom, beside the hall doorway
-		{ -2.35f, -13.845f, 1.25f, 0.09f, 0.06f, 0.09f },   // living room, same stub, other side
-		{  3.00f, -13.845f, 1.25f, 0.09f, 0.06f, 0.09f },   // kitchen, divider
-		{  6.35f, -13.845f, 1.25f, 0.09f, 0.06f, 0.09f },   // kitchen, by the counter
-		{ -1.45f,  -8.280f, 1.25f, 0.09f, 0.06f, 0.09f },   // by the front door, west of the gap
-		// ---- thermostat
-		{ -2.60f, -13.850f, 1.50f, 0.14f, 0.05f, 0.14f },   // living room, divider
+		// ---- ground floor: sockets, just above the floor (or above a counter)
+		{ -6.070f, -10.40f, 0.30f, 0.06f, 0.09f, 0.13f },   // living room, west wall, behind the sofa
+		{ -5.600f, -17.11f, 0.30f, 0.09f, 0.06f, 0.13f },   // master, north wall, behind the bed head
+		{  2.900f, -17.11f, 1.15f, 0.09f, 0.06f, 0.13f },   // kitchen, north wall above the counter
+		{  6.070f, -10.50f, 0.30f, 0.06f, 0.09f, 0.13f },   // dining, east wall, north of the sideboard
+		// ---- ground floor: switches, at hand height, each beside the door it serves and
+		// each VERIFIED ON A WALL SEGMENT (the y -9.70 switch is on segment y -8..-10 of
+		// the x -1.2 partition; -15.10 is on segment y -14.8..-17.14; -12.10 is on segment
+		// y -10.4..-12.2 of the x 1.83 partition -- the segment edge moved 2026-10-18 when
+		// the hall<->kitchen opening was widened, and -12.10 stayed on the wall).
+		{ -1.850f,  -8.03f, 1.25f, 0.09f, 0.06f, 0.09f },   // by the front door, west of the gap and of the coat
+		{ -1.110f,  -9.70f, 1.25f, 0.06f, 0.09f, 0.09f },   // living room, hall side of the opening
+		{ -1.290f, -15.10f, 1.25f, 0.06f, 0.09f, 0.09f },   // master, beside its door
+		{  1.740f, -12.10f, 1.25f, 0.06f, 0.09f, 0.09f },   // hall, beside the kitchen opening
+		// ---- ground floor: thermostat, hall side of the x 1.83 partition, segment b
+		{  1.745f, -10.80f, 1.50f, 0.05f, 0.14f, 0.14f },
+		// ---- second floor (faces are the same rows; heights are +2.74)
+		{ -5.500f,  -8.03f, 3.04f, 0.09f, 0.06f, 0.13f },   // bedroom 2, south wall, west of its window
+		{ -5.900f, -17.11f, 3.04f, 0.09f, 0.06f, 0.13f },   // bedroom 3, north wall, west of its window frame
+		{ -1.290f,  -9.70f, 3.99f, 0.06f, 0.09f, 0.09f },   // bedroom 2, beside its door
+		{  2.090f, -12.40f, 3.99f, 0.06f, 0.09f, 0.09f },   // office, beside its opening
+		// ---- basement (floor -2.44)
+		{  2.910f, -15.00f, -2.14f, 0.06f, 0.09f, 0.13f },  // mechanical-room wall, open-area side
+		{ -6.070f, -16.80f, -1.74f, 0.06f, 0.09f, 0.13f },  // over the workbench, west wall
 	};
 	return F;
 }
@@ -134,6 +150,10 @@ AHIHouse::AHIHouse()
 	SlabInstances = MakeSolid(TEXT("Slabs"));
 	StairInstances = MakeSolid(TEXT("Stairs"));
 	RailingInstances = MakeSolid(TEXT("Railings"));
+	// Phase 2: the below-grade walls collide exactly like the walls above them; only the
+	// material differs (cinderblock, per Richard's brief), and a material is a
+	// component-level property -- hence a second component, not a second opinion.
+	WallBasementInstances = MakeSolid(TEXT("BasementWalls"));
 
 	// ---- everything below is decoration, and none of it collides. See the header.
 	GroundInstance = MakeDecor(TEXT("Ground"), Cube, WallInstances);
@@ -158,6 +178,10 @@ AHIHouse::AHIHouse()
 	};
 	BlockCorpses(GroundInstance);
 	BlockCorpses(FloorInstance);
+	// Phase 2: the basement slab, corpse-catcher for the storey below grade -- the lawn
+	// that catches everything else is 2.44 m above a body that falls down there.
+	BasementFloorInstances = MakeDecor(TEXT("BasementFloor"), Cube, WallInstances);
+	BlockCorpses(BasementFloorInstances);
 	RoofInstance = MakeDecor(TEXT("Roof"), Cube, WallInstances);
 	// The roof is the one decorative component that must still cast a shadow: it exists to
 	// keep the sun out of the rooms, and a roof that did not shadow would be a roof that did
@@ -214,7 +238,22 @@ void AHIHouse::AddBox(UInstancedStaticMeshComponent* Target, const FVector& Cent
 		SizeMeters), /*bWorldSpace=*/false);
 }
 
-void AHIHouse::AddWindow(bool bAlongX, float Along, float WallCoord, float Facing, float Width)
+void AHIHouse::AddBoxR(UInstancedStaticMeshComponent* Target, const FVector& Centre,
+	const FVector& SizeMeters, const FRotator& Rot)
+{
+	// The pitched roof needs a rotation AddBox cannot express: yaw spins a box in the
+	// ground plane, and a gable plane is pitched out of it. Roll about X tilts in the YZ
+	// plane, which is exactly the plane a north-south roof slope lives in.
+	if (Target == nullptr)
+	{
+		return;
+	}
+	Target->AddInstance(FTransform(Rot, Centre * HI_METERS_TO_UU, SizeMeters),
+		/*bWorldSpace=*/false);
+}
+
+void AHIHouse::AddWindow(bool bAlongX, float Along, float WallCoord, float Facing, float Width,
+	float FloorZ, float SillUp, float HeadUp)
 {
 	// A window is a hole with a frame round it and something in the hole.
 	//
@@ -224,8 +263,13 @@ void AHIHouse::AddWindow(bool bAlongX, float Along, float WallCoord, float Facin
 	// `/Game/HIGenerated/M_HIGlass` in its own component, and the frame, mullion and sill
 	// stay opaque trim. The original's own note ("the glazing is still a pale opaque panel
 	// from outside") applied to Godot; this closes it here.
-	const float Sill = 0.95f;
-	const float Head = 2.15f;
+	//
+	// Phase 2: `FloorZ` lifts the whole assembly onto an upper storey (the exterior walls
+	// are single rows spanning 0..RoofTop, so a second-floor window is the same call with
+	// FloorZ = SecondZ), and SillUp/HeadUp are heights above that floor -- the small high
+	// bathroom windows of HOUSE-DESIGN.md §4.6 pass 1.40/2.00.
+	const float Sill = FloorZ + SillUp;
+	const float Head = FloorZ + HeadUp;
 	const float MidZ = (Sill + Head) * 0.5f;
 	const float Height = Head - Sill;
 	// Proud of the wall face by 15 cm, on the outward side, so the frame reads as a frame
@@ -269,124 +313,205 @@ void AHIHouse::BuildDressing()
 {
 	const FBox2D H = FHISim::House;
 
-	// ---- the lawn, and the interior floor 2 cm proud of it. See the header for why.
+	// ---- the lawn, the basement slab, and the ground floor's wood.
 	{
 		// The lawn is DELIBERATELY FAR LARGER than the sim's play area. A 60 x 52 m plane
 		// ends in mid-air 30 m from the house, and the first render of this port showed a
 		// black band along the horizon where the ground stopped and the sky atmosphere had
 		// nothing to draw below itself. Size here is pure scenery: the sim still clamps every
-		// body to `FHISim::Bounds`, and this component has no collision, so nothing about
+		// body to `FHISim::Bounds`, and this component blocks corpses only, so nothing about
 		// where a player may walk changed.
+		//
+		// PHASE 2: the lawn can no longer be ONE box. The house has a basement now, and a
+		// solid 5 km slab from -0.5 to 0 would fill the top of it -- so the lawn is four
+		// strips around the footprint, and the footprint's own ground level is the deck the
+		// sim already carries ([BasementCeiling..0] in WorldSolids, drawn as structure in
+		// Build()). The strips share the top face at 0.0 exactly.
 		const float LawnHalf = 2600.0f;
-		AddBox(GroundInstance, FVector(0.0f, 0.0f, -0.25f), FVector(LawnHalf * 2.0f, LawnHalf * 2.0f, 0.5f));
+		const float LZ = -0.25f;
+		const float LT = 0.5f;
+		const float HCY = (H.Min.Y + H.Max.Y) * 0.5f;
+		const float HDY = H.Max.Y - H.Min.Y;
+		AddBox(GroundInstance, FVector(0.0f, (-LawnHalf + H.Min.Y) * 0.5f, LZ),
+			FVector(LawnHalf * 2.0f, H.Min.Y + LawnHalf, LT));                  // north strip
+		AddBox(GroundInstance, FVector(0.0f, (LawnHalf + H.Max.Y) * 0.5f, LZ),
+			FVector(LawnHalf * 2.0f, LawnHalf - H.Max.Y, LT));                  // south strip
+		AddBox(GroundInstance, FVector((-LawnHalf + H.Min.X) * 0.5f, HCY, LZ),
+			FVector(H.Min.X + LawnHalf, HDY, LT));                              // west strip
+		AddBox(GroundInstance, FVector((LawnHalf + H.Max.X) * 0.5f, HCY, LZ),
+			FVector(LawnHalf - H.Max.X, HDY, LT));                              // east strip
 
 		const FVector2D HSize = H.GetSize();
-		// Top face at +0.02 m: the lawn's top is at 0.0, so a 0.4 m slab centred at -0.18
-		// lands its top at +0.02. Deliberately under a shoe and far over a depth epsilon.
-		AddBox(FloorInstance,
-			FVector((H.Min.X + H.Max.X) * 0.5f, (H.Min.Y + H.Max.Y) * 0.5f, -0.18f),
+		const float HCX = (H.Min.X + H.Max.X) * 0.5f;
+
+		// The basement slab, top face 2 cm proud of BasementZ -- the same proud convention
+		// as the floors above, for the same z-fighting reason. Corpses land on it; bullets
+		// pass it, exactly like the lawn.
+		AddBox(BasementFloorInstances,
+			FVector(HCX, HCY, FHISim::BasementZ + 0.02f - 0.20f),
 			FVector(HSize.X, HSize.Y, 0.4f));
-	}
 
-	// ---- THE ROOF AND ITS CEILINGS, SPLIT AT THE STOREY DIVIDER (the fork's slice).
-	// The rear wing (y -19..-14) is single-storey: its lid stays at 3.0 exactly as it was.
-	// The front half (y -14..-8) is two storeys: its lid sits on the second-floor wall
-	// tops at 5.75, matching the sim's own roof decks in WorldSolids. One flat roof over
-	// both halves was the single-storey house; a drawn house that disagrees with the
-	// house that stops bullets is a bug, not a style.
-	{
-		const FVector2D HSize = H.GetSize();
-		const float Wall = FHISim::WallHeight;
-		const float IZ = FHISim::InteriorZ;
-		const float CXm = (H.Min.X + H.Max.X) * 0.5f;
-
-		// Rear wing: ceiling under the wall top, roof slab, overhang eave.
-		const float RearCY = (H.Min.Y + IZ) * 0.5f;
-		const float RearD = IZ - H.Min.Y;
-		AddBox(CeilingInstance, FVector(CXm, RearCY, Wall + 0.03f), FVector(HSize.X, RearD, 0.06f));
-		AddBox(RoofInstance, FVector(CXm, RearCY, Wall + 0.26f), FVector(HSize.X, RearD, 0.32f));
-		AddBox(RoofInstance, FVector(CXm, RearCY, Wall + 0.50f), FVector(HSize.X + 0.9f, RearD + 0.9f, 0.14f));
-
-		// Front, two storeys: roof slab on the second-floor wall tops, same eaves, and a
-		// ceiling panel under it at 5.75.
-		const float Top = FHISim::FloorHeight(1) + 2.75f;
-		const float FrontCY = (IZ + H.Max.Y) * 0.5f;
-		const float FrontD = H.Max.Y - IZ;
-		AddBox(RoofInstance, FVector(CXm, FrontCY, Top + 0.26f), FVector(HSize.X, FrontD, 0.32f));
-		AddBox(RoofInstance, FVector(CXm, FrontCY, Top + 0.50f), FVector(HSize.X + 0.9f, FrontD + 0.9f, 0.14f));
-		AddBox(CeilingInstance, FVector(CXm, FrontCY, Top - 0.03f), FVector(HSize.X, FrontD, 0.06f));
-
-		// The ground floor's front ceiling IS the slab's underside: a 6 cm panel under
-		// each deck rectangle, taken from the sim's own list so the stairwell hole exists
-		// by construction -- from the ground floor you can look up through the hole and
-		// see the second floor, which is the whole point of the slice.
+		// The ground floor's wood: thin panels laid over the sim's ground deck rectangles,
+		// so the stairwell hole exists by construction and the top face sits 2 cm proud of
+		// both the deck and the lawn -- under a shoe, over a depth epsilon.
 		for (const FHISim::FHISolid& S : FHISim::WorldSolids())
 		{
-			if (S.bDeck && S.Span.MinZ < FHISim::FloorHeight(1)
-				&& FMath::IsNearlyEqual(S.Span.MaxZ, FHISim::FloorHeight(1), 0.01f))
+			if (S.bDeck && FMath::IsNearlyEqual(S.Span.MaxZ, FHISim::FloorHeight(0), 0.01f))
 			{
-				AddBox(CeilingInstance,
+				AddBox(FloorInstance,
 					FVector((S.Rect.Min.X + S.Rect.Max.X) * 0.5f,
-						(S.Rect.Min.Y + S.Rect.Max.Y) * 0.5f,
-						S.Span.MinZ - 0.03f),
-					FVector(S.Rect.GetSize().X, S.Rect.GetSize().Y, 0.06f));
+						(S.Rect.Min.Y + S.Rect.Max.Y) * 0.5f, 0.01f),
+					FVector(S.Rect.GetSize().X, S.Rect.GetSize().Y, 0.02f));
 			}
 		}
 	}
 
-	// ---- the HEAD of the front doorway, and the round starts facing it.
+	// ---- THE GABLE ROOF (§4.6) and the three ceilings under it.
 	//
-	// `Walls()` splits the south wall either side of `DoorGap`, which is a horizontal split
-	// because the sim is a 2-D model with a single vertical span -- so the opening ran from
-	// the floor to the CEILING and the front of the house had a 3 m letterbox in it. Godot
-	// fills exactly this in `build_exterior` ("the doorway is a hole all the way to the
-	// ceiling, which a 3 m wall makes glaring"); the port never did. Measured on a capture.
+	// The slice's flat lids retired with the slice: phase 2's house is a realistic
+	// two-storey, and §4.6 pins the roof -- ridge east-west at y = -12.57, ~1.9 m rise.
+	// -12.57 is exactly the footprint's y-centre ((-17.39 + -7.75)/2), so the two slopes
+	// are symmetric and their run is 4.82 each; the numbers below are computed from the
+	// shell rect, not typed in twice.
 	//
-	// The two numbers are the original's: `DOOR_TOP` is 2.10 and the head runs to the wall
-	// top. It is a DECORATION, so it is drawn from `DoorHeadInstances` -- no collision, and
-	// no entry in `Walls()` -- which is what the original's plain MeshInstance3D amounts to.
+	// The pitched planes are DECOR, and that is deliberate: the sim's roof deck
+	// [RoofBottom, RoofTop] is drawn as structure in Build() and is what stops a bullet.
+	// A pellet at a steep angle can still pass the shingles above 5.33 -- the sim has no
+	// roof PLANE, and inventing colliding geometry the sim does not know about is exactly
+	// the invariant violation this file refuses to commit (see the header).
 	{
-		const float HeadBottom = 2.10f;
-		AddBox(DoorHeadInstances,
-			FVector((FHISim::DoorGap.X + FHISim::DoorGap.Y) * 0.5f,
-				H.Max.Y - FHISim::WallThickness * 0.5f,
-				HeadBottom + (FHISim::WallHeight - HeadBottom) * 0.5f),
-			FVector(FHISim::DoorGap.Y - FHISim::DoorGap.X,
-				FHISim::WallThickness,
-				FHISim::WallHeight - HeadBottom));
+		const float CXm = (H.Min.X + H.Max.X) * 0.5f;
+		const float RidgeY = (H.Min.Y + H.Max.Y) * 0.5f;   // -12.57, the doc's number
+		const float Rise = 1.9f;
+		const float Run = H.Max.Y - RidgeY;                 // 4.82
+		const float Slope = FMath::Sqrt(Run * Run + Rise * Rise);
+		const float Over = 0.45f;                           // eave overhang, ALONG the slope
+		const float PitchDeg = FMath::RadiansToDegrees(FMath::Atan2(Rise, Run));   // 21.5
+
+		// Each slope runs from the ridge down past its eave: the overhang extends the
+		// plane 0.45 along the slope, which is 0.419 out and 0.165 down at this pitch.
+		const float RidgeZ = FHISim::RoofTop + Rise;        // 7.23
+		const float EaveZ = FHISim::RoofTop - Over * Rise / Slope;
+		const float SouthEaveY = H.Max.Y + Over * Run / Slope;
+		const float NorthEaveY = H.Min.Y - Over * Run / Slope;
+		const float SlabLen = FMath::Sqrt(
+			FMath::Square(RidgeY - SouthEaveY) + FMath::Square(RidgeZ - EaveZ));   // 5.63
+		const float SlabZ = (RidgeZ + EaveZ) * 0.5f;
+		const FVector SlabSize(H.GetSize().X + 2.0f * Over, SlabLen, 0.12f);
+		// Roll about X tilts in the YZ plane -- the plane a north-south roof slope lives
+		// in. The south slab's +Y end is its low eave (roll negative); the north mirrors.
+		AddBoxR(RoofInstance, FVector(0.0f, (SouthEaveY + RidgeY) * 0.5f, SlabZ),
+			SlabSize, FRotator(0.0f, 0.0f, -PitchDeg));
+		AddBoxR(RoofInstance, FVector(0.0f, (NorthEaveY + RidgeY) * 0.5f, SlabZ),
+			SlabSize, FRotator(0.0f, 0.0f, PitchDeg));
+		// A ridge cap over the joint, so the two planes meet in a spine, not a seam.
+		AddBox(RoofInstance, FVector(0.0f, RidgeY, RidgeZ + 0.07f),
+			FVector(H.GetSize().X + 2.0f * Over + 0.10f, 0.35f, 0.14f));
+		// The gable ends: the wall rows stop at RoofTop, and the triangle between that
+		// and the ridge is closed with eight stepped boxes per end (a real gable is a
+		// triangle; eight steps read as one from the lawn, which is where you see it).
+		for (float SX : { -1.0f, 1.0f })
+		{
+			for (int32 K = 0; K < 8; ++K)
+			{
+				const float ZC = FHISim::RoofTop + (K + 0.5f) * Rise / 8.0f;
+				const float HalfDepth = Run * (1.0f - (K + 0.5f) / 8.0f);
+				AddBox(RoofInstance,
+					FVector(SX * (H.Max.X - FHISim::WallThickness * 0.5f), RidgeY, ZC),
+					FVector(FHISim::WallThickness, HalfDepth * 2.0f, Rise / 8.0f + 0.02f));
+			}
+		}
+
+		// The ceilings: one panel under EVERY deck the sim carries, taken from the sim's
+		// own list so the stairwell holes exist by construction. The ground deck's
+		// underside -0.15 is the basement's ceiling; the slab's 2.59 is the ground
+		// floor's; the roof deck's 5.18 is the second floor's. The slice drew these for
+		// the slab only, because the slice had one ceiling.
+		for (const FHISim::FHISolid& S : FHISim::WorldSolids())
+		{
+			if (!S.bDeck)
+			{
+				continue;
+			}
+			AddBox(CeilingInstance,
+				FVector((S.Rect.Min.X + S.Rect.Max.X) * 0.5f,
+					(S.Rect.Min.Y + S.Rect.Max.Y) * 0.5f,
+					S.Span.MinZ - 0.03f),
+				FVector(S.Rect.GetSize().X, S.Rect.GetSize().Y, 0.06f));
+		}
 	}
 
-	// ---- skirting and picture rail, DERIVED from the wall list rather than hand-placed.
-	// Every wall in the sim is an axis-aligned box, so a band at its base and another near
-	// its top can be generated exactly, for all seven, with no positions to get wrong.
-	for (const FBox2D& W : FHISim::Walls())
+	// ---- the front door SURROUND.
+	//
+	// History: the sim is a 2-D model, so `DoorGap` splits the south wall horizontally and
+	// the opening ran from the floor to the CEILING -- a letterbox in the front of the
+	// house, which Godot filled with a decorative panel and the slice followed. Phase 2
+	// made the fill REAL instead (an ADDITION, veto-able): the facade now runs to 5.33, so
+	// the letterbox became a 3.2 m invisible slot, and this file's own invariant forbids
+	// decoration that lies about geometry -- a drawn wall a pellet flies through. The wall
+	// above the door head is now a sim row with MinZ 2.10 (see WallRows); what is left
+	// here is what a real door has anyway: jambs and a head trim, proud of the faces.
 	{
-		const FVector2D Size = W.GetSize();
-		// Only the two long exterior faces get trim; a 0.25 m wall stub with skirting on all
-		// four sides is a plinth, not a skirting board.
+		const float HeadBottom = 2.10f;                       // the original's DOOR_TOP
+		const float WallCY = H.Max.Y - FHISim::WallThickness * 0.5f;
+		const float JamDepth = FHISim::WallThickness + 0.06f; // proud 3 cm each face
+		for (float Edge : { FHISim::DoorGap.X, FHISim::DoorGap.Y })
+		{
+			const float Outward = Edge < 0.0f ? -1.0f : 1.0f;
+			AddBox(DoorHeadInstances,
+				FVector(Edge + Outward * 0.05f, WallCY, HeadBottom * 0.5f),
+				FVector(0.10f, JamDepth, HeadBottom));
+		}
+		AddBox(DoorHeadInstances,
+			FVector((FHISim::DoorGap.X + FHISim::DoorGap.Y) * 0.5f, WallCY, HeadBottom + 0.05f),
+			FVector(FHISim::DoorGap.Y - FHISim::DoorGap.X + 0.20f, JamDepth, 0.10f));
+	}
+
+	// ---- skirting and picture rail, DERIVED from the wall rows rather than hand-placed,
+	// now per storey: a band at each row's floor and another at floor + 2.06. Interior
+	// partitions only -- the exterior rows (TopZ = RoofTop, and the door transom) get no
+	// trim, because skirting on the outside of a house is a plinth and the transom floats
+	// 2.1 m up in the air.
+	for (const FHISim::FHIWallRow& Row : FHISim::WallRows())
+	{
+		if (Row.TopZ > 0.0f)
+		{
+			continue;
+		}
+		const FVector2D Size = Row.Rect.GetSize();
+		const float Base = Row.MinZ > 0.0f ? Row.MinZ : FHISim::FloorHeight(Row.Floor);
 		const float Girth = 0.035f;
 		AddBox(TrimInstances,
-			FVector((W.Min.X + W.Max.X) * 0.5f, (W.Min.Y + W.Max.Y) * 0.5f, 0.06f),
+			FVector((Row.Rect.Min.X + Row.Rect.Max.X) * 0.5f,
+				(Row.Rect.Min.Y + Row.Rect.Max.Y) * 0.5f, Base + 0.06f),
 			FVector(Size.X + Girth * 2.0f, Size.Y + Girth * 2.0f, 0.12f));
 		AddBox(TrimInstances,
-			FVector((W.Min.X + W.Max.X) * 0.5f, (W.Min.Y + W.Max.Y) * 0.5f, 2.06f),
+			FVector((Row.Rect.Min.X + Row.Rect.Max.X) * 0.5f,
+				(Row.Rect.Min.Y + Row.Rect.Max.Y) * 0.5f, Base + 2.06f),
 			FVector(Size.X + Girth * 2.0f, Size.Y + Girth * 2.0f, 0.07f));
 	}
 
-	// ---- windows. Placed on the four exterior walls, clear of the door gap at x -1..1.
-	// `AddWindow(bAlongX, along, wallCoord, facing, width)`.
-	for (float X : { -4.60f, 4.60f })
+	// ---- windows, the HOUSE-DESIGN.md §4.6 schedule. Ground floor first, then the
+	// second at FloorZ = SecondZ, then the two small high bathroom windows (0.6 m wide,
+	// sill at 1.40). The basement gets none: it is below grade. Every `along` coordinate
+	// was checked at authoring time against the furniture under it -- a window with a
+	// wardrobe in front of it is a wall with a picture of a window on it.
 	{
-		AddWindow(true, X, H.Min.Y, -1.0f, 1.70f);   // north wall, facing the back garden
-	}
-	for (float X : { -5.00f, 5.00f })
-	{
-		AddWindow(true, X, H.Max.Y, 1.0f, 1.50f);    // south wall, either side of the door
-	}
-	for (float Y : { -11.00f, -16.60f })
-	{
-		AddWindow(false, Y, H.Min.X, -1.0f, 1.60f);  // west wall
-		AddWindow(false, Y, H.Max.X, 1.0f, 1.60f);   // east wall
+		const float Z2 = FHISim::SecondZ;
+		// ground
+		AddWindow(true, -3.60f, H.Max.Y, 1.0f, 2.20f);                       // living-room picture, south
+		AddWindow(false, -15.40f, H.Min.X, -1.0f, 1.60f);                    // master, west (over the bed head)
+		AddWindow(true, -5.10f, H.Min.Y, -1.0f, 1.40f);                      // master, north
+		AddWindow(true, -2.60f, H.Min.Y, -1.0f, 0.60f, 0.0f, 1.40f, 2.00f);  // master bath, high
+		AddWindow(true, 3.45f, H.Min.Y, -1.0f, 1.60f);                       // kitchen, north (over the counter)
+		AddWindow(false, -15.20f, H.Max.X, 1.0f, 1.40f);                     // kitchen, east
+		AddWindow(true, 3.80f, H.Max.Y, 1.0f, 1.50f);                        // dining, south
+		AddWindow(false, -10.60f, H.Max.X, 1.0f, 1.40f);                     // dining, east
+		// second
+		AddWindow(true, -2.60f, H.Max.Y, 1.0f, 1.60f, Z2);                   // bedroom 2, south
+		AddWindow(true, -4.90f, H.Min.Y, -1.0f, 1.40f, Z2);                  // bedroom 3, north
+		AddWindow(true, 4.30f, H.Max.Y, 1.0f, 1.50f, Z2);                    // office, south (over the desk)
+		AddWindow(true, 4.60f, H.Min.Y, -1.0f, 0.60f, Z2, 1.40f, 2.00f);     // bath 2, high
 	}
 
 	// ---- fix-list item 8: the things that are on a wall in a real house.
@@ -401,48 +526,63 @@ void AHIHouse::BuildDressing()
 	{
 		AddBox(FittingInstances, FVector(D.X, D.Y, D.Z), FVector(D.SX, D.SY, D.SZ));
 	}
-	// A smoke alarm on the hall ceiling. Not a wall fitting -- it is on the ceiling, and it
-	// belongs in the hall opening, which is where a smoke alarm goes.
-	AddBox(FittingInstances, FVector(0.00f, -14.00f, FHISim::WallHeight - 0.06f), FVector(0.16f, 0.16f, 0.07f));
+	// A smoke alarm on the hall ceiling -- in the hall, which is where a smoke alarm goes.
+	// Phase 2: the ground floor's ceiling is the slab's underside; the panel hangs 6 cm
+	// under it (top at 2.59, underside at 2.53), so the alarm's centre is 2.50 and its top
+	// bites 5 mm into the panel instead of floating under it.
+	AddBox(FittingInstances, FVector(0.40f, -14.50f, 2.50f), FVector(0.16f, 0.16f, 0.07f));
 
 	// Light fittings: a shallow rose under the ceiling at each lamp, so the lamp in the game
-	// mode is a light that is visibly COMING FROM something.
-	// The fork's slice moved some of the ceilings: the front half's is now the slab's
-	// underside at 2.75, so a rose at 2.93 would be buried in the deck. The rear keeps
-	// its 3.0 ceiling, the hall rose steps just south of the slab's edge at -14, and the
-	// second floor gets a rose of its own under the 5.75 lid.
+	// mode is a light that is visibly COMING FROM something. THESE COORDINATES ARE THE LAMP
+	// COORDINATES: `LampSpecs` in HIGameMode.cpp is the other half of this table, and a rose
+	// with no lamp over it is a light fitting that does not light, which reads as broken.
+	// Phase 2 has three ceiling heights, one per storey: the basement's at -0.21 (under the
+	// ground deck), the ground floor's at 2.53 (under the slab), the second floor's at 5.12
+	// (under the roof deck). A rose centre sits 2 cm under its ceiling so the disc reads.
 	static const FVector Roses[] =
 	{
-		FVector(-4.00f, -16.50f, FHISim::WallHeight - 0.07f),   // bedroom (rear wing)
-		FVector( 4.00f, -16.50f, FHISim::WallHeight - 0.07f),   // study (rear wing)
-		FVector(-5.00f, -11.00f, 2.72f),                        // living room, under the slab
-		FVector( 4.00f, -11.00f, 2.72f),                        // kitchen, under the slab
-		FVector( 0.00f, -13.90f, 2.72f),                        // hall, south of the slab edge
-		FVector( 0.00f, -12.20f, 5.66f),                        // upstairs
+		// basement (ceiling underside -0.21)
+		FVector(-3.50f, -12.50f, -0.23f),   // open area
+		FVector( 4.60f, -15.20f, -0.23f),   // mechanical room
+		// ground (underside 2.53)
+		FVector(-3.60f, -10.00f, 2.51f),    // living room
+		FVector(-4.40f, -14.20f, 2.51f),    // master bedroom
+		FVector(-2.60f, -16.00f, 2.51f),    // master bath
+		FVector( 3.60f, -16.00f, 2.51f),    // kitchen
+		FVector( 3.90f, -10.90f, 2.51f),    // dining
+		FVector( 0.30f,  -9.30f, 2.51f),    // entry hall
+		FVector( 0.65f, -14.25f, 2.51f),    // hall, between the two stairwell walls
+		// second (underside 5.12)
+		FVector(-4.20f, -10.40f, 5.10f),    // bedroom 2
+		FVector(-4.20f, -15.40f, 5.10f),    // bedroom 3
+		FVector( 4.80f, -16.00f, 5.10f),    // bath 2
+		FVector( 4.00f, -10.70f, 5.10f),    // office
+		FVector( 0.45f, -13.50f, 5.10f),    // upstairs hall
 	};
 	for (const FVector& R : Roses)
 	{
 		AddBox(FittingInstances, R, FVector(0.30f, 0.30f, 0.06f));
 	}
 
-	// ---- fix-list items 10 and 11: the small things a house actually contains.
-	// A kettle and a toaster on the kitchen counter, a coat on a hook by the door, keys and
-	// a phone on the side table, and a picture on the living-room wall.
-	AddBox(PropInstances, FVector(7.20f, -15.60f, 1.05f), FVector(0.22f, 0.22f, 0.26f));  // kettle
-	AddBox(PropInstances, FVector(7.20f, -14.90f, 0.98f), FVector(0.28f, 0.18f, 0.16f));  // toaster
-	AddBox(PropInstances, FVector(7.20f, -16.30f, 0.95f), FVector(0.30f, 0.24f, 0.12f));  // bread bin
-	// THE COAT IS ON THE WALL BESIDE THE DOOR, and it used to be IN the doorway. `DoorGap` is
-	// x -1..1, so the coat at x -0.80 with a width of 0.44 spanned -1.02..-0.58 -- the whole
-	// of it inside the opening -- and a pale slab hanging in the one hole in the house read
-	// as a bug rather than as a coat. Measured on a capture; the wall starts at x = -1, so it
-	// needs to be clear of that edge. See fix-list items 10 and 11.
-	AddBox(CoatInstances, FVector(-1.80f, -8.35f, 1.75f), FVector(0.10f, 0.10f, 0.10f));  // coat hook
-	AddBox(CoatInstances, FVector(-1.80f, -8.45f, 1.28f), FVector(0.44f, 0.22f, 0.86f));  // coat
-	AddBox(PropInstances, FVector(-6.86f, -13.95f, 0.62f), FVector(0.26f, 0.20f, 0.04f)); // keys on the table
-	AddBox(PropInstances, FVector(-6.62f, -14.10f, 0.62f), FVector(0.09f, 0.16f, 0.02f)); // phone
-	AddBox(PropInstances, FVector(-7.85f, -11.00f, 1.60f), FVector(0.05f, 0.90f, 0.68f)); // a picture
-	AddBox(PropInstances, FVector(5.60f, -16.30f, 0.78f), FVector(0.50f, 0.36f, 0.06f));  // desk mat
-	AddBox(PropInstances, FVector(6.20f, -18.20f, 0.78f), FVector(0.22f, 0.30f, 0.30f));  // a mug-ish shape
+	// ---- fix-list items 10 and 11: the small things a house actually contains, on phase-2
+	// furniture. Every z is the counter's own row height plus half the prop, so the kettle's
+	// bottom lands ON the 0.92 counter top -- not inside it, not above it.
+	AddBox(PropInstances, FVector(2.90f, -16.82f, 1.05f), FVector(0.22f, 0.22f, 0.26f));  // kettle, north counter
+	AddBox(PropInstances, FVector(3.45f, -16.82f, 1.00f), FVector(0.28f, 0.18f, 0.16f));  // toaster
+	AddBox(PropInstances, FVector(4.05f, -16.82f, 0.98f), FVector(0.30f, 0.24f, 0.12f));  // bread bin
+	AddBox(PropInstances, FVector(3.70f, -14.95f, 0.98f), FVector(0.30f, 0.30f, 0.12f));  // fruit bowl, island
+	// THE COAT IS ON THE WALL BESIDE THE DOOR, and it used to be IN the doorway -- `DoorGap`
+	// is x -1..1 and the slice's coat at -0.80 spanned the whole opening, a pale slab hanging
+	// in the one hole in the house. Measured on a capture. Phase 2 keeps the lesson and the
+	// wall moves: the south face is now y -8.00, so the coat hangs at x -1.5, clear of the
+	// gap AND of the door switch at -1.85.
+	AddBox(CoatInstances, FVector(-1.50f, -8.05f, 1.75f), FVector(0.10f, 0.10f, 0.10f));  // coat hook
+	AddBox(CoatInstances, FVector(-1.50f, -8.11f, 1.28f), FVector(0.44f, 0.22f, 0.86f));  // coat
+	AddBox(PropInstances, FVector(-4.70f, -10.70f, 0.44f), FVector(0.26f, 0.20f, 0.04f)); // keys on the coffee table
+	AddBox(PropInstances, FVector(-4.45f, -10.85f, 0.43f), FVector(0.09f, 0.16f, 0.02f)); // phone
+	AddBox(PropInstances, FVector(-6.075f, -10.40f, 1.60f), FVector(0.05f, 0.90f, 0.68f)); // a picture, living room
+	AddBox(PropInstances, FVector(3.75f, -8.40f, 3.52f), FVector(0.50f, 0.36f, 0.06f));   // desk mat, office
+	AddBox(PropInstances, FVector(4.90f, -8.35f, 3.54f), FVector(0.09f, 0.09f, 0.10f));   // a mug-ish shape
 
 	// ---- the van. Its rectangle is the sim's, so the thing the intruders deliver to and
 	// the thing the player can see are the same object.
@@ -485,9 +625,13 @@ void AHIHouse::Build()
 	{
 		return;
 	}
-	WallInstances->ClearInstances();
-	FurnitureInstances->ClearInstances();
-	for (UInstancedStaticMeshComponent* Comp : { GroundInstance, FloorInstance, RoofInstance,
+	// EVERY component is cleared, including the slice's three structural ones -- the header
+	// promises Build() is idempotent, and a clear list that forgot Slabs/Stairs/Railings
+	// would double every slab on a second call. It is called once per game today; the
+	// promise is what keeps a second call site from being a bug.
+	for (UInstancedStaticMeshComponent* Comp : { WallInstances, FurnitureInstances,
+		SlabInstances, StairInstances, RailingInstances, WallBasementInstances,
+		GroundInstance, FloorInstance, BasementFloorInstances, RoofInstance, CeilingInstance,
 		TrimInstances, WindowInstances, GlassInstances, FittingInstances, PropInstances,
 		CoatInstances, DoorHeadInstances, VanInstances, VanDetailInstances })
 	{
@@ -497,104 +641,122 @@ void AHIHouse::Build()
 		}
 	}
 
-	// Solids() is walls followed by non-flat furniture, and SolidSpans() is index-aligned
-	// with it -- so the split is by count rather than by inspecting each rectangle, which
-	// is exactly why no rectangle can end up in the wrong bucket.
-	const TArray<FBox2D>& Solids = FHISim::Solids();
-	const TArray<FHISim::FHISolidSpan>& Spans = FHISim::SolidSpans();
-	const int32 WallCount = FHISim::Walls().Num();
-
-	// If the two ever fall out of step, index-aligned access is out of bounds. Better to
-	// build nothing than to build walls at the wrong heights.
-	if (Spans.Num() != Solids.Num())
-	{
-		return;
-	}
-
-	// The sim's own furniture labels and HEIGHTS, both index-aligned with `FurnitureRects`.
-	// The labels are carried only so a problem can name a row; the heights are what the
-	// drawing needs, and they come straight out of `sim.gd` rather than from anything
-	// invented here. `game.gd` draws with the same number: `_add_box(body, f["rect"], f["h"])`.
-	const TArray<FString>& AllLabels = FHISim::FurnitureLabels();
-	const TArray<float>& AllHeights = FHISim::FurnitureHeights();
-	const TArray<bool>& Flat = FHISim::FurnitureFlat();
-	if (AllHeights.Num() != AllLabels.Num() || Flat.Num() != AllLabels.Num())
-	{
-		return;
-	}
-
-	// The non-flat rows are the ones that appear in `Solids` after the walls, in the same
-	// order, so they can be indexed directly. Checked rather than assumed: a list out of step
-	// would give the sofa the fridge's height, which would look merely odd rather than wrong.
-	TArray<float> SolidHeights;
-	SolidHeights.Reserve(AllHeights.Num());
-	for (int32 Idx = 0; Idx < AllHeights.Num(); ++Idx)
-	{
-		if (!Flat[Idx])
-		{
-			SolidHeights.Add(AllHeights[Idx]);
-		}
-	}
-	if (SolidHeights.Num() != Solids.Num() - WallCount)
-	{
-		return;
-	}
-
-	// THE FORK'S SLICE: walls are drawn from WallRows(), not from the ground-floor
-	// projection. Each row carries its own Floor and optional TopZ, so the first-floor
-	// walls stand on FloorHeight(1) and the stringer board stops at its 2.70 header --
-	// the drawn house and the house that stops a bullet are the same house. The legacy
-	// Solids()/SolidSpans() pair stays the furniture's index alignment.
+	// ---- the walls, from WallRows(), with EXACTLY WorldSolids' span rule: a row starts
+	// at MinZ if it overrides (the door transom, sill 2.10) and at its floor otherwise,
+	// and it runs to TopZ if it overrides (the exterior, one span to the eaves) and to its
+	// storey top otherwise. The drawn house and the house that stops a bullet are the same
+	// house -- if this rule and the sim's ever diverge, that invariant is the first thing
+	// that breaks. Below-grade rows go to their own component: same collision, cinderblock
+	// paint (Richard's brief for the basement).
 	for (const FHISim::FHIWallRow& Row : FHISim::WallRows())
 	{
-		const float MinZ = FHISim::FloorHeight(Row.Floor);
-		const float MaxZ = Row.TopZ > 0.0f ? Row.TopZ : MinZ + FHISim::WallHeight;
-		WallInstances->AddInstance(BoxTransform(Row.Rect, MinZ, MaxZ), /*bWorldSpace=*/false);
-	}
-	for (int32 Idx = WallCount; Idx < Solids.Num(); ++Idx)
-	{
-		// THE HEIGHT IS THE ITEM'S OWN, not the sight model's. `SolidSpans` spans a full
-		// storey on purpose -- it answers "can he see past it", not "how tall is it" --
-		// and using it as geometry is what drew every couch, table and counter as a
-		// column from floor to ceiling. The mismatch that remains -- you cannot see over
-		// a sofa you can see the top of -- is Godot's too, because its `los_blocked` is
-		// 2-D and ignores `h`. That is fix-list item 18.
-		FurnitureInstances->AddInstance(
-			BoxTransform(Solids[Idx], Spans[Idx].MinZ, SolidHeights[Idx - WallCount]),
-			/*bWorldSpace=*/false);
+		const float MinZ = Row.MinZ > 0.0f ? Row.MinZ : FHISim::FloorHeight(Row.Floor);
+		const float MaxZ = Row.TopZ > 0.0f ? Row.TopZ
+			: (Row.Floor < 1 ? FHISim::FloorHeight(Row.Floor + 1) : FHISim::RoofTop);
+		UInstancedStaticMeshComponent* Target =
+			Row.Floor == -1 ? WallBasementInstances : WallInstances;
+		if (Target != nullptr)
+		{
+			Target->AddInstance(BoxTransform(Row.Rect, MinZ, MaxZ), /*bWorldSpace=*/false);
+		}
 	}
 
-	// ---- the slab, the railings and the treads, each from the sim's own lists.
-	for (const FHISim::FHISolid& S : FHISim::WorldSolids())
+	// ---- the furniture, ALL of it, each row on its own floor at its own height. The sim
+	// carries four index-aligned arrays (rects, heights, flat flags, floors) and the
+	// drawing reads them directly -- phase 2 replaced the slice's walk through Solids(),
+	// which was ground-floor-only by definition. The mismatch between a drawn sofa (its own
+	// 0.8 m) and the sight model's sofa (a full storey of span) stays exactly as inherited:
+	// you cannot see over a sofa you can see the top of. Godot's `los_blocked` is 2-D and
+	// ignores `h` too. That is fix-list item 18, deliberately not fixed here.
 	{
-		if (S.bDeck)
+		const TArray<FBox2D>& Rects = FHISim::FurnitureRects();
+		const TArray<float>& Heights = FHISim::FurnitureHeights();
+		const TArray<bool>& Flat = FHISim::FurnitureFlat();
+		const TArray<int32>& Floors = FHISim::FurnitureFloors();
+		if (Rects.Num() != Heights.Num() || Rects.Num() != Flat.Num()
+			|| Rects.Num() != Floors.Num() || FurnitureInstances == nullptr)
 		{
-			// The storey slab is the deck whose top IS the first floor. Both roof decks
-			// are decks too, and this span test skips them: they sit on wall tops and the
-			// roof component draws them.
-			if (S.Span.MinZ < FHISim::FloorHeight(1)
-				&& FMath::IsNearlyEqual(S.Span.MaxZ, FHISim::FloorHeight(1), 0.01f))
-			{
-				SlabInstances->AddInstance(BoxTransform(S.Rect, S.Span.MinZ, S.Span.MaxZ), /*bWorldSpace=*/false);
-			}
-			continue;
+			return;
 		}
-		// Railings: the floor-1, metre-tall class standing on the deck's top face -- the
-		// same test ResolveCircleZ's stair skip uses, so what a climber may pass and what
-		// is drawn cannot disagree.
-		if (S.Floor == 1 && FMath::IsNearlyEqual(S.Span.MinZ, FHISim::FloorHeight(1), 0.01f)
-			&& S.Span.MaxZ <= FHISim::FloorHeight(1) + 1.05f)
+		for (int32 Idx = 0; Idx < Rects.Num(); ++Idx)
 		{
-			RailingInstances->AddInstance(BoxTransform(S.Rect, S.Span.MinZ, S.Span.MaxZ), /*bWorldSpace=*/false);
+			const float Base = FHISim::FloorHeight(Floors[Idx]);
+			FurnitureInstances->AddInstance(
+				BoxTransform(Rects[Idx], Base, Base + Heights[Idx]), /*bWorldSpace=*/false);
 		}
 	}
-	// Treads: the sim walks the band's interpolated Z; the treads are the visible steps
-	// under it -- sixteen per flight (HOUSE-DESIGN.md section 3), each a 5 cm slab with
-	// OPEN risers, so the stairwell's sight tube stays honest: what the sim's exact span
-	// clipping says is visible through the hole is also visible past the drawn stair.
+
+	// ---- the structural tail of WorldSolids: the decks, the stairwell screen and the
+	// railings. WorldSolids is walls, then NON-FLAT furniture (all floors), then decks,
+	// then the screen and railings -- so the tail starts at a computed index and the
+	// split inside it is by the sim's own markers (bDeck, span height). Counted rather
+	// than trusted: phase 2's house is 32 wall rows, 43 non-flat furniture rows, 9 decks
+	// (4 ground + 4 slab + 1 roof) and 3 rail/screen solids, and a table that stops
+	// matching these numbers is an editing accident, not a redesign.
+	{
+		const TArray<FHISim::FHISolid>& WS = FHISim::WorldSolids();
+		int32 NonFlat = 0;
+		for (bool b : FHISim::FurnitureFlat())
+		{
+			NonFlat += b ? 0 : 1;
+		}
+		const int32 Tail = WS.Num() - (FHISim::WallRows().Num() + NonFlat);
+		if (Tail < 0)
+		{
+			return;
+		}
+		int32 Decks = 0;
+		for (int32 Idx = WS.Num() - Tail; Idx < WS.Num(); ++Idx)
+		{
+			const FHISim::FHISolid& S = WS[Idx];
+			if (S.bDeck)
+			{
+				// EVERY deck, the roof deck included: the sim says it stops a sightline,
+				// so the drawn box stops a pellet. The gable planes above it are decor.
+				++Decks;
+				if (SlabInstances != nullptr)
+				{
+					SlabInstances->AddInstance(
+						BoxTransform(S.Rect, S.Span.MinZ, S.Span.MaxZ), /*bWorldSpace=*/false);
+				}
+			}
+			else if (S.Span.MaxZ - S.Span.MinZ <= 1.05f + KINDA_SMALL_NUMBER)
+			{
+				// Railing class: the same metre-tall test ResolveCircleZ's stair skip and
+				// WalkBlocked's span overlap use, so what a climber may pass and what is
+				// drawn cannot disagree.
+				if (RailingInstances != nullptr)
+				{
+					RailingInstances->AddInstance(
+						BoxTransform(S.Rect, S.Span.MinZ, S.Span.MaxZ), /*bWorldSpace=*/false);
+				}
+			}
+			else if (WallInstances != nullptr)
+			{
+				// The stairwell screen: a full-height wall the sim's WorldSolids carries
+				// directly (it belongs to no storey's WallRows because it climbs 0..3.74
+				// across two), drawn with the walls it behaves like.
+				WallInstances->AddInstance(
+					BoxTransform(S.Rect, S.Span.MinZ, S.Span.MaxZ), /*bWorldSpace=*/false);
+			}
+		}
+		if (Decks != 9 || Tail != 12)
+		{
+			UE_LOG(LogTemp, Error,
+				TEXT("HI: WorldSolids tail is %d entries with %d decks, expected 12 and 9 -- structural tables changed without the builder"),
+				Tail, Decks);
+		}
+	}
+
+	// ---- the treads. The sim walks the band's interpolated Z; the treads are the visible
+	// steps under it, with OPEN risers, so the stairwell's sight tube stays honest: what
+	// the sim's exact span clipping says is visible through the hole is also visible past
+	// the drawn stair. Phase 2 has two flights with DIFFERENT riser counts -- the doc's
+	// own numbers: 15 risers of 0.183 on the ground run, 14 of 0.174 below grade -- and a
+	// hardcoded 16 (the slice's single flight) would have stretched both.
 	for (const FHISim::FHIStairBand& B : FHISim::Stairs())
 	{
-		const int32 Risers = 16;
+		const int32 Risers = B.FloorLow == -1 ? 14 : 15;
 		const bool bRunsY = FMath::Abs(B.Top.Y - B.Bottom.Y) >= FMath::Abs(B.Top.X - B.Bottom.X);
 		for (int32 I = 1; I <= Risers; ++I)
 		{
@@ -616,25 +778,11 @@ void AHIHouse::Build()
 				Plan = FBox2D(FVector2D(FMath::Min(X0, X1), B.Rect.Min.Y),
 					FVector2D(FMath::Max(X0, X1), B.Rect.Max.Y));
 			}
-			StairInstances->AddInstance(BoxTransform(Plan, TopZ - 0.05f, TopZ), /*bWorldSpace=*/false);
+			if (StairInstances != nullptr)
+			{
+				StairInstances->AddInstance(BoxTransform(Plan, TopZ - 0.05f, TopZ), /*bWorldSpace=*/false);
+			}
 		}
-	}
-
-	// ---- the RUGS, which had never been drawn at all.
-	//
-	// `Solids()` is walls plus NON-FLAT furniture on purpose -- a rug that blocks a man is
-	// absurd -- so a rug is not in the list above and was invisible. It is drawn here from
-	// `FurnitureRects` and its own `h` of 2 cm, so it comes from the sim's numbers rather
-	// than from a second hand-written copy.
-	for (int32 Idx = 0; Idx < AllLabels.Num(); ++Idx)
-	{
-		if (!Flat[Idx])
-		{
-			continue;
-		}
-		FurnitureInstances->AddInstance(
-			BoxTransform(FHISim::FurnitureRects()[Idx], 0.0f, AllHeights[Idx]),
-			/*bWorldSpace=*/false);
 	}
 
 	// Colours, applied once to each component's single material slot, so every instance of
@@ -652,6 +800,17 @@ void AHIHouse::Build()
 	{
 		UE_LOG(LogTemp, Warning, TEXT("HI: walls stay flat -- no M_HITextured or texture"));
 	}
+	// The basement: Richard's brief is CINDERBLOCK. The asset set has no cinderblock texture
+	// (see tools/make-assets.py), and inventing one is a change in the wrong place -- so it
+	// gets the exterior grey under a coarse plaster grain, which is what unpainted block
+	// reads as, and it does the job that matters down there: block is visibly not the
+	// cream plaster of the rooms above.
+	FHIMaterials::Tint(WallBasementInstances, FHIMaterials::WallExterior);
+	FHIMaterials::Textured(WallBasementInstances, TEXT("ceiling_plaster"), 14.0f);
+	// The basement slab wears the asset set's one tile floor -- a utility floor may be
+	// tiled where the storeys above are wood.
+	FHIMaterials::Tint(BasementFloorInstances, FHIMaterials::Floor);
+	FHIMaterials::Textured(BasementFloorInstances, TEXT("floor_tile"), 8.0f);
 	FHIMaterials::Tint(FloorInstance, FHIMaterials::Floor);
 	FHIMaterials::Textured(FloorInstance, TEXT("floor_wood"), 6.0f);
 	FHIMaterials::Tint(GroundInstance, FHIMaterials::Grass);
@@ -661,15 +820,15 @@ void AHIHouse::Build()
 	FHIMaterials::Tint(RoofInstance, FHIMaterials::WallExterior);
 	FHIMaterials::Textured(RoofInstance, TEXT("roof_shingle"), 8.0f);
 	FHIMaterials::Tint(FurnitureInstances, FHIMaterials::Wood);
-	// The slice's three: the slab is walked on upstairs, so it wears the floor's wood;
-	// treads are bare wood; railings match the trim.
+	// The decks: every deck in WorldSolids is drawn by SlabInstances now -- the ground
+	// deck, the storey slab AND the roof deck -- because the sim says each of them stops a
+	// bullet, and the invariant at the top of this header forbids a solid the sim knows
+	// about that the engine does not. The slab's walked face wears the floor's wood; its
+	// undersides are hidden by the ceiling panels; the roof deck hides under the gable.
 	FHIMaterials::Tint(SlabInstances, FHIMaterials::Floor);
 	FHIMaterials::Textured(SlabInstances, TEXT("floor_wood"), 6.0f);
 	FHIMaterials::Tint(StairInstances, FHIMaterials::Wood);
 	FHIMaterials::Tint(RailingInstances, FHIMaterials::Trim);
-	FHIMaterials::Tint(GroundInstance, FHIMaterials::Grass);
-	FHIMaterials::Tint(FloorInstance, FHIMaterials::Floor);
-	FHIMaterials::Tint(RoofInstance, FHIMaterials::WallExterior);
 	FHIMaterials::Tint(CeilingInstance, FHIMaterials::Ceiling);
 	FHIMaterials::Tint(TrimInstances, FHIMaterials::Trim);
 	FHIMaterials::Tint(WindowInstances, FHIMaterials::Trim);
@@ -694,13 +853,8 @@ void AHIHouse::Build()
 	FHIMaterials::Tint(CoatInstances, FHIMaterials::Coat);
 	FHIMaterials::Tint(FittingInstances, FHIMaterials::Trim);
 	FHIMaterials::Tint(PropInstances, FHIMaterials::Counter);
-	// The door head is WALL, not trim: it is a piece of wall that was missing, and a white
-	// lintel against a cream wall would read as a mistake rather than as masonry.
-	//
-	// AND IT NEEDS THE WALL'S TEXTURE, which the first textured capture made obvious: a flat
-	// 2 m panel of untextured masonry above a textured wall reads as a patch of missing paint
-	// from the front lawn. Its tiling is the wall's scaled by the ratio of their widths
-	// (2 m against the 16 m wall run), so the grain matches instead of merely approximating.
+	// The door surround is WALL, not trim: jambs and a head against a cream facade should
+	// still read as masonry-adjacent paint, not as a white outline where a door was cut.
 	FHIMaterials::Tint(DoorHeadInstances, FHIMaterials::Wall);
 	FHIMaterials::Textured(DoorHeadInstances, TEXT("ceiling_plaster"), 40.0f * (2.0f / 16.0f));
 	FHIMaterials::Tint(VanInstances, FHIMaterials::Van);
@@ -710,12 +864,20 @@ void AHIHouse::Build()
 
 	// WHAT WAS ACTUALLY BUILT, counted. The first render of this port showed what looked like
 	// a house but could equally have been one wall seen edge-on, and a screenshot cannot tell
-	// those apart. These counts can: 7 walls, 19 furniture solids, and every decorative
-	// component non-zero, or something in this function silently did not run.
+	// those apart. These counts can. Phase 2's numbers, all derivable from the sim's tables:
+	// walls=27 (26 above-grade rows + the stairwell screen), basement_walls=6 (4 exterior
+	// runs + 2 partitions), furniture=48, slabs=9 decks, stairs=29 treads (15 + 14),
+	// railings=2, ceiling=9 panels, roof=19 (2 slopes + ridge + 16 gable steps), trim=44
+	// (22 interior rows x skirting + rail), ground=4 lawn strips, floor=4 wood panels,
+	// basement_floor=1, door_head=3, coat=2. Every other component must simply be non-zero,
+	// or something in this function silently did not run.
 	UE_LOG(LogTemp, Display,
-		TEXT("HI: house built -- walls=%d furniture=%d ground=%d floor=%d roof=%d ceiling=%d trim=%d frames=%d glass=%d fittings=%d props=%d coat=%d door_head=%d van=%d van_detail=%d slabs=%d stairs=%d railings=%d"),
-		WallInstances->GetInstanceCount(), FurnitureInstances->GetInstanceCount(),
+		TEXT("HI: house built -- walls=%d basement_walls=%d furniture=%d ground=%d floor=%d basement_floor=%d roof=%d ceiling=%d trim=%d frames=%d glass=%d fittings=%d props=%d coat=%d door_head=%d van=%d van_detail=%d slabs=%d stairs=%d railings=%d"),
+		WallInstances->GetInstanceCount(),
+		WallBasementInstances->GetInstanceCount(),
+		FurnitureInstances->GetInstanceCount(),
 		GroundInstance->GetInstanceCount(), FloorInstance->GetInstanceCount(),
+		BasementFloorInstances->GetInstanceCount(),
 		RoofInstance->GetInstanceCount(), CeilingInstance->GetInstanceCount(),
 		TrimInstances->GetInstanceCount(),
 		WindowInstances->GetInstanceCount(), GlassInstances->GetInstanceCount(),

@@ -199,6 +199,36 @@ exist to catch.
   still isolates the question from the lethality one. Its report warns loudly that it
   says nothing about lethality.
 
+### The phase-2 soaks (2026-10-19) — the three-floor house, every round `ended=round`
+
+The v1 numbers above stay as history. The full house (HOUSE-DESIGN §8 is the as-built
+record), suite **51/51 green**, measured on the final build — zero assertions in any log:
+
+- **Trio, passive, damage withheld, ×3 rounds**: `LOST ended=round sim_seconds=117.9`
+  three times over — **bit-identical, 7076 sim steps every round** — `loot_delivered=3
+  loot_remaining=0`, all three intruders alive, `shots=0`, `player_hp=78`. That hp is
+  UNTOUCHED FULL health, not damage survived: the player's hp is literally `ThiefMaxHp`
+  (OPEN-QUESTIONS 11), and the withheld-wound switch plus a never-hit Louise keep it at
+  the cap. 117.9 s is comfortably inside the 180 s police horn — which never sounded:
+  **thief gunfire does not arm the alarm**, measured (OPEN-QUESTIONS 10).
+- **Solo — the phase-2 spec's single-thief variant — passive Louise camping the living
+  room, damage withheld**: `LOST ended=round sim_seconds=181.5 loot_delivered=3
+  loot_remaining=0 player_hp=78 shots=0`, and the sim-level probe matches to the tenth of
+  a second. This variant was **INCONCLUSIVE** earlier in the phase: a lone thief pinned
+  forever in the living doorway, 0/3 at budget, 126 shots at a homeowner he could not
+  finish. The pin was a routing-oracle trap (prepend ping-pong at body-radius-blocked
+  door edges), diagnosed and fixed in the walker — HOUSE-DESIGN §8.6 carries the full
+  measurement arc. He now shoves Louise aside (shoves stagger and push, never damage),
+  sweeps all three floors, and delivers the laptop at 181.5 s. The damage-live variant
+  measures too: her hp ends at **29** — eight shots, 49 damage, she survives — and the
+  sweep timing is bit-identical to the suppressed run.
+- **Driven ×3** (the aimbot, balance-silent): `WON` at **24.8 / 25.9 / 26.1 s**, three
+  intruders down each round, Louise hp 64/64/71 — real damage, 14/14/7 taken — on 12–13
+  shots per round.
+- **The police-clock ratification set** (OPEN-QUESTIONS 9): `PoliceTime` ships 180.0;
+  clean solo sweeps measure **175.0 s** (Louise parked on the lawn) and **181.5 s**
+  (camping the doorway). "Possible but not comfortable," to the second.
+
 ## How to actually PLAY it
 
 Everything above is a capture harness, and a capture harness is not a game you can hold. To

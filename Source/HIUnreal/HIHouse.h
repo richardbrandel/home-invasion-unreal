@@ -26,7 +26,8 @@
  * the player would be shot by a man aiming through what he thought was cover. Decoration is
  * allowed to be wrong about beauty; it is not allowed to be wrong about geometry.
  *
- * Instanced throughout: the sim describes 26 solids, and one draw call beats 26.
+ * Instanced throughout: phase 2's house is 32 wall rows, 48 furniture rows, 9 decks and
+ * three railing/screen solids, and one draw call per component beats ~90 boxes.
  */
 UCLASS()
 class HIUNREAL_API AHIHouse : public AActor
@@ -61,6 +62,15 @@ public:
 	TObjectPtr<class UInstancedStaticMeshComponent> RailingInstances;
 
 	/**
+	 * Phase 2: the below-grade walls. Richard's brief for the basement is an open area
+	 * with CINDERBLOCK walls, and cinderblock is not plaster -- so the Floor -1 rows of
+	 * WallRows() get their own colliding component with their own material. The split is
+	 * paint, not physics: the collision setup is WallInstances' exactly.
+	 */
+	UPROPERTY(VisibleAnywhere, Category = "Home Invasion")
+	TObjectPtr<class UInstancedStaticMeshComponent> WallBasementInstances;
+
+	/**
 	 * The lawn, over the sim's world bounds, DELIBERATELY WITHOUT COLLISION.
 	 *
 	 * It exists so the scene reads as a place rather than as bodies in a void -- nothing
@@ -79,6 +89,15 @@ public:
 	 */
 	UPROPERTY(VisibleAnywhere, Category = "Home Invasion")
 	TObjectPtr<class UInstancedStaticMeshComponent> FloorInstance;
+
+	/**
+	 * Phase 2: the basement's floor slab, top face 2 cm proud of `BasementZ` -- the same
+	 * proud convention as FloorInstance. It blocks corpses ONLY (PhysicsBody), exactly
+	 * like the floors above it: a body shot down there has to land on something, and the
+	 * lawn that catches everything else is 2.44 m over its head.
+	 */
+	UPROPERTY(VisibleAnywhere, Category = "Home Invasion")
+	TObjectPtr<class UInstancedStaticMeshComponent> BasementFloorInstances;
 
 	/**
 	 * The roof and its ceiling underside.
@@ -151,19 +170,19 @@ public:
 	TObjectPtr<class UInstancedStaticMeshComponent> CoatInstances;
 
 	/**
-	 * The head of the front doorway: the wall above the opening.
+	 * The door SURROUND of the front doorway: jambs and a head trim around the opening.
 	 *
-	 * `Walls()` splits the south wall into two runs either side of `DoorGap` -- a split in a
-	 * 2-D model, which can only be horizontal -- so the opening was a slot from the floor to
-	 * the ceiling and the front of the house had a 3 m letterbox in it. That is what you see
-	 * first, because the round starts facing it. The Godot original fills it in
-	 * `build_exterior` and says why: "Without this the doorway is a hole all the way to the
-	 * ceiling, which a 3 m wall makes glaring."
+	 * History: `Walls()` splits the south wall into two runs either side of `DoorGap` -- a
+	 * split in a 2-D model, which can only be horizontal -- so the opening was a slot from
+	 * the floor to the ceiling and the front of the house had a letterbox in it. Godot
+	 * filled the letterbox with a decoration, and the slice followed.
 	 *
-	 * A DECORATION, not a wall, and that is deliberate: in the original it is a plain
-	 * `MeshInstance3D` with no collision, so `Sim.WALLS` -- and every sight and collision
-	 * test in the sim -- is untouched. Making it solid would block shots the original lets
-	 * through the top of the doorway, which is a design change rather than a port fix.
+	 * PHASE 2 CHANGED THAT (an ADDITION, veto-able): with the facade now running to 5.33,
+	 * the letterbox became a 3.2 m invisible slot, and this file's own invariant forbids
+	 * decoration that lies about geometry -- a drawn wall a pellet flies through. So the
+	 * wall above the door head is now a real sim row (`WallRows()`, MinZ 2.10, excluded
+	 * from the 2-D projection), and what is left here is a door frame: jambs and a head
+	 * trim, decoration in front of real geometry rather than instead of it.
 	 */
 	UPROPERTY(VisibleAnywhere, Category = "Home Invasion")
 	TObjectPtr<class UInstancedStaticMeshComponent> DoorHeadInstances;
@@ -192,10 +211,11 @@ public:
 	/**
 	 * One wall-mounted fitting: a socket, a switch or the thermostat, in metres.
 	 *
-	 * Pure data rather than eight `AddBox` calls, because the eight calls were WRONG and no
-	 * amount of reading them would have said so: the switch "by the front door" sat inside
-	 * `DoorGap`, hanging in the opening with no wall behind it. `HI.Unreal.WallFittings`
-	 * asserts each of these is flush against a face of some rectangle in `FHISim::Walls()`.
+	 * Pure data rather than a scatter of `AddBox` calls, because the calls were WRONG once
+	 * already and no amount of reading them would have said so: the switch "by the front
+	 * door" sat inside `DoorGap`, hanging in the opening with no wall behind it.
+	 * `HI.Unreal.WallFittings` asserts each of these is flush against a face of some row
+	 * in `FHISim::WallRows()` -- phase 2 rewrote the table for the three-floor house.
 	 */
 	struct FFitting
 	{
@@ -228,8 +248,18 @@ private:
 	void AddBox(UInstancedStaticMeshComponent* Target, const FVector& Centre,
 		const FVector& SizeMeters, float YawDegrees = 0.0f);
 
-	/** One window in one wall. `Along` is the axis the wall runs down. */
-	void AddWindow(bool bAlongX, float Along, float WallCoord, float Facing, float Width);
+	/** One decorative box with a full rotation -- the gable roof's pitched planes. */
+	void AddBoxR(UInstancedStaticMeshComponent* Target, const FVector& Centre,
+		const FVector& SizeMeters, const FRotator& Rot);
+
+	/**
+	 * One window in one wall. `Along` is the axis the wall runs down. `FloorZ` lifts the
+	 * whole window onto an upper storey; `SillUp`/`HeadUp` are the sill and head heights
+	 * ABOVE that floor -- the defaults are the ground floor's ordinary window, and the
+	 * small high bathroom windows (§4.6: 0.6 m square at 1.4 m up) override both.
+	 */
+	void AddWindow(bool bAlongX, float Along, float WallCoord, float Facing, float Width,
+		float FloorZ = 0.0f, float SillUp = 0.95f, float HeadUp = 2.15f);
 
 	/** The roof, the floor, the trim, the windows, the fittings, the props and the van. */
 	void BuildDressing();

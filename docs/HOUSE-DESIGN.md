@@ -328,6 +328,11 @@ size; closet insets can trim them later without moving walls.
 
 ### 4.4 Navigation graph (v1, 24 nodes)
 
+**AS BUILT 2026-10-19: 26 nodes.** hallSouth, hallNorth and screenPass were added,
+stairHeadB moved to the stair's NORTH head (not stairFootG's plan point), and eight
+designed positions moved — every correction with its measured reason is in §8.1. The
+v1 list below stays as designed.
+
 Every node carries a floor. `NearestNode(pos, floor)` filters by floor — without that,
 the stacked stair nodes (one plan position, two/three floors) make Voronoi meaningless.
 
@@ -354,6 +359,11 @@ round. This is ~2.2× today's four rooms across two floor changes, so:
   The HUD clock is the round's whole tension budget; nine rooms over three floors cannot
   be searched in a 116 s round. 180 s keeps a full clear possible but not comfortable.
   This is the one balance number in the design that needs his eyes after a few rounds.
+  **As built 2026-10-19: the constant IS 180.0 and the measurement says "possible but
+  not comfortable" was right to the second** — clean solo sweeps finish at 175.0 s (probe,
+  homeowner parked on the lawn) and 181.5 s (probe AND game soak, homeowner alive and
+  camping the living room). Ratification is Richard's: OPEN-QUESTIONS item 9 carries the
+  full number set.
 
 ### 4.5 Loot (3 items, unchanged count, redistributed)
 
@@ -372,6 +382,15 @@ realistic: nobody keeps the good silver next to the furnace).
 
 - Louise spawns in the entry hall (0.3, −9.8, floor 0). Intruders fan on the driveway as
   today; the van and Drop do not move.
+  **AS BUILT 2026-10-19: Louise spawns at (−2.0, −10.6), floor 0, yaw 0.45 — INSIDE the
+  living room, 0.8 m from its doorway in the x −1.2 partition.** Richard's ruling, and the
+  code comment at the spawn (HISim.cpp) carries the full rationale: "Defender by position,
+  not by script." Measured consequences: the Drop sight line crosses the south wall at
+  x −1.64 (buried — no driveway snipe), her own sight line to the entry hall crosses the
+  partition at y −10.22, inside the 1.2 m doorway opening (y −11.2…−10.0), and she
+  commands the living-room approach by body presence — see §8.7 for what a lone thief
+  does about it. (OPEN-QUESTIONS 6.5's (−3, −15.5) is the v1-slice spawn, superseded
+  twice; §8.7 has the lineage.)
 - Window schedule per floor (ground: living picture south, master west + north, kitchen
   north + east, dining south + east; second: both bedrooms south/north as their walls
   allow, office south, small high bath windows 0.6 × 0.6 at h+1.4). Windows stay
@@ -387,6 +406,11 @@ realistic: nobody keeps the good silver next to the furnace).
 Basement stair (second stacked run, third floor state), falls and the basement-head
 railing, the full 24-node graph and its police-clock balance, per-floor minimap, window
 schedule, cinderblock material, dining/laundry/linen additions pending Richard's veto.
+
+**Status 2026-10-19: every item above is IMPLEMENTED and asserted by the 51-test suite**
+(§8 carries the as-built record; the graph grew to 26 nodes, §8.1). The police-clock
+balance is measured and waits on Richard's ratification (§4.4 note, OPEN-QUESTIONS 9).
+The furniture additions stand un-vetoed and are built as designed.
 
 ## 6. Deliberately out of scope (both phases)
 
@@ -408,3 +432,232 @@ climbing (Z visible against the hole edge), thief following, cross-floor sight t
 stairwell (he sees you at the hole, not through the slab — asserted in sim AND in a frame).
 Full house: same battery, plus the 3-loot/9-room soak under 180 s police, plus rounds×3.
 Every claim in the final report carries its measurement, per house style.
+
+**Results, 2026-10-19, final build** (every soak `ended=round` — a resolved game, not a
+budget expiry; zero assertions in any log):
+
+- **Suite: 51/51 green** (52/52 with the temporary solo diagnostic in, removed before
+  commit).
+- **Single-thief variant with the upstairs target** — this plan's specific ask: sim probe
+  S2, one thief, full three-floor sweep (TV f0, Safe f0, Laptop f1) in **175.0 s** with
+  the homeowner parked on the lawn; **181.5 s** with her alive and camping the living
+  room (§8.7). The game-mode solo soak matches the probe to the tenth: `loot_delivered=3
+  loot_remaining=0 sim_seconds=181.5`. Before the §8.6 hysteresis fix this variant was
+  INCONCLUSIVE — 0/3 at budget, two doorway traps deep.
+- **3-loot/9-room soak, ×3 rounds, under the 180 s police**: **3 × 117.9 s**,
+  bit-identical (7076 sim steps every round), all three thieves alive, `shots=0` — the
+  police never armed because thief gunfire does not arm them (OPEN-QUESTIONS 10), which
+  is the one soft spot in "under 180 s police" and Richard's to rule on.
+- **Driven battery ×3** (the aimbot, balance-silent): WON at **24.8 / 25.9 / 26.1 s**,
+  three intruders down each round, Louise hp 64/64/71.
+- **Cross-floor sight through the stairwell**: asserted in sim by the suite's floor/sight
+  pins (green). The frame half of the battery ("AND in a frame") was captured 2026-10-19:
+  `shots/xssight_01..03.png` (player chair (0.5, −12.5), yaw 220, pitch 25) and
+  `shots/xs2_01..03.png` ((0.1, −12.9), yaw 212, pitch 30), trio round at sim seconds
+  45/60/75 via `-HIShotSeries`, `-HINoThiefDamage` — reproducible with the README
+  switches; `shots/` is gitignored by repo rule. The frames pass the not-blank sanity
+  check (1280×720, real scene content); the LOOKED-at-by-a-human step is Richard's, per
+  the house capture workflow.
+- **PoliceTime**: 180.0 as shipped; the numbers above are the ratification set
+  (OPEN-QUESTIONS 9).
+
+---
+
+## 8. Phase 2 as built (2026-10-19)
+
+§3 recorded every number the v1 slice corrected. This section is the same record for the
+full house: the graph as it actually stands, the walker mechanisms the build forced, and
+the measurements that decided each one. Design intent lives in §4–§5; where this section
+disagrees with them, this section is what the code does.
+
+### 8.1 The graph: 26 nodes, not 24
+
+Additions (all with measured reasons):
+
+- **hallSouth (0.9, −12.9) f0** — the hall between kitchen doorway and stair foot. Without
+  it the south hall is one 5 m jump and a thief stood in it is a *statue* (nearest-node
+  routing has nowhere to walk him that does not cross furniture). Mode-3 doctrine: halls
+  exist because standing in them must be legal.
+- **hallNorth (0.4, −15.9) f0** — the north hall past the screen. Added, then its use as a
+  search-loiter alternative was **rejected by measurement**: probe scenario F (a thief
+  loitering there instead of the route design intended) delivered 1/3 in 400 s with 33
+  reroutes. The node stays (connectivity), the alternative was not taken.
+- **screenPass (−0.7, −15.8) f0, ADDITION 2026-10-18, veto-able** — the walk around the
+  stairwell screen's north end. hallNorth↔screenPass↔stairHeadB. It exists because the
+  hallNorth→stairHeadB edge passed 0.104 m from the screen's NW corner — inside the 0.42 m
+  body — while every radius-0 probe stayed green. Fixed in DATA, per the house rule that
+  geometry problems get geometry answers.
+
+Corrections and moves (design → as built, with the margin that decided it):
+
+| node | design | as built | why |
+|---|---|---|---|
+| stairHeadB | (−0.7, −11.35), same plan as stairFootG | **(−0.7, −14.6)**, the stair's NORTH head | the design point put the basement edge's head at the foot; the run starts in the wrong room and separation drags thieves across the flight |
+| stairTopG | (−0.7, −14.8) | **(−0.7, −15.5)** | the upHallN walking line cleared the slab-hole corner by 0.086 m at −14.8 |
+| baseOpen | (−3.0, −12.6) | **(−3.8, −11.8)** | furniture-envelope margin 0.025 → 0.345 m (moved 0.40 north) |
+| baseDoor | — (not in design) | **(3.5, −12.7) f−1** | the mech-room doorway; envelope margin 0.137 m |
+| living | (−3.6, −10.5) | (−3.2, −10.8) | off the console/TV envelope and the Louise spawn lane |
+| dining | (4.0, −10.0) | (5.0, −9.0) | room centre after the table moved |
+| kitchen | (4.0, −14.6) | (4.6, −13.9) | off the counter envelope |
+| master | (−3.6, −14.2) | (−3.4, −14.1) | off the bed envelope (the Safe's grab side) |
+| masterBath | (−2.5, −16.0) | (−2.6, −15.7) | inside the room as built |
+| br2 | (−3.6, −10.2) | (−3.4, −10.2) | off the bed envelope |
+| linen | (2.8, −14.5) | (3.0, −14.05) | upHallN↔linen line clearance 0.323 m |
+
+Full table as built (verified against `NodePositions()`/`NodeFloors()`, 14/4/8 by floor):
+
+- **f0:** van (0, 5), doorOut (0, −5), doorIn (0, −8.6), entryHall (0.3, −9.5),
+  living (−3.2, −10.8), dining (5.0, −9.0), kitchen (4.6, −13.9), hallSouth (0.9, −12.9),
+  hallNorth (0.4, −15.9), master (−3.4, −14.1), masterBath (−2.6, −15.7),
+  stairFootG (−0.7, −11.35), stairHeadB (−0.7, −14.6), screenPass (−0.7, −15.8)
+- **f−1:** stairFootB (−0.7, −11.35), baseOpen (−3.8, −11.8), baseDoor (3.5, −12.7),
+  utility (4.5, −15.0)
+- **f1:** stairTopG (−0.7, −15.5), upHallN (0.5, −15.6), upHall (0.4, −11.5),
+  br2 (−3.4, −10.2), br3 (−3.6, −14.8), bath2 (4.8, −15.0), office (4.0, −10.5),
+  linen (3.0, −14.05)
+
+### 8.2 Structure: decks, holes, railings
+
+- Ground deck [−0.15, 0], hole x −1.25…−0.15, y −11.05…−14.80. Second-floor slab
+  [2.59, 2.74], hole x −1.25…−0.15, y −15.03…−12.20. Roof [5.18, 5.33].
+- The stairwell **screen** is one solid: x −0.20…−0.15, y −15.03…−12.20, span [0, 3.74],
+  tagged floor 0. Its top metre IS the second floor's east-lip railing — a deliberate
+  lie in the floor tag that the physics honours and floor-filtered queries cannot see
+  (§8.3).
+- Railings, three-piece: the f0 low railing (span [0, 1.0], y −12.20…−11.05) around the
+  basement head; the f1 slab-hole south lip (span [2.74, 3.79], same y) — open above
+  3.79 so a standing body on f1 has the cross-floor sight line §7 asks for; and the
+  screen above.
+- Flights G and B share the plan footprint x −1.20…−0.20: G runs (−0.70, −11.10) h 0 →
+  (−0.70, −15.03) h 2.74; B descends from the same head to the basement. The x −1.2
+  partition's living-room doorway measures y −11.2…−10.0 (1.2 m).
+
+### 8.3 WalkBlockedBody — the routing oracle's twin, and why floor tags lie
+
+`WalkBlocked` stays radius-0 by pinned contract (edge validation and NearestClearNode
+speak line clearance). The prepend guard needs a different question — *can the 0.84 m
+body sweep this leg* — so `WalkBlockedBody` (file-local, HISim.cpp) inflates by
+`ThiefRadius` and gates solids by SPAN OVERLAP ONLY, mirroring `ResolveCircleZ`, with
+**no floor-tag filter**. Measured why: the searcher pinned at (0.27, −14.85) f1 was held
+by the screen — tagged floor 0 — whose top metre is the f1 east-lip railing.
+`WalkBlocked` at floor 1 cannot see the solid that the physics can and does. The lesson
+this project keeps relearning, wearing a new face: radius-0 clearance is not body-radius
+walkability.
+
+### 8.4 The walker: corner-rounding commitment (runs 15–21 arc)
+
+Head-on contact with a wall used to mean standing (tangential projection under the 0.0025
+deadzone): the f1 rim pin measured 220 windowed reroutes in 400 s with the laptop
+undelivered while every probe stayed green. The fix is a **commitment**, and its lifetime
+rules are measured, not styled — do not simplify them without re-running the battery:
+
+- Side is chosen ONCE, on the first deadzone frame, from the waypoint's side; `CornerDir`
+  is FROZEN at pick time (run 19: recomputing Perp from the live push normal rotates
+  toward the face inside a corner's push-out and the commitment flipped at both ends — a
+  full-pace 2.8 m shuttle, stuck=0.00, E/F0 dead at 400 s).
+- Every contact frame steps along it, INCLUDING frames where the projection becomes
+  tangential again (run 17: without the commitment the two branches fight into a harmonic
+  orbit about br3's y, ±0.19 m, ~196 reroutes in 400 s, zero net travel).
+- Probes run 5 cm off the face (at push-out equilibrium the centre sits exactly ON the
+  inflated boundary and SegRect is inclusive).
+- A walled-ahead/open-behind probe pair flips side AND direction; both-walled stands
+  (a real pocket — the windowed detector owns it).
+- The commitment survives free frames (run 18: clearing on the corner's one push-less
+  frame let the tangential branch march him back up the face), and ends at waypoint
+  change or 3 s staleness (~3.9 m of stepping, longer than any face in the house).
+- The windowed stuck detector is EXEMPT while the commitment is live (F0: 220 reroutes
+  without the exemption).
+
+### 8.5 Search and hunt state
+
+- **Search commits** to its target room until searched; the standing override fires at
+  the room node's POP RADIUS (0.6 m), not SearchRange — attribution corrected 2026-10-18:
+  three override parameter sets produced byte-identical probe runs (22–24), proving the
+  override inert in the stalls it was blamed for. The mark itself fires at SearchRange
+  1.2 m + floor match ("plan proximity is not presence").
+- **HuntRouteKey v3** (2026-10-18) keeps an at-home item on its birth node when the
+  trimmed line (GrabRange − 0.15) from node to item is body-clear, and re-keys to
+  `NearestClearNode` otherwise. v1 (distance rule) and v2 (whole-line rule) are recorded
+  wrong guesses in the function's comment: ITEMS LIVE ON FURNITURE, so the untrimmed
+  living→TV line ends inside the console solid and SegRect's inclusive end test re-keyed
+  the TV to "master" — wrong side of a wall — for 330 s and 85 reroutes (run 23). v3
+  restored run-21 byte-identity across all eight probe scenarios (run 25).
+- **Hunt self-heal**: an empty route mid-hunt rebuilds it (the Shove office round trip
+  measured the stall). **PPos re-sync** after a shove clobber (2026-10-18): the walk's
+  occupied-waypoint rule reads the player position sampled at step start.
+
+### 8.6 Prepend hysteresis — the doorway ping-pong (2026-10-19)
+
+The last walker fix of the phase, and the one the final soak battery forced out.
+
+**Measurement first (SoloProbe S3 dump): 10 of the 33 flat nav edges are blocked at body
+radius, node-to-node** (all ten clear at radius 0 — the pins are honest, the doors are
+just narrow): entryHall→living, entryHall→stairFootG, master→stairHeadB,
+master→masterBath (f0); baseOpen→baseDoor, baseDoor→utility (f−1); upHallN→br3,
+upHallN→linen, upHall→br2, bath2→office (f1). Doors are 0.9–1.2 m, the body is 0.84 m:
+the effective gap is 0.06–0.36 m and a node-to-node line crosses it off-centre. Physical
+traversal still works — the corner slide centres the body in the gap — but the ROUTING
+ORACLE says blocked, and that drove a trap:
+
+blocked leg → prepend guard adds the From node → walker pops it up to 0.6 m short →
+re-aim is still jamb-blocked → guard prepends the same node again. Each flip changes
+Route[0], which resets WpT and clears the corner commitment — so neither the slide nor
+the orbit breaker ever finishes. Two rounds measured it: the br2 door (control probe S2:
+112+ s of route=3↔4 with the Laptop never even known, at 240 s) and the living doorway
+(probe S: 170 s oscillating in a 0.4 m band, stuck=0.00 throughout).
+
+The first hysteresis cut (2.0 s) fixed S2 and NOT S, and the instrumented rerun showed
+why — S's pin is a **three-way race**: SteerAround's orbit deflection (Louise stands on
+the living line) aims him north into the jamb while WpT < 2.5; the tangential slide
+returns him south; net motion ~0 (yaw 2.93, corner=0 in every sample — a tangential
+branch, never the deadzone); and the 1.2 s windowed reroute therefore fires BEFORE the
+2.5 s orbit break, at LastPoppedAgo ~2.3–3.0 — past a 2 s window, so the prepend went
+through. **The window is 8.0 s**: orbit break (2.5) + slide through the door (~1) with
+margin. Scope stays narrow — only re-prepending the From node he JUST popped is
+suppressed; the screen-face storm the prepend was written for is unaffected (its pin
+forms on a different From, and even suppressed, the documented slide-out covers it).
+
+Results, same build: S2 = 3/3 delivered at **175.0 s**; S = 3/3 at **181.5 s** with
+Louise alive and camping; the game-mode solo soak resolves (§7 results) where it was
+INCONCLUSIVE before; suite 52/52 with the probe in, 51/51 after its removal.
+
+### 8.7 Louise's spawn as built, and what a lone thief does about it
+
+The spawn is (−2.0, −10.6) f0, yaw 0.45 — the §4.6 note carries Richard's ruling and the
+lineage (design (0.3, −9.8); v1 slice (−3, −15.5); as built here). Lineage matters
+because OPEN-QUESTIONS 6.5's spawn-kill-zone measurements were all taken at the v1
+point.
+
+Measured behaviour of the as-built spawn against a passive lone thief (SoloProbe S, then
+the game soak with `-HINoThiefDamage`): he walks to the living doorway, she is in it,
+ThiefShove staggers and pushes her 0.54 m west (no damage — shoves never damage), he
+rounds the door, marks the room, takes the TV, and runs the full sweep — **3/3 delivered
+at 181.5 s, eight shots fired at her along the way, her hp untouched under the
+diagnostic**. The damage-live variant was measured too: **hp 78 → 29** (49 damage from
+those eight shots, she survives) and the sweep timing bit-identical — 181.5 s, 10890 sim
+steps — being shot at does not change his path. Her defence of the doorway costs him
+~50 s against the lawn-control's 175.0 s and does not stop him. She is terrain, and
+terrain slows without a weapon in her hands — the round only becomes a fight when the
+player (or the autopilot) shoots back.
+Design question for Richard, reported not patched: OPEN-QUESTIONS item 13.
+
+Also measured here, and since the 2026-10-15 fork pure design questions rather than
+parity debts (OPEN-QUESTIONS items 10 and 11): **thief shots do not arm the police
+clock** — `Alarm` stayed −1.0 through all eight shots (and 126 in the pinned variant);
+only the player's first shot or [P] arms it. And **the player's hp IS `ThiefMaxHp` = 78**
+(CreatePlayer): the passive soaks' "hp=78" is untouched full health, not damage.
+
+### 8.8 Recorded, not fixed
+
+- **The screen/B-band funnel**: the stairwell screen plus the B flight make a pocket at
+  the north head where a fleeing thief can shuttle. It has never lost a round in any
+  measured battery; the prepend-guard doorway ping-pong family (run 24's B2 stall-1 at
+  this same br2 door) is now mitigated by hysteresis but the class — a conservative
+  oracle against 0.84 m bodies in 0.9 m doors — remains. The data-level answer, if
+  Richard ever wants it, is wider doorways or door-centre waypoints; both change the
+  house, so neither was taken unilaterally.
+- **br2's south side is a dead end**: the y −12.4 partition is solid (no door), so a
+  corner commitment picking SOUTH at the br2 doorway slides into a pocket. It does not
+  trap (staleness + hysteresis let the north pick eventually win — S2 measured), but the
+  asymmetry is real and recorded.
+- Furniture-height sight, fall damage, TV-through-the-stair-well: §6, unchanged.
