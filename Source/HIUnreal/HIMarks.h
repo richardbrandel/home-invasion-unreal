@@ -16,9 +16,9 @@
  * landed, and a dead man leaves one where he fell. That is the part that makes a firefight
  * legible after the fact: without it, a fight in a room leaves the room exactly as it was.
  *
- * A flattened box rather than a decal, because a decal material is a .uasset and this
- * project has no editor session. It is a few millimetres thick and dropped 3 mm through the
- * surface it sits on, so it cannot z-fight with the thing it marks.
+ * A flattened disc (a cylinder squashed thin) rather than a decal, because a decal material
+ * is a .uasset and this project has no editor session. It is a few millimetres thick and
+ * dropped 3 mm through the surface it sits on, so it cannot z-fight with the thing it marks.
  */
 UCLASS()
 class HIUNREAL_API AHIMark : public AActor

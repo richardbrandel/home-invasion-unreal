@@ -26,7 +26,11 @@ AHIMark::AHIMark()
 	// The mark pool owns hiding (SetActorHiddenInGame(true) at spawn); the component keeps
 	// its default bVisible=true, and the first Stamp shows it.
 
-	if (UStaticMesh* Mesh = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cube.Cube")))
+	// A cylinder, not a cube (2026-10-19): a bullet hole is ROUND. The cube produced a
+	// square slab; the engine's cylinder is 1 m across, so the same Stamp scale yields a
+	// disc of that diameter. A tracer becomes a round rod instead of a square one, and a
+	// blood pool reads as a pool instead of a tile.
+	if (UStaticMesh* Mesh = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cylinder.Cylinder")))
 	{
 		Quad->SetStaticMesh(Mesh);
 	}
@@ -61,10 +65,10 @@ void AHIMark::Stamp(const FVector& Where, const FVector& Normal, float SizeMeter
 		return;
 	}
 
-	// The cube is one metre at unit scale, so a millimetre-thick slab is 0.001 across its
-	// depth and SizeMeters across the face. Lying flat in the plane the normal implies means
-	// turning the slab's own Z onto the normal -- which is what this comment always SAID and
-	// what the code did not do. See `SlabRotation`.
+	// The cylinder is one metre in diameter and one metre tall at unit scale, so scaling
+	// X and Y by SizeMeters gives a disc of that diameter and Z by Thickness gives its
+	// depth. Lying flat in the plane the normal implies means turning the disc's own Z
+	// onto the normal. See `SlabRotation`.
 	const float Thickness = 0.004f;
 	SetActorScale3D(FVector(SizeMeters, SizeMeters, Thickness));
 
@@ -98,10 +102,11 @@ void AHIMark::StampLine(const FVector& From, const FVector& To, float ThicknessM
 		return;
 	}
 
-	// The cube's own X is its length, so the scale carries the span and the rotation aims
-	// it. Scaled in METRES because the engine's cube is one metre at unit scale.
-	SetActorScale3D(FVector(Length / HI_METERS_TO_UU, ThicknessMeters, ThicknessMeters));
-	SetActorRotation(Delta.Rotation());
+	// The cylinder's own Z is its length, so the span goes on Z and the rotation points that
+	// Z along the segment; X/Y carry the (now round) cross-section. Scaled in METRES because
+	// the engine's cylinder is one metre at unit scale.
+	SetActorScale3D(FVector(ThicknessMeters, ThicknessMeters, Length / HI_METERS_TO_UU));
+	SetActorRotation(FRotationMatrix::MakeFromZ(Delta.GetSafeNormal()).Rotator());
 	SetActorLocation(From + Delta * 0.5f);
 
 	if (!Tinted.Equals(Colour, 0.001f))

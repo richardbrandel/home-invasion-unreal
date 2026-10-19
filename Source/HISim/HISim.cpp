@@ -59,7 +59,9 @@ FHISim::FHIWeapon FHISim::Weapon(const FString& Key)
 		W.Mag = 6;
 		W.Reload = 1.60f;
 		W.Pellets = 9;
-		W.Spread = 0.15f;   // radians
+		// 0.15 -> 0.1125, ~25% tighter (Richard, 2026-10-19): "the shotgun spread is a little
+		// bit wide, bring it in by about 25%."
+		W.Spread = 0.1125f;   // radians
 		return W;
 	}
 	// Unknown key: Godot would raise on WEAPONS[w] and crash. Returning a zeroed weapon

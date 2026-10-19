@@ -2005,6 +2005,15 @@ bool FHISimRound::RunTest(const FString& Parameters)
 		TestEqual(TEXT("and exactly one shot event is raised per trigger pull"), ShotEvents, 1);
 	}
 
+	// ---- the shotgun is buckshot, at the spread Richard tightened (2026-10-19)
+	{
+		const FHISim::FHIWeapon Shotgun = FHISim::Weapon(TEXT("shotgun"));
+		TestTrue(FString::Printf(TEXT("the shotgun fires nine pellets (got %d)"), Shotgun.Pellets),
+			Shotgun.Pellets == 9);
+		TestTrue(FString::Printf(TEXT("with the tightened spread (%.4f rad)"), Shotgun.Spread),
+			FMath::IsNearlyEqual(Shotgun.Spread, 0.1125f, 1e-6f));
+	}
+
 	// ---- the round is NOT won until the LAST intruder is down
 	{
 		FHISim::FHIRound W = FHISim::FHIRound::Start(3);
