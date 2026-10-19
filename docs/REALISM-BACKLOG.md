@@ -81,6 +81,14 @@ recommendation: keep the yard walkable-and-visible as it is now, make landscapin
 low (hedge under eye height 1.62 does not block sight anyway — the span rule
 already handles that once heights are honest, see item 5).
 
+`[2026-10-19 status]` — **procedurally built, first pass.** A street now runs under the
+van, with a sidewalk and a driveway to the front door, three neighbor shells across the
+street (plaster box + roof), two parked cars, three trees, a street light and a mailbox.
+All decor, so the sim's Bounds and collision are untouched. Remaining from the list
+above: real street lighting (the street light is a shape, not a light source), hedges/
+shrubs at the foundation, and a distant treeline/backdrop. Positions are a first pass
+for Richard's eye.
+
 ### 3. "The van is just a box"
 
 Measured from the sim constants (2026-10-15): the van is the rect

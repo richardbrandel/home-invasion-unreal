@@ -92,6 +92,16 @@ public:
 	UPROPERTY(VisibleAnywhere, Category = "Home Invasion")
 	TObjectPtr<class UInstancedStaticMeshComponent> FurnitureWoodDecorInstances;
 
+	/** Phase-2 realism scenery (2026-10-19): the street, sidewalk and driveway (one grey
+	 *  material), the neighbor house shells, and the tree canopies. All decor -- the play
+	 *  area is unchanged, so none of this may collide. */
+	UPROPERTY(VisibleAnywhere, Category = "Home Invasion")
+	TObjectPtr<class UInstancedStaticMeshComponent> StreetInstances;
+	UPROPERTY(VisibleAnywhere, Category = "Home Invasion")
+	TObjectPtr<class UInstancedStaticMeshComponent> NeighborInstances;
+	UPROPERTY(VisibleAnywhere, Category = "Home Invasion")
+	TObjectPtr<class UInstancedStaticMeshComponent> TreeInstances;
+
 	/**
 	 * The lawn, over the sim's world bounds, DELIBERATELY WITHOUT COLLISION.
 	 *
@@ -276,6 +286,9 @@ private:
 
 	/** Compose one furniture row into a colliding body plus decor detail, by its label. */
 	void BuildFurniture(const FString& Label, const FBox2D& Rect, float Base, float Height);
+
+	/** The street, sidewalk, driveway, neighbor shells, cars, trees and a street light. */
+	void BuildNeighborhood();
 
 	/**
 	 * One window in one wall. `Along` is the axis the wall runs down. `FloorZ` lifts the

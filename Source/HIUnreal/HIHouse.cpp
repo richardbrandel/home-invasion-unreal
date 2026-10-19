@@ -164,6 +164,9 @@ AHIHouse::AHIHouse()
 	FurnitureApplianceDecorInstances = MakeDecor(TEXT("FurnitureApplianceDecor"), Cube, WallInstances);
 	FurnitureDarkDecorInstances = MakeDecor(TEXT("FurnitureDarkDecor"), Cube, WallInstances);
 	FurnitureWoodDecorInstances = MakeDecor(TEXT("FurnitureWoodDecor"), Cube, WallInstances);
+	StreetInstances = MakeDecor(TEXT("Street"), Cube, WallInstances);
+	NeighborInstances = MakeDecor(TEXT("Neighbors"), Cube, WallInstances);
+	TreeInstances = MakeDecor(TEXT("Trees"), Cube, WallInstances);
 
 	// ---- everything below is decoration, and none of it collides. See the header.
 	GroundInstance = MakeDecor(TEXT("Ground"), Cube, WallInstances);
@@ -629,6 +632,79 @@ void AHIHouse::BuildDressing()
 	}
 }
 
+void AHIHouse::BuildNeighborhood()
+{
+	// Realism item 2, "the outside doesn't look like a neighborhood" (2026-10-19): a street
+	// under the van, a sidewalk, a driveway to the front door, three neighbor shells, two
+	// parked cars, three trees, a street light and a mailbox. Everything is DECOR laid proud
+	// of the lawn, so the sim's Bounds and the collision invariant are untouched. Positions
+	// and proportions are a first pass for Richard's eye; the shapes read as their type.
+	{
+		const float SZ = 0.02f;   // proud of the lawn, no z-fight
+		auto Strip = [&](float X1, float X2, float Y1, float Y2)
+		{
+			AddBox(StreetInstances, FVector((X1 + X2) * 0.5f, (Y1 + Y2) * 0.5f, 0.01f),
+				FVector(X2 - X1, Y2 - Y1, SZ));
+		};
+		Strip(-45.0f, 45.0f, 6.6f, 10.0f);    // the street, containing the van (y 7..9.4)
+		Strip(-45.0f, 45.0f, 5.4f, 6.6f);     // its south sidewalk
+		Strip(-1.6f, 1.6f, -7.75f, 6.6f);     // the driveway to the front door
+	}
+
+	// Neighbor shells: a plaster box under a flat overhanging roof and a central ridge. They
+	// are shells -- nobody enters them, so no doors or windows, and a flat roof over a box
+	// reads as "a house down the street" from the lawn.
+	{
+		const float WallH = 4.6f;
+		auto House = [&](float CX, float CY, float W, float D)
+		{
+			AddBox(NeighborInstances, FVector(CX, CY, WallH * 0.5f), FVector(W, D, WallH));
+			AddBox(RoofInstance, FVector(CX, CY, WallH + 0.15f), FVector(W + 0.6f, D + 0.6f, 0.3f));
+			AddBox(RoofInstance, FVector(CX, CY, WallH + 0.5f), FVector(W + 0.2f, D * 0.4f, 0.5f));
+		};
+		House(-12.0f, 16.0f, 9.0f, 7.0f);
+		House(12.0f, 16.0f, 9.0f, 7.0f);
+		House(0.0f, 22.0f, 10.0f, 7.0f);
+	}
+
+	// Two parked cars on the street, one each side of the driveway, facing down the road.
+	{
+		auto Car = [&](float CX, float CY)
+		{
+			AddBox(VanInstances, FVector(CX, CY, 0.55f), FVector(4.2f, 1.8f, 0.55f));       // body
+			AddBox(VanInstances, FVector(CX, CY, 1.0f), FVector(2.2f, 1.6f, 0.35f));        // cabin
+			for (float SX : { -1.4f, 1.4f })
+			{
+				for (float SY : { -0.7f, 0.7f })
+				{
+					AddBox(VanDetailInstances, FVector(CX + SX, CY + SY, 0.3f),
+						FVector(0.24f, 0.6f, 0.6f));
+				}
+			}
+		};
+		Car(-5.5f, 8.3f);
+		Car(5.5f, 8.3f);
+	}
+
+	// Trees on the lawn beside the driveway: a dark trunk under two stacked green boxes.
+	{
+		auto Tree = [&](float CX, float CY, float Scale)
+		{
+			AddBox(VanDetailInstances, FVector(CX, CY, 1.3f * Scale), FVector(0.3f, 0.3f, 2.6f * Scale));
+			AddBox(TreeInstances, FVector(CX, CY, (2.6f + 1.1f) * Scale), FVector(2.6f * Scale, 2.6f * Scale, 2.2f * Scale));
+			AddBox(TreeInstances, FVector(CX, CY, (2.6f + 2.1f) * Scale), FVector(1.8f * Scale, 1.8f * Scale, 1.6f * Scale));
+		};
+		Tree(-4.5f, 3.5f, 1.0f);
+		Tree(4.5f, 3.5f, 0.85f);
+		Tree(-9.0f, 12.5f, 1.15f);
+	}
+
+	// A street light at the kerb and a mailbox by the front path.
+	AddBox(VanDetailInstances, FVector(2.6f, 5.9f, 2.6f), FVector(0.14f, 0.14f, 5.2f));
+	AddBox(GlassInstances, FVector(2.6f, 5.9f, 5.2f), FVector(0.5f, 0.5f, 0.2f));
+	AddBox(VanInstances, FVector(1.7f, -6.9f, 0.5f), FVector(0.3f, 0.5f, 1.0f));
+}
+
 void AHIHouse::BuildFurniture(const FString& Label, const FBox2D& Rect, float Base, float Height)
 {
 	// Compose one furniture row into a recognisable silhouette (2026-10-19). The BODY is the
@@ -786,6 +862,7 @@ void AHIHouse::Build()
 		FurnitureSoftInstances, FurnitureApplianceInstances, FurnitureDarkInstances,
 		FurnitureSoftDecorInstances, FurnitureApplianceDecorInstances, FurnitureDarkDecorInstances,
 		FurnitureWoodDecorInstances,
+		StreetInstances, NeighborInstances, TreeInstances,
 		GroundInstance, FloorInstance, BasementFloorInstances, RoofInstance, CeilingInstance,
 		TrimInstances, WindowInstances, GlassInstances, FittingInstances, PropInstances,
 		CoatInstances, DoorHeadInstances, VanInstances, VanDetailInstances })
@@ -996,6 +1073,12 @@ void AHIHouse::Build()
 	FHIMaterials::Tint(FurnitureDarkInstances, FHIMaterials::Tyre);
 	FHIMaterials::Tint(FurnitureDarkDecorInstances, FHIMaterials::Tyre);
 	FHIMaterials::Tint(FurnitureWoodDecorInstances, FHIMaterials::Wood);
+	// The neighborhood scenery (2026-10-19): grey street/sidewalk/driveway, plaster neighbor
+	// shells, green tree canopies.
+	FHIMaterials::Tint(StreetInstances, FHIMaterials::Path);
+	FHIMaterials::Tint(NeighborInstances, FHIMaterials::WallExterior);
+	FHIMaterials::Textured(NeighborInstances, TEXT("ceiling_plaster"), 20.0f);
+	FHIMaterials::Tint(TreeInstances, FHIMaterials::Grass);
 	// The decks: every deck in WorldSolids is drawn by SlabInstances now -- the ground
 	// deck, the storey slab AND the roof deck -- because the sim says each of them stops a
 	// bullet, and the invariant at the top of this header forbids a solid the sim knows
@@ -1037,6 +1120,7 @@ void AHIHouse::Build()
 	FHIMaterials::Tint(VanDetailInstances, FHIMaterials::Tyre);
 
 	BuildDressing();
+	BuildNeighborhood();
 
 	// WHAT WAS ACTUALLY BUILT, counted. The first render of this port showed what looked like
 	// a house but could equally have been one wall seen edge-on, and a screenshot cannot tell
@@ -1050,7 +1134,7 @@ void AHIHouse::Build()
 	// together cover the 48 non-flat rows. Every other component must simply be non-zero, or
 	// something in this function silently did not run.
 	UE_LOG(LogTemp, Display,
-		TEXT("HI: house built -- walls=%d basement_walls=%d furniture=%d furniture_soft=%d furniture_appliance=%d furniture_dark=%d furn_woodd=%d furn_softd=%d furn_appd=%d furn_darkd=%d ground=%d floor=%d basement_floor=%d roof=%d ceiling=%d trim=%d frames=%d glass=%d fittings=%d props=%d coat=%d door_head=%d van=%d van_detail=%d slabs=%d stairs=%d railings=%d"),
+		TEXT("HI: house built -- walls=%d basement_walls=%d furniture=%d furniture_soft=%d furniture_appliance=%d furniture_dark=%d furn_woodd=%d furn_softd=%d furn_appd=%d furn_darkd=%d ground=%d floor=%d basement_floor=%d roof=%d ceiling=%d trim=%d frames=%d glass=%d fittings=%d props=%d coat=%d door_head=%d van=%d van_detail=%d slabs=%d stairs=%d railings=%d street=%d neighbor=%d trees=%d"),
 		WallInstances->GetInstanceCount(),
 		WallBasementInstances->GetInstanceCount(),
 		FurnitureInstances->GetInstanceCount(),
@@ -1073,7 +1157,10 @@ void AHIHouse::Build()
 		VanDetailInstances->GetInstanceCount(),
 		SlabInstances->GetInstanceCount(),
 		StairInstances->GetInstanceCount(),
-		RailingInstances->GetInstanceCount());
+		RailingInstances->GetInstanceCount(),
+		StreetInstances->GetInstanceCount(),
+		NeighborInstances->GetInstanceCount(),
+		TreeInstances->GetInstanceCount());
 	UE_LOG(LogTemp, Display, TEXT("HI: shape material %s"),
 		FHIMaterials::ShapeMaterial() != nullptr ? TEXT("loaded") : TEXT("MISSING -- everything will be default grey"));
 }
