@@ -227,6 +227,13 @@ unverifiable from this box and, post-fork, beside the point: if Richard wants th
 tougher or frailer than a thief, it is one constant — but say so deliberately, because
 today the equality is silent.
 
+**RESOLVED 2026-10-19 (Richard: "double the life of Louise, she dies too early").** The
+item's premise was wrong on one more count: the constants were NAMED backwards — the player
+used `ThiefMaxHp` (78) while a thief uses `ThiefHealth` (100), so Louise was actually
+WEAKER than a thief. The constant is renamed `PlayerMaxHp` and doubled to **156**, and the
+HUD now scales off it (it had also been hardcoding /100, so the bar never showed full).
+Louise now carries 1.56x a thief's health instead of 0.78x.
+
 ## 12. Ten of 33 door edges are narrower than a thief's body — fixed in the walker, data-level fix is Richard's call
 
 Added 2026-10-19. The phase-2 diagnostic dump measured **10 of the 33 flat nav edges

@@ -55,6 +55,12 @@ pass for Richard's eye — the shapes now read as their type, but whether they r
 WELL is a frame review, not a build. Models-as-meshes (the original idea) remain
 unneeded: the composition approach keeps the collision data authoritative.
 
+`[2026-10-19 de-boxing pass]` — after "too boxy": sofas/armchairs got a tilted back,
+three cushions and legs; beds got a headboard, footboard, legs and a folded duvet;
+chairs got a leaning back; and the VAN got a hooded cab, raked windscreen, side
+mirrors, door seams, head/tail lights and bumpers. Still box-primitives, so still
+geometric — but the angles, gaps and layers now break the flat-slab silhouette.
+
 ### 2. "The outside doesn't look like a neighborhood"
 
 Also true: beyond the house footprint there is a ground plane, the van, and sky.

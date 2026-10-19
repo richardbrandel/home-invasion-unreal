@@ -268,7 +268,10 @@ struct HISIM_API FHISim
 	static constexpr float ThiefRadius = 0.42f;
 	static constexpr int32 ThiefHealth = 100;
 	static constexpr float ThiefDamage = 7.0f;
-	static constexpr float ThiefMaxHp = 78.0f;
+	/** Louise's health. Doubled from 78 to 156 (Richard, 2026-10-19: "double the life of
+	 * Louise, she dies too early"). The old name, ThiefMaxHp, was wrong on two counts: it
+	 * was the PLAYER's constant, and at 78 she was weaker than a thief (ThiefHealth, 100). */
+	static constexpr float PlayerMaxHp = 156.0f;
 	static constexpr float ThiefSight = 26.0f;
 	static constexpr float ThiefFovDeg = 200.0f;
 	static constexpr float ThiefTurnRate = 4.5f;
@@ -509,7 +512,7 @@ struct HISIM_API FHISim
 		int32 Floor = 0;
 		float Yaw = 0.0f;
 		float Pitch = 0.24f;
-		float Hp = ThiefMaxHp;
+		float Hp = PlayerMaxHp;
 		bool bAlive = true;
 		FString Weapon = TEXT("pistol");
 		bool bCrouching = false;

@@ -207,15 +207,15 @@ void AHIHUD::DrawHealthBar(const FHISim::FHIRound& Round, float X, float Y)
 {
 	const float W = 236.0f;
 	const float H = 14.0f;
-	const float Frac = FMath::Clamp(Round.Player.Hp / 100.0f, 0.0f, 1.0f);
+	const float Frac = FMath::Clamp(Round.Player.Hp / FHISim::PlayerMaxHp, 0.0f, 1.0f);
 
 	// Colour-coded, because a bar you have to read the length of is a bar you read too late.
 	FLinearColor Fill(0.13f, 0.77f, 0.37f, 1.0f);
-	if (Round.Player.Hp <= 25.0f)
+	if (Round.Player.Hp <= FHISim::PlayerMaxHp * 0.25f)
 	{
 		Fill = FLinearColor(0.94f, 0.27f, 0.27f, 1.0f);
 	}
-	else if (Round.Player.Hp <= 50.0f)
+	else if (Round.Player.Hp <= FHISim::PlayerMaxHp * 0.5f)
 	{
 		Fill = FLinearColor(0.96f, 0.62f, 0.04f, 1.0f);
 	}

@@ -100,7 +100,7 @@ FHISim::FHIPlayer FHISim::CreatePlayer()
 	P.Z = FloorHeight(0);
 	P.Yaw = 0.45f;
 	P.Pitch = 0.0f;
-	P.Hp = ThiefMaxHp;
+	P.Hp = PlayerMaxHp;
 	P.bAlive = true;
 	P.Weapon = TEXT("pistol");
 	P.bCrouching = false;

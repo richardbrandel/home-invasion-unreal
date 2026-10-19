@@ -612,12 +612,37 @@ void AHIHouse::BuildDressing()
 		AddBox(VanInstances, FVector(CX, CY - 1.55f, 0.92f), FVector(Size.X * 0.92f, 1.30f, 1.05f));
 		// A slightly proud roof line, so the body has a top edge rather than ending flat.
 		AddBox(VanInstances, FVector(CX, CY, 1.82f), FVector(Size.X * 0.98f, Size.Y * 0.96f, 0.12f));
-		// The windscreen and the two flank glazing strips, as slightly proud slabs. Routed
-		// into the WINDOW component rather than the body's: glass is glass, and giving it its
-		// own colour is the entire difference between a van and a green box.
-		AddBox(GlassInstances, FVector(CX, CY - 2.16f, 1.30f), FVector(Size.X * 0.78f, 0.06f, 0.60f));
+		// DE-BOXING (2026-10-19): a sloped hood ahead of the cab and a raked windscreen
+		// leaning back into it -- the two angles that stop a box reading as a box.
+		AddBoxR(VanInstances, FVector(CX, CY - 2.02f, 0.74f),
+			FVector(Size.X * 0.84f, 0.75f, 0.12f), FRotator(0.0f, 0.0f, 20.0f));
+		AddBoxR(GlassInstances, FVector(CX, CY - 2.00f, 1.40f),
+			FVector(Size.X * 0.76f, 0.06f, 0.72f), FRotator(0.0f, 0.0f, -22.0f));
+		// The two flank glazing strips, as slightly proud slabs. Routed into the WINDOW
+		// component rather than the body's: glass is glass, and giving it its own colour is
+		// the entire difference between a van and a green box.
 		AddBox(GlassInstances, FVector(CX - Size.X * 0.5f - 0.02f, CY - 1.55f, 1.30f), FVector(0.06f, 1.00f, 0.50f));
 		AddBox(GlassInstances, FVector(CX + Size.X * 0.5f + 0.02f, CY - 1.55f, 1.30f), FVector(0.06f, 1.00f, 0.50f));
+		// Door seams (the cargo side's sliding door and the cab door) as thin dark lines.
+		AddBox(VanDetailInstances, FVector(CX - Size.X * 0.5f - 0.02f, CY + 0.20f, 1.05f),
+			FVector(0.04f, 0.04f, 1.35f));
+		AddBox(VanDetailInstances, FVector(CX - Size.X * 0.5f - 0.02f, CY - 1.35f, 1.05f),
+			FVector(0.04f, 0.04f, 0.90f));
+		// Side mirrors on short stalks, both sides of the cab.
+		for (float SX : { -1.0f, 1.0f })
+		{
+			AddBox(VanDetailInstances, FVector(CX + SX * (Size.X * 0.5f + 0.06f), CY - 1.95f, 1.35f),
+				FVector(0.06f, 0.06f, 0.06f));
+			AddBox(VanDetailInstances, FVector(CX + SX * (Size.X * 0.5f + 0.14f), CY - 1.95f, 1.35f),
+				FVector(0.20f, 0.04f, 0.14f));
+		}
+		// Headlights and taillights (pale lenses) and dark bumpers at both ends.
+		AddBox(TrimInstances, FVector(CX - Size.X * 0.28f, CY - 2.28f, 0.62f), FVector(0.24f, 0.06f, 0.16f));
+		AddBox(TrimInstances, FVector(CX + Size.X * 0.28f, CY - 2.28f, 0.62f), FVector(0.24f, 0.06f, 0.16f));
+		AddBox(TrimInstances, FVector(CX - Size.X * 0.28f, CY + Size.Y * 0.5f + 0.02f, 1.15f), FVector(0.24f, 0.06f, 0.16f));
+		AddBox(TrimInstances, FVector(CX + Size.X * 0.28f, CY + Size.Y * 0.5f + 0.02f, 1.15f), FVector(0.24f, 0.06f, 0.16f));
+		AddBox(VanDetailInstances, FVector(CX, CY - 2.30f, 0.35f), FVector(Size.X * 0.90f, 0.12f, 0.25f));
+		AddBox(VanDetailInstances, FVector(CX, CY + Size.Y * 0.5f + 0.02f, 0.35f), FVector(Size.X * 0.90f, 0.12f, 0.25f));
 		// Four wheels, standing proud of the body on both sides, and DARK. See the header:
 		// green wheels on a green body is a table.
 		for (float SX : { -1.0f, 1.0f })
@@ -724,6 +749,16 @@ void AHIHouse::BuildFurniture(const FString& Label, const FBox2D& Rect, float Ba
 			AddBox(Comp, FVector(Cx, Cy, (Z1 + Z2) * 0.5f), FVector(Sx, Sy, Z2 - Z1));
 		}
 	};
+	// The rotated sibling of Part, for the tilted backs and raked faces that stop a box
+	// reading as a box (2026-10-19).
+	auto PartR = [&](UInstancedStaticMeshComponent* Comp, float Cx, float Cy,
+		float Z1, float Z2, float Sx, float Sy, const FRotator& Rot)
+	{
+		if (Comp != nullptr)
+		{
+			AddBoxR(Comp, FVector(Cx, Cy, (Z1 + Z2) * 0.5f), FVector(Sx, Sy, Z2 - Z1), Rot);
+		}
+	};
 
 	const float Top = Base + Height;
 
@@ -731,16 +766,27 @@ void AHIHouse::BuildFurniture(const FString& Label, const FBox2D& Rect, float Ba
 	if (Label == TEXT("sofa") || Label == TEXT("armchair"))
 	{
 		Part(FurnitureSoftInstances, C.X, C.Y, Base, Top, S.X, S.Y);
-		Part(FurnitureSoftDecorInstances, C.X - S.X * 0.5f + 0.08f, C.Y,
-			Base, Top + 0.18f, 0.16f, S.Y);                                   // back
+		// De-boxing (2026-10-19): a tilted back, three cushions with gaps, and short legs.
+		PartR(FurnitureSoftDecorInstances, C.X - S.X * 0.5f + 0.10f, C.Y,
+			Base + 0.10f, Top + 0.20f, 0.20f, S.Y, FRotator(-12.0f, 0.0f, 0.0f));  // back
 		Part(FurnitureSoftDecorInstances, C.X + S.X * 0.15f, C.Y - S.Y * 0.5f + 0.08f,
 			Base, Top, S.X, 0.16f);                                            // arm -Y
 		Part(FurnitureSoftDecorInstances, C.X + S.X * 0.15f, C.Y + S.Y * 0.5f - 0.08f,
 			Base, Top, S.X, 0.16f);                                            // arm +Y
-		Part(FurnitureSoftDecorInstances, C.X + S.X * 0.16f, C.Y - S.Y * 0.22f,
-			Top - 0.12f, Top + 0.06f, S.X * 0.55f, S.Y * 0.42f);               // seat cushion
-		Part(FurnitureSoftDecorInstances, C.X + S.X * 0.16f, C.Y + S.Y * 0.22f,
-			Top - 0.12f, Top + 0.06f, S.X * 0.55f, S.Y * 0.42f);               // seat cushion
+		Part(FurnitureSoftDecorInstances, C.X + S.X * 0.16f, C.Y,
+			Top - 0.12f, Top + 0.06f, S.X * 0.52f, S.Y * 0.24f);               // cushion mid
+		Part(FurnitureSoftDecorInstances, C.X + S.X * 0.16f, C.Y - S.Y * 0.36f,
+			Top - 0.12f, Top + 0.06f, S.X * 0.52f, S.Y * 0.24f);               // cushion -Y
+		Part(FurnitureSoftDecorInstances, C.X + S.X * 0.16f, C.Y + S.Y * 0.36f,
+			Top - 0.12f, Top + 0.06f, S.X * 0.52f, S.Y * 0.24f);               // cushion +Y
+		for (float FX : { -0.425f, 0.425f })
+		{
+			for (float FY : { -0.425f, 0.425f })
+			{
+				Part(FurnitureDarkDecorInstances, C.X + FX * S.X, C.Y + FY * S.Y,
+					Base - 0.04f, Base + 0.08f, 0.06f, 0.06f);
+			}
+		}
 	}
 	// --- tables: wood mass, a slightly-overhanging top, four dark legs
 	else if (Label == TEXT("dining_table") || Label == TEXT("coffee_table")
@@ -762,8 +808,9 @@ void AHIHouse::BuildFurniture(const FString& Label, const FBox2D& Rect, float Ba
 	{
 		Part(FurnitureInstances, C.X, C.Y, Base, Top, S.X, S.Y);
 		Part(FurnitureWoodDecorInstances, C.X, C.Y, Top - 0.10f, Top, S.X + 0.06f, S.Y + 0.06f);   // seat
-		Part(FurnitureWoodDecorInstances, C.X - S.X * 0.5f + 0.05f, C.Y, Top - 0.10f, Top + 0.30f,
-			0.10f, S.Y * 0.7f);                                                            // back
+		// De-boxing (2026-10-19): the back leans back instead of standing straight.
+		PartR(FurnitureWoodDecorInstances, C.X - S.X * 0.5f + 0.05f, C.Y, Top - 0.10f, Top + 0.34f,
+			0.10f, S.Y * 0.7f, FRotator(-14.0f, 0.0f, 0.0f));                            // back
 		Part(FurnitureDarkDecorInstances, C.X - S.X * 0.5f + 0.04f, C.Y - S.Y * 0.5f + 0.04f,
 			Base - 0.04f, Top - 0.12f, 0.06f, 0.06f);
 		Part(FurnitureDarkDecorInstances, C.X + S.X * 0.5f - 0.04f, C.Y - S.Y * 0.5f + 0.04f,
@@ -777,12 +824,28 @@ void AHIHouse::BuildFurniture(const FString& Label, const FBox2D& Rect, float Ba
 	else if (Label == TEXT("bed"))
 	{
 		Part(FurnitureInstances, C.X, C.Y, Base, Top, S.X, S.Y);
+		// De-boxing (2026-10-19): a headboard and footboard bookend the mattress, four legs
+		// lift the frame, and the duvet folds back over itself.
+		Part(FurnitureWoodDecorInstances, C.X - S.X * 0.5f + 0.03f, C.Y,
+			Base, Top + 0.55f, 0.06f, S.Y);                                    // headboard
+		Part(FurnitureWoodDecorInstances, C.X + S.X * 0.5f - 0.03f, C.Y,
+			Base, Top + 0.30f, 0.06f, S.Y);                                    // footboard
 		Part(FurnitureSoftDecorInstances, C.X, C.Y, Top, Top + 0.16f, S.X - 0.10f, S.Y - 0.10f); // mattress
-		Part(FurnitureSoftDecorInstances, C.X, C.Y, Top + 0.16f, Top + 0.22f, S.X - 0.16f, S.Y - 0.16f); // duvet
-		Part(FurnitureSoftDecorInstances, C.X - S.X * 0.5f + 0.14f, C.Y,
-			Top + 0.16f, Top + 0.28f, 0.28f, 0.60f);                                  // pillow 1
-		Part(FurnitureSoftDecorInstances, C.X - S.X * 0.5f + 0.14f, C.Y + S.Y * 0.22f,
-			Top + 0.16f, Top + 0.28f, 0.28f, 0.60f);                                  // pillow 2
+		Part(FurnitureSoftDecorInstances, C.X, C.Y, Top + 0.16f, Top + 0.24f, S.X - 0.20f, S.Y - 0.34f); // duvet
+		Part(FurnitureSoftDecorInstances, C.X + S.X * 0.16f, C.Y, Top + 0.16f, Top + 0.22f,
+			S.X * 0.55f, S.Y - 0.40f);                                         // folded fold
+		Part(FurnitureSoftDecorInstances, C.X - S.X * 0.5f + 0.16f, C.Y,
+			Top + 0.16f, Top + 0.30f, 0.30f, 0.60f);                           // pillow 1
+		Part(FurnitureSoftDecorInstances, C.X - S.X * 0.5f + 0.16f, C.Y + S.Y * 0.24f,
+			Top + 0.16f, Top + 0.30f, 0.30f, 0.60f);                           // pillow 2
+		for (float FX : { -0.40f, 0.40f })
+		{
+			for (float FY : { -0.42f, 0.42f })
+			{
+				Part(FurnitureDarkDecorInstances, C.X + FX * S.X, C.Y + FY * S.Y,
+					Base - 0.04f, Base + 0.08f, 0.07f, 0.07f);
+			}
+		}
 	}
 	// --- storage with doors: wood body, two door panels and a handle seam
 	else if (Label == TEXT("wardrobe") || Label == TEXT("coat_closet")
