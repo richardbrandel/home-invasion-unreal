@@ -301,6 +301,12 @@ private:
 	/** The street, sidewalk, driveway, neighbor shells, cars, trees and a street light. */
 	void BuildNeighborhood();
 
+	/** Place every StaticMesh under /Game/HIImported/models/<Name> at one transform, scaled
+	 *  to fill the given footprint. Used for the Sketchfab models, whose glb splits into many
+	 *  sub-meshes (body, wheels, glass) that the importer leaves in the model's local space. */
+	void PlaceSketchfabModel(const FString& Name, const FVector2D& Center,
+		float WidthM, float DepthM, float Base, float Height, const FRotator& Rot);
+
 	/**
 	 * One window in one wall. `Along` is the axis the wall runs down. `FloorZ` lifts the
 	 * whole window onto an upper storey; `SillUp`/`HeadUp` are the sill and head heights

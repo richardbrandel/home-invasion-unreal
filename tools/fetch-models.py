@@ -15,6 +15,9 @@ MODELS = [
     "Sofa_01", "ArmChair_01", "dining_table", "dining_chair_02",
     "modern_coffee_table_01", "ClassicNightstand_01", "modern_wooden_cabinet",
     "wooden_bookshelf_worn", "Television_01",
+    # NOTE: Poly Haven's tree models are photogrammetry scans with multi-hundred-MB
+    # geometry (pine_tree_01.bin is ~950 MB) -- too heavy for a game background object.
+    # Trees come from Sketchfab instead (low-poly / game-ready, see README).
 ]
 
 DEST = "/data/projects/HIUnreal/SourceAssets/models"
@@ -56,8 +59,10 @@ def urls(model):
 
 def get(url, dest):
     # dl.polyhaven.org 403s urllib's user-agent but serves curl fine; go through curl.
+    # --retry for the large tree geometry, which drops mid-transfer sometimes.
     import subprocess
-    subprocess.run(["curl", "-fsSL", "--max-time", "120", url, "-o", dest], check=True)
+    subprocess.run(["curl", "-fsSL", "--retry", "4", "--retry-all-errors",
+                    "--max-time", "300", url, "-o", dest], check=True)
 
 
 def main():

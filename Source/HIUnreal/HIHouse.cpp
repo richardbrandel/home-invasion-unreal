@@ -1,6 +1,8 @@
 #include "HIHouse.h"
 
+#include "AssetRegistry/AssetRegistryModule.h"
 #include "Components/InstancedStaticMeshComponent.h"
+#include "Components/StaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
 #include "HIMaterials.h"
 #include "HIUnits.h"
@@ -610,69 +612,78 @@ void AHIHouse::BuildDressing()
 	AddBox(PropInstances, FVector(3.75f, -8.40f, 3.52f), FVector(0.50f, 0.36f, 0.06f));   // desk mat, office
 	AddBox(PropInstances, FVector(4.90f, -8.35f, 3.54f), FVector(0.09f, 0.09f, 0.10f));   // a mug-ish shape
 
-	// ---- the van. Its rectangle is the sim's, so the thing the intruders deliver to and
-	// the thing the player can see are the same object.
+	// ---- the van: a real Sketchfab model (CC BY, tools/fetch-sketchfab.py), scaled to the
+	// sim's van rect so the thing the intruders deliver to is still the thing the player
+	// sees. The model is Y-up with its length on Z; FRotator(0,90,90) puts length on X,
+	// width on Y and up on Z. It carries its own body, cab, glass and wheels.
 	{
 		const FBox2D& V = FHISim::Van;
-		const FVector2D Size = V.GetSize();
-		const float CX = (V.Min.X + V.Max.X) * 0.5f;
-		const float CY = (V.Min.Y + V.Max.Y) * 0.5f;
-		// Body, then a raised cab, so it reads as a van and not a shipping container. The
-		// sim's van rectangle is 5.5 x 2.4 m, which is a real van's footprint.
-		// Seated LOW, on its wheels, rather than floating above them: the first version had
-		// a 0.4 m gap under the body, which is what made the whole thing read as a table.
-		AddBox(VanInstances, FVector(CX, CY, 1.05f), FVector(Size.X, Size.Y, 1.45f));
-		AddBox(VanInstances, FVector(CX, CY - 1.55f, 0.92f), FVector(Size.X * 0.92f, 1.30f, 1.05f));
-		// A slightly proud roof line, so the body has a top edge rather than ending flat.
-		AddBox(VanInstances, FVector(CX, CY, 1.82f), FVector(Size.X * 0.98f, Size.Y * 0.96f, 0.12f));
-		// DE-BOXING (2026-10-19): a sloped hood ahead of the cab and a raked windscreen
-		// leaning back into it -- the two angles that stop a box reading as a box.
-		AddBoxR(VanInstances, FVector(CX, CY - 2.02f, 0.74f),
-			FVector(Size.X * 0.84f, 0.75f, 0.12f), FRotator(0.0f, 0.0f, 20.0f));
-		AddBoxR(GlassInstances, FVector(CX, CY - 2.00f, 1.40f),
-			FVector(Size.X * 0.76f, 0.06f, 0.72f), FRotator(0.0f, 0.0f, -22.0f));
-		// The two flank glazing strips, as slightly proud slabs. Routed into the WINDOW
-		// component rather than the body's: glass is glass, and giving it its own colour is
-		// the entire difference between a van and a green box.
-		AddBox(GlassInstances, FVector(CX - Size.X * 0.5f - 0.02f, CY - 1.55f, 1.30f), FVector(0.06f, 1.00f, 0.50f));
-		AddBox(GlassInstances, FVector(CX + Size.X * 0.5f + 0.02f, CY - 1.55f, 1.30f), FVector(0.06f, 1.00f, 0.50f));
-		// Door seams (the cargo side's sliding door and the cab door) as thin dark lines.
-		AddBox(VanDetailInstances, FVector(CX - Size.X * 0.5f - 0.02f, CY + 0.20f, 1.05f),
-			FVector(0.04f, 0.04f, 1.35f));
-		AddBox(VanDetailInstances, FVector(CX - Size.X * 0.5f - 0.02f, CY - 1.35f, 1.05f),
-			FVector(0.04f, 0.04f, 0.90f));
-		// Side mirrors on short stalks, both sides of the cab.
-		for (float SX : { -1.0f, 1.0f })
+		PlaceSketchfabModel(TEXT("van"), V.GetCenter(), V.GetSize().X, V.GetSize().Y,
+			0.0f, 2.5f, FRotator(0.0f, 90.0f, 90.0f));
+	}
+}
+
+void AHIHouse::PlaceSketchfabModel(const FString& Name, const FVector2D& Center,
+	float WidthM, float DepthM, float Base, float Height, const FRotator& Rot)
+{
+	// Every StaticMesh under /Game/HIImported/models/<Name>, placed at one shared transform
+	// (2026-10-19). The glTF importer bakes node transforms, so the sub-meshes -- a van's
+	// body, doors, wheels and glass, or a tree's hundreds of leaf planes -- are already in
+	// the model's own space and one transform assembles the whole thing.
+	FAssetRegistryModule& AR = FModuleManager::LoadModuleChecked<FAssetRegistryModule>("AssetRegistry");
+	IAssetRegistry& Reg = AR.Get();
+	// In -game the registry starts empty; force a synchronous scan so the imported meshes
+	// are indexed before we ask for them. In-editor this is a cheap no-op.
+	Reg.SearchAllAssets(true);
+	TArray<FAssetData> Assets;
+	Reg.GetAssetsByPath(
+		FName(*FString::Printf(TEXT("/Game/HIImported/models/%s"), *Name)),
+		Assets, /*bRecursive=*/true);
+
+	TArray<UStaticMesh*> Meshes;
+	FBox Combined(ForceInit);
+	for (const FAssetData& A : Assets)
+	{
+		if (A.GetClass() != UStaticMesh::StaticClass())
 		{
-			AddBox(VanDetailInstances, FVector(CX + SX * (Size.X * 0.5f + 0.06f), CY - 1.95f, 1.35f),
-				FVector(0.06f, 0.06f, 0.06f));
-			AddBox(VanDetailInstances, FVector(CX + SX * (Size.X * 0.5f + 0.14f), CY - 1.95f, 1.35f),
-				FVector(0.20f, 0.04f, 0.14f));
+			continue;
 		}
-		// Headlights and taillights (pale lenses) and dark bumpers at both ends.
-		AddBox(TrimInstances, FVector(CX - Size.X * 0.28f, CY - 2.28f, 0.62f), FVector(0.24f, 0.06f, 0.16f));
-		AddBox(TrimInstances, FVector(CX + Size.X * 0.28f, CY - 2.28f, 0.62f), FVector(0.24f, 0.06f, 0.16f));
-		AddBox(TrimInstances, FVector(CX - Size.X * 0.28f, CY + Size.Y * 0.5f + 0.02f, 1.15f), FVector(0.24f, 0.06f, 0.16f));
-		AddBox(TrimInstances, FVector(CX + Size.X * 0.28f, CY + Size.Y * 0.5f + 0.02f, 1.15f), FVector(0.24f, 0.06f, 0.16f));
-		AddBox(VanDetailInstances, FVector(CX, CY - 2.30f, 0.35f), FVector(Size.X * 0.90f, 0.12f, 0.25f));
-		AddBox(VanDetailInstances, FVector(CX, CY + Size.Y * 0.5f + 0.02f, 0.35f), FVector(Size.X * 0.90f, 0.12f, 0.25f));
-		// Four wheels, standing proud of the body on both sides, and DARK. See the header:
-		// green wheels on a green body is a table. Round now (the engine Cylinder on its
-		// side), not square blocks.
-		for (float SX : { -1.0f, 1.0f })
+		if (UStaticMesh* M = Cast<UStaticMesh>(A.GetAsset()))
 		{
-			for (float SY : { -1.55f, 1.55f })
-			{
-				WheelInstances->AddInstance(FTransform(
-					FRotator(90.0f, 0.0f, 0.0f),
-					FVector(CX + SX * (Size.X * 0.5f + 0.08f), CY + SY, 0.34f) * HI_METERS_TO_UU,
-					FVector(0.68f, 0.68f, 0.22f)), /*bWorldSpace=*/false);
-				WheelRimInstances->AddInstance(FTransform(
-					FRotator(90.0f, 0.0f, 0.0f),
-					FVector(CX + SX * (Size.X * 0.5f + 0.08f), CY + SY, 0.34f) * HI_METERS_TO_UU,
-					FVector(0.34f, 0.34f, 0.25f)), /*bWorldSpace=*/false);
-			}
+			Meshes.Add(M);
+			Combined += M->GetBounds().GetBox();
 		}
+	}
+	if (Meshes.Num() == 0)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("HI: no meshes for Sketchfab model %s -- run tools/fetch-sketchfab.py"), *Name);
+		return;
+	}
+
+	const FVector Full = Combined.GetExtent() * 2.0f;   // full model size, in UU
+	const float Longest = FMath::Max3(Full.X, Full.Y, Full.Z);
+	if (Longest < 1.0f)
+	{
+		return;
+	}
+	// Uniform scale: the models are Y-up with varying length axes, so per-axis scaling would
+	// squash them. Fit the longest axis to the footprint's X (the caller passes the length,
+	// or the height for a tree), and let the model's own proportions carry the rest.
+	const float S = WidthM * HI_METERS_TO_UU / Longest;
+	const FVector Scale(S, S, S);
+	const FVector C = Combined.GetCenter();
+	const FVector Target(Center.X, Center.Y, Base + Height * 0.5f);
+	for (UStaticMesh* M : Meshes)
+	{
+		UStaticMeshComponent* Comp = NewObject<UStaticMeshComponent>(this);
+		Comp->SetStaticMesh(M);
+		Comp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		Comp->SetMobility(EComponentMobility::Static);
+		Comp->RegisterComponent();
+		Comp->AttachToComponent(RootComponent, FAttachmentTransformRules::KeepWorldTransform);
+		Comp->SetWorldRotation(Rot);
+		Comp->SetWorldScale3D(Scale);
+		Comp->SetWorldLocation(Target * HI_METERS_TO_UU - Rot.RotateVector(C * Scale));
 	}
 }
 
@@ -798,82 +809,20 @@ void AHIHouse::BuildNeighborhood()
 				}
 			}
 		};
-		Car(-5.5f, 8.3f);
-		Car(11.0f, 8.3f);
-
-		// The 1968 Pontiac GTO (2026-10-19, "make one look like a dark green GTO"). A
-		// muscle car is the LONG hood and the SHORT deck, so the whole profile leans on that:
-		// a 1.9 m hood against a 1.0 m tail, a fastback roof that runs down into the deck,
-		// flared fenders over a narrower waist, twin hood scoops, quad headlights, a
-		// body-coloured Endura nose and a chrome rear bumper.
-		{
-			const float W = 1.9f;
-			// Coke-bottle body: a narrower waist, flared fenders over both axles.
-			AddBox(GTOInstances, FVector(5.5f, 8.3f, 0.50f), FVector(4.90f, 1.72f, 0.36f));
-			AddBox(GTOInstances, FVector(5.5f - 1.55f, 8.3f, 0.50f), FVector(1.35f, 1.90f, 0.36f));
-			AddBox(GTOInstances, FVector(5.5f + 1.35f, 8.3f, 0.50f), FVector(1.10f, 1.90f, 0.36f));
-			// The long hood, gently sloped to the nose.
-			AddBoxR(GTOInstances, FVector(5.5f - 1.45f, 8.3f, 0.76f), FVector(1.85f, 1.86f, 0.10f),
-				FRotator(-5.0f, 0.0f, 0.0f));
-			// Raked windscreen.
-			AddBoxR(GlassInstances, FVector(5.5f - 0.35f, 8.3f, 1.06f), FVector(0.06f, 1.60f, 0.50f),
-				FRotator(48.0f, 0.0f, 0.0f));
-			// Fastback: roof then rear glass, one slope down to the deck.
-			AddBoxR(GTOInstances, FVector(5.5f + 0.05f, 8.3f, 1.27f), FVector(0.55f, 1.60f, 0.10f),
-				FRotator(-4.0f, 0.0f, 0.0f));
-			AddBoxR(GlassInstances, FVector(5.5f + 0.65f, 8.3f, 1.16f), FVector(0.06f, 1.54f, 0.46f),
-				FRotator(-24.0f, 0.0f, 0.0f));
-			// The short rear deck.
-			AddBox(GTOInstances, FVector(5.5f + 1.50f, 8.3f, 0.98f), FVector(1.00f, 1.72f, 0.14f));
-			// Twin hood scoops.
-			AddBox(VanDetailInstances, FVector(5.5f - 1.35f, 8.3f - 0.34f, 0.88f), FVector(0.40f, 0.16f, 0.06f));
-			AddBox(VanDetailInstances, FVector(5.5f - 1.35f, 8.3f + 0.34f, 0.88f), FVector(0.40f, 0.16f, 0.06f));
-			// The Endura front bumper, body-coloured and proud of the nose.
-			AddBox(GTOInstances, FVector(5.5f - 2.47f, 8.3f, 0.42f), FVector(0.16f, 1.90f, 0.24f));
-			// Grille and quad headlights (two per side).
-			AddBox(VanDetailInstances, FVector(5.5f - 2.44f, 8.3f, 0.52f), FVector(0.06f, 1.30f, 0.14f));
-			for (float SY : { -0.58f, 0.58f })
-			{
-				AddBox(TrimInstances, FVector(5.5f - 2.46f, 8.3f + SY, 0.56f), FVector(0.06f, 0.34f, 0.12f));
-				AddBox(TrimInstances, FVector(5.5f - 2.46f, 8.3f + SY * 0.55f, 0.56f), FVector(0.06f, 0.34f, 0.12f));
-			}
-			// Chrome rear bumper.
-			AddBox(TrimInstances, FVector(5.5f + 2.05f, 8.3f, 0.42f), FVector(0.10f, 1.80f, 0.18f));
-			// Rocker panels and a door seam.
-			AddBox(VanDetailInstances, FVector(5.5f, 8.3f - 0.87f, 0.35f), FVector(3.0f, 0.04f, 0.12f));
-			AddBox(VanDetailInstances, FVector(5.5f, 8.3f + 0.87f, 0.35f), FVector(3.0f, 0.04f, 0.12f));
-			AddBox(VanDetailInstances, FVector(5.5f - 0.10f, 8.3f - 0.87f, 0.60f), FVector(0.04f, 0.04f, 0.30f));
-			// Four wheels, the front axle farther forward for the muscle-car stance.
-			for (float SX : { -1.55f, 1.35f })
-			{
-				for (float SY : { -0.78f, 0.78f })
-				{
-					WheelInstances->AddInstance(FTransform(
-						FRotator(0.0f, 0.0f, 90.0f),
-						FVector(5.5f + SX, 8.3f + SY, 0.32f) * HI_METERS_TO_UU,
-						FVector(0.66f, 0.66f, 0.24f)), false);
-					WheelRimInstances->AddInstance(FTransform(
-						FRotator(0.0f, 0.0f, 90.0f),
-						FVector(5.5f + SX, 8.3f + SY, 0.32f) * HI_METERS_TO_UU,
-						FVector(0.34f, 0.34f, 0.27f)), false);
-				}
-			}
-		}
+		// Real Sketchfab models (CC BY, tools/fetch-sketchfab.py) replace the boxy sedans
+		// and the procedural GTO. The Phoenix 455 muscle car is Z-up with its length on Y
+		// (yaw 90); the Shvan is Y-up with its length on Z (yaw 90 + roll 90).
+		PlaceSketchfabModel(TEXT("car"), FVector2D(-5.5f, 8.3f), 4.5f, 1.8f, 0.0f, 1.5f, FRotator(0.0f, 90.0f, 90.0f));
+		PlaceSketchfabModel(TEXT("muscle"), FVector2D(5.5f, 8.3f), 4.7f, 1.8f, 0.0f, 1.4f, FRotator(0.0f, 90.0f, 0.0f));
+		PlaceSketchfabModel(TEXT("car"), FVector2D(11.0f, 8.3f), 4.5f, 1.8f, 0.0f, 1.5f, FRotator(0.0f, 90.0f, 90.0f));
 	}
 
-	// Trees on the lawn beside the driveway: a dark trunk under two stacked green boxes.
-	{
-		auto Tree = [&](float CX, float CY, float Scale)
-		{
-			AddBox(VanDetailInstances, FVector(CX, CY, 1.3f * Scale), FVector(0.3f, 0.3f, 2.6f * Scale));
-			AddBox(TreeInstances, FVector(CX, CY, (2.6f + 1.1f) * Scale), FVector(2.6f * Scale, 2.6f * Scale, 2.2f * Scale));
-			AddBox(TreeInstances, FVector(CX, CY, (2.6f + 2.1f) * Scale), FVector(1.8f * Scale, 1.8f * Scale, 1.6f * Scale));
-		};
-		Tree(-4.5f, 3.5f, 1.0f);
-		Tree(4.5f, 3.5f, 0.85f);
-		Tree(-9.0f, 12.5f, 1.15f);
-		Tree(9.0f, 12.5f, 1.0f);
-	}
+	// Real trees (CC BY, tools/fetch-sketchfab.py) replace the boxy trunk-and-boxes: a pine
+	// and an oak, Y-up so rolled upright (roll 90 about X).
+	PlaceSketchfabModel(TEXT("tree2"), FVector2D(-4.5f, 3.5f), 5.0f, 5.0f, 0.0f, 5.0f, FRotator(0.0f, 0.0f, 90.0f));
+	PlaceSketchfabModel(TEXT("tree2"), FVector2D(4.5f, 3.5f), 4.5f, 4.5f, 0.0f, 4.5f, FRotator(0.0f, 0.0f, 90.0f));
+	PlaceSketchfabModel(TEXT("tree1"), FVector2D(-9.0f, 12.5f), 6.0f, 6.0f, 0.0f, 6.0f, FRotator(0.0f, 0.0f, 90.0f));
+	PlaceSketchfabModel(TEXT("tree1"), FVector2D(9.0f, 12.5f), 6.0f, 6.0f, 0.0f, 6.0f, FRotator(0.0f, 0.0f, 90.0f));
 
 	// A street light at the kerb and a mailbox by the front path.
 	AddBox(VanDetailInstances, FVector(2.6f, 5.9f, 2.6f), FVector(0.14f, 0.14f, 5.2f));
