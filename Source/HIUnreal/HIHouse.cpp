@@ -800,13 +800,12 @@ void AHIHouse::Build()
 	{
 		UE_LOG(LogTemp, Warning, TEXT("HI: walls stay flat -- no M_HITextured or texture"));
 	}
-	// The basement: Richard's brief is CINDERBLOCK. The asset set has no cinderblock texture
-	// (see tools/make-assets.py), and inventing one is a change in the wrong place -- so it
-	// gets the exterior grey under a coarse plaster grain, which is what unpainted block
-	// reads as, and it does the job that matters down there: block is visibly not the
-	// cream plaster of the rooms above.
+	// The basement: Richard's brief is CINDERBLOCK. The asset set once had no cinderblock
+	// texture, so it wore a coarse plaster grain as a stand-in. A real concrete-block
+	// texture is now imported (Poly Haven `concrete_block_wall`, CC0, 2026-10-19), so the
+	// brief is met as written: block, not the cream plaster of the rooms above.
 	FHIMaterials::Tint(WallBasementInstances, FHIMaterials::WallExterior);
-	FHIMaterials::Textured(WallBasementInstances, TEXT("ceiling_plaster"), 14.0f);
+	FHIMaterials::Textured(WallBasementInstances, TEXT("cinderblock"), 14.0f);
 	// The basement slab wears the asset set's one tile floor -- a utility floor may be
 	// tiled where the storeys above are wood.
 	FHIMaterials::Tint(BasementFloorInstances, FHIMaterials::Floor);

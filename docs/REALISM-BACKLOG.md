@@ -208,7 +208,9 @@ in the design are a realism win here too: real basements have them.
 `[phase 2 status]` — the basement geometry IS built now (baseOpen, utility, the
 mech-room doorway, the B flight — HOUSE-DESIGN §8.1), so this item narrows to
 the pure material + appliance pass, exactly as the brief stated. No longer
-"geometry to come."
+"geometry to come." The cinderblock WALLS are now real (2026-10-19): a CC0
+concrete-block texture (Poly Haven) replaces the plaster stand-in; only the
+appliances (water heater, furnace, lally columns) still need models.
 
 ### 12. Minimap floor awareness
 
@@ -339,12 +341,19 @@ Drywall/wallpaper walls, wood floor (living/master), carpet (bedrooms), tile
 (baths/kitchen), baseboards and door casings. The per-room floor finish is also
 the surface map item 19's footsteps key off, so these two items ship together.
 
+`[2026-10-19 status]` — the big surfaces are now photoreal (CC0 from Poly Haven):
+plaster walls, oak wood floor, tile floor, grass lawn, grey roof tiles. Still
+flat: carpet (bedrooms), baseboards, door casings, and the ceiling.
+
 ### 25. The house exterior
 
 Item 2 is the NEIGHBORHOOD; the house itself is still a mass with cut-out
 openings. Siding or brick cladding, roof shingles and the gable, gutters/fascia,
 a real front door and porch light. The player stands on this threshold every
 round, and the thieves' drop view frames it.
+
+`[2026-10-19 status]` — the roof and the lawn are now photoreal (CC0); siding,
+gutters and a real front door are still pending.
 
 ### 26. Muzzle flash and shell casings
 
