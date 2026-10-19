@@ -45,6 +45,16 @@ Cost driver: none of this needs purchased assets — procedural meshes or simple
 modeling pass. The data rows (position, size, height) stay authoritative for
 collision; visuals get to be *smaller* than the box, never bigger.
 
+`[2026-10-19 status]` — **procedurally composed, first pass.** Every furniture row is
+now a colliding body (the sim's exact footprint, one of wood/soft/appliance/dark)
+plus non-colliding decor detail: sofas and armchairs get a back, arms and cushions;
+beds get a mattress, duvet and pillows; tables and chairs get tops, seats, backs and
+legs; the kitchen gets worktops, the fridge/washer/dryer handles; toilets get tanks,
+the lamp a shade. 48 bodies + 116 decor parts, suite 52/52. Proportions are a first
+pass for Richard's eye — the shapes now read as their type, but whether they read
+WELL is a frame review, not a build. Models-as-meshes (the original idea) remain
+unneeded: the composition approach keeps the collision data authoritative.
+
 ### 2. "The outside doesn't look like a neighborhood"
 
 Also true: beyond the house footprint there is a ground plane, the van, and sky.

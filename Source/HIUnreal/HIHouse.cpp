@@ -155,6 +155,16 @@ AHIHouse::AHIHouse()
 	// component-level property -- hence a second component, not a second opinion.
 	WallBasementInstances = MakeSolid(TEXT("BasementWalls"));
 
+	// Phase-2 realism: the composed furniture's colliding bodies, one component per material.
+	FurnitureSoftInstances = MakeSolid(TEXT("FurnitureSoft"));
+	FurnitureApplianceInstances = MakeSolid(TEXT("FurnitureAppliance"));
+	FurnitureDarkInstances = MakeSolid(TEXT("FurnitureDark"));
+	// ...and their non-colliding detail parts. Decor, so a cushion never stops a bullet.
+	FurnitureSoftDecorInstances = MakeDecor(TEXT("FurnitureSoftDecor"), Cube, WallInstances);
+	FurnitureApplianceDecorInstances = MakeDecor(TEXT("FurnitureApplianceDecor"), Cube, WallInstances);
+	FurnitureDarkDecorInstances = MakeDecor(TEXT("FurnitureDarkDecor"), Cube, WallInstances);
+	FurnitureWoodDecorInstances = MakeDecor(TEXT("FurnitureWoodDecor"), Cube, WallInstances);
+
 	// ---- everything below is decoration, and none of it collides. See the header.
 	GroundInstance = MakeDecor(TEXT("Ground"), Cube, WallInstances);
 	FloorInstance = MakeDecor(TEXT("InteriorFloor"), Cube, WallInstances);
@@ -619,6 +629,148 @@ void AHIHouse::BuildDressing()
 	}
 }
 
+void AHIHouse::BuildFurniture(const FString& Label, const FBox2D& Rect, float Base, float Height)
+{
+	// Compose one furniture row into a recognisable silhouette (2026-10-19). The BODY is the
+	// sim's exact footprint -- one colliding box, so a bullet still cannot pass where the AI
+	// cannot see. Everything else is non-colliding decor that reads against the body. All
+	// dimensions are metres, derived from the row's own rect, so one rule draws a 2.0 m bed
+	// and a 0.45 m chair alike. Proportions are a first pass: they read as the type they are
+	// meant to, and Richard's eye is the arbiter of whether they read WELL.
+	const FVector2D C = Rect.GetCenter();
+	const FVector2D S = Rect.GetSize();
+
+	auto Part = [&](UInstancedStaticMeshComponent* Comp, float Cx, float Cy,
+		float Z1, float Z2, float Sx, float Sy)
+	{
+		if (Comp != nullptr)
+		{
+			AddBox(Comp, FVector(Cx, Cy, (Z1 + Z2) * 0.5f), FVector(Sx, Sy, Z2 - Z1));
+		}
+	};
+
+	const float Top = Base + Height;
+
+	// --- soft seating: fabric body, taller back on the -X edge, arms, two cushions
+	if (Label == TEXT("sofa") || Label == TEXT("armchair"))
+	{
+		Part(FurnitureSoftInstances, C.X, C.Y, Base, Top, S.X, S.Y);
+		Part(FurnitureSoftDecorInstances, C.X - S.X * 0.5f + 0.08f, C.Y,
+			Base, Top + 0.18f, 0.16f, S.Y);                                   // back
+		Part(FurnitureSoftDecorInstances, C.X + S.X * 0.15f, C.Y - S.Y * 0.5f + 0.08f,
+			Base, Top, S.X, 0.16f);                                            // arm -Y
+		Part(FurnitureSoftDecorInstances, C.X + S.X * 0.15f, C.Y + S.Y * 0.5f - 0.08f,
+			Base, Top, S.X, 0.16f);                                            // arm +Y
+		Part(FurnitureSoftDecorInstances, C.X + S.X * 0.16f, C.Y - S.Y * 0.22f,
+			Top - 0.12f, Top + 0.06f, S.X * 0.55f, S.Y * 0.42f);               // seat cushion
+		Part(FurnitureSoftDecorInstances, C.X + S.X * 0.16f, C.Y + S.Y * 0.22f,
+			Top - 0.12f, Top + 0.06f, S.X * 0.55f, S.Y * 0.42f);               // seat cushion
+	}
+	// --- tables: wood mass, a slightly-overhanging top, four dark legs
+	else if (Label == TEXT("dining_table") || Label == TEXT("coffee_table")
+		|| Label == TEXT("tv_stand") || Label == TEXT("sideboard") || Label == TEXT("workbench"))
+	{
+		Part(FurnitureInstances, C.X, C.Y, Base, Top, S.X, S.Y);
+		Part(FurnitureWoodDecorInstances, C.X, C.Y, Top - 0.05f, Top + 0.03f, S.X + 0.10f, S.Y + 0.10f); // top
+		Part(FurnitureDarkDecorInstances, C.X - S.X * 0.5f + 0.05f, C.Y - S.Y * 0.5f + 0.05f,
+			Base - 0.04f, Top - 0.05f, 0.08f, 0.08f);
+		Part(FurnitureDarkDecorInstances, C.X + S.X * 0.5f - 0.05f, C.Y - S.Y * 0.5f + 0.05f,
+			Base - 0.04f, Top - 0.05f, 0.08f, 0.08f);
+		Part(FurnitureDarkDecorInstances, C.X - S.X * 0.5f + 0.05f, C.Y + S.Y * 0.5f - 0.05f,
+			Base - 0.04f, Top - 0.05f, 0.08f, 0.08f);
+		Part(FurnitureDarkDecorInstances, C.X + S.X * 0.5f - 0.05f, C.Y + S.Y * 0.5f - 0.05f,
+			Base - 0.04f, Top - 0.05f, 0.08f, 0.08f);
+	}
+	// --- chairs: a seat and a back over four legs
+	else if (Label == TEXT("chair") || Label == TEXT("desk_chair"))
+	{
+		Part(FurnitureInstances, C.X, C.Y, Base, Top, S.X, S.Y);
+		Part(FurnitureWoodDecorInstances, C.X, C.Y, Top - 0.10f, Top, S.X + 0.06f, S.Y + 0.06f);   // seat
+		Part(FurnitureWoodDecorInstances, C.X - S.X * 0.5f + 0.05f, C.Y, Top - 0.10f, Top + 0.30f,
+			0.10f, S.Y * 0.7f);                                                            // back
+		Part(FurnitureDarkDecorInstances, C.X - S.X * 0.5f + 0.04f, C.Y - S.Y * 0.5f + 0.04f,
+			Base - 0.04f, Top - 0.12f, 0.06f, 0.06f);
+		Part(FurnitureDarkDecorInstances, C.X + S.X * 0.5f - 0.04f, C.Y - S.Y * 0.5f + 0.04f,
+			Base - 0.04f, Top - 0.12f, 0.06f, 0.06f);
+		Part(FurnitureDarkDecorInstances, C.X - S.X * 0.5f + 0.04f, C.Y + S.Y * 0.5f - 0.04f,
+			Base - 0.04f, Top - 0.12f, 0.06f, 0.06f);
+		Part(FurnitureDarkDecorInstances, C.X + S.X * 0.5f - 0.04f, C.Y + S.Y * 0.5f - 0.04f,
+			Base - 0.04f, Top - 0.12f, 0.06f, 0.06f);
+	}
+	// --- beds: wood frame, fabric mattress + duvet + two pillows
+	else if (Label == TEXT("bed"))
+	{
+		Part(FurnitureInstances, C.X, C.Y, Base, Top, S.X, S.Y);
+		Part(FurnitureSoftDecorInstances, C.X, C.Y, Top, Top + 0.16f, S.X - 0.10f, S.Y - 0.10f); // mattress
+		Part(FurnitureSoftDecorInstances, C.X, C.Y, Top + 0.16f, Top + 0.22f, S.X - 0.16f, S.Y - 0.16f); // duvet
+		Part(FurnitureSoftDecorInstances, C.X - S.X * 0.5f + 0.14f, C.Y,
+			Top + 0.16f, Top + 0.28f, 0.28f, 0.60f);                                  // pillow 1
+		Part(FurnitureSoftDecorInstances, C.X - S.X * 0.5f + 0.14f, C.Y + S.Y * 0.22f,
+			Top + 0.16f, Top + 0.28f, 0.28f, 0.60f);                                  // pillow 2
+	}
+	// --- storage with doors: wood body, two door panels and a handle seam
+	else if (Label == TEXT("wardrobe") || Label == TEXT("coat_closet")
+		|| Label == TEXT("bookshelf") || Label == TEXT("shelving") || Label == TEXT("linen_shelving")
+		|| Label == TEXT("dresser") || Label == TEXT("nightstand"))
+	{
+		Part(FurnitureInstances, C.X, C.Y, Base, Top, S.X, S.Y);
+		Part(FurnitureDarkDecorInstances, C.X, C.Y, Base + 0.03f, Top - 0.03f, 0.02f, S.Y - 0.10f); // seam
+		if (Label == TEXT("wardrobe") || Label == TEXT("dresser") || Label == TEXT("nightstand"))
+		{
+			Part(FurnitureDarkDecorInstances, C.X - S.X * 0.5f + 0.03f, C.Y - S.Y * 0.32f,
+				Top * 0.5f, Top * 0.5f + 0.05f, 0.05f, 0.05f);                        // handle
+			Part(FurnitureDarkDecorInstances, C.X - S.X * 0.5f + 0.03f, C.Y + S.Y * 0.32f,
+				Top * 0.5f, Top * 0.5f + 0.05f, 0.05f, 0.05f);                        // handle
+		}
+	}
+	// --- kitchen + bathroom appliances: near-white body, dark worktop or details
+	else if (Label == TEXT("counter") || Label == TEXT("island") || Label == TEXT("vanity"))
+	{
+		Part(FurnitureApplianceInstances, C.X, C.Y, Base, Top, S.X, S.Y);
+		Part(FurnitureDarkDecorInstances, C.X, C.Y, Top - 0.04f, Top + 0.02f, S.X + 0.06f, S.Y + 0.06f); // worktop
+	}
+	else if (Label == TEXT("fridge") || Label == TEXT("washer") || Label == TEXT("dryer"))
+	{
+		Part(FurnitureApplianceInstances, C.X, C.Y, Base, Top, S.X, S.Y);
+		Part(FurnitureDarkDecorInstances, C.X - S.X * 0.5f - 0.02f, C.Y,
+			Base + Height * 0.55f, Base + Height * 0.62f, 0.05f, 0.05f);           // handle
+		if (Label == TEXT("washer") || Label == TEXT("dryer"))
+		{
+			Part(FurnitureDarkDecorInstances, C.X - S.X * 0.5f - 0.02f, C.Y,
+				Base + Height * 0.40f, Base + Height * 0.55f, 0.05f, S.Y * 0.45f); // round door front
+		}
+	}
+	else if (Label == TEXT("tub"))
+	{
+		Part(FurnitureApplianceInstances, C.X, C.Y, Base, Top, S.X, S.Y);
+		Part(FurnitureApplianceDecorInstances, C.X, C.Y, Top, Top + 0.04f, S.X - 0.14f, S.Y - 0.14f); // rim
+	}
+	else if (Label == TEXT("toilet"))
+	{
+		Part(FurnitureApplianceInstances, C.X, C.Y, Base, Top, S.X, S.Y);
+		Part(FurnitureApplianceDecorInstances, C.X - S.X * 0.5f + 0.08f, C.Y,
+			Top, Top + 0.38f, 0.18f, 0.30f);                                          // tank
+		Part(FurnitureDarkDecorInstances, C.X + S.X * 0.20f, C.Y, Top - 0.04f, Top, 0.26f, 0.30f); // seat
+	}
+	// --- lamp: dark pole, pale shade
+	else if (Label == TEXT("lamp"))
+	{
+		Part(FurnitureDarkInstances, C.X, C.Y, Base, Top, S.X, S.Y);
+		Part(FurnitureApplianceDecorInstances, C.X, C.Y, Top - 0.30f, Top + 0.05f,
+			S.X * 0.8f, S.Y * 0.8f);                                                   // shade
+	}
+	// --- lally column: a dark steel post
+	else if (Label == TEXT("lally_column"))
+	{
+		Part(FurnitureDarkInstances, C.X, C.Y, Base, Top, S.X, S.Y);
+	}
+	// --- everything else keeps its single wooden box (desk, workbench already covered above)
+	else
+	{
+		Part(FurnitureInstances, C.X, C.Y, Base, Top, S.X, S.Y);
+	}
+}
+
 void AHIHouse::Build()
 {
 	if (WallInstances == nullptr || FurnitureInstances == nullptr)
@@ -631,6 +783,9 @@ void AHIHouse::Build()
 	// promise is what keeps a second call site from being a bug.
 	for (UInstancedStaticMeshComponent* Comp : { WallInstances, FurnitureInstances,
 		SlabInstances, StairInstances, RailingInstances, WallBasementInstances,
+		FurnitureSoftInstances, FurnitureApplianceInstances, FurnitureDarkInstances,
+		FurnitureSoftDecorInstances, FurnitureApplianceDecorInstances, FurnitureDarkDecorInstances,
+		FurnitureWoodDecorInstances,
 		GroundInstance, FloorInstance, BasementFloorInstances, RoofInstance, CeilingInstance,
 		TrimInstances, WindowInstances, GlassInstances, FittingInstances, PropInstances,
 		CoatInstances, DoorHeadInstances, VanInstances, VanDetailInstances })
@@ -673,16 +828,28 @@ void AHIHouse::Build()
 		const TArray<float>& Heights = FHISim::FurnitureHeights();
 		const TArray<bool>& Flat = FHISim::FurnitureFlat();
 		const TArray<int32>& Floors = FHISim::FurnitureFloors();
+		const TArray<FString>& Labels = FHISim::FurnitureLabels();
 		if (Rects.Num() != Heights.Num() || Rects.Num() != Flat.Num()
-			|| Rects.Num() != Floors.Num() || FurnitureInstances == nullptr)
+			|| Rects.Num() != Floors.Num() || Rects.Num() != Labels.Num()
+			|| FurnitureInstances == nullptr)
 		{
 			return;
 		}
 		for (int32 Idx = 0; Idx < Rects.Num(); ++Idx)
 		{
-			const float Base = FHISim::FloorHeight(Floors[Idx]);
-			FurnitureInstances->AddInstance(
-				BoxTransform(Rects[Idx], Base, Base + Heights[Idx]), /*bWorldSpace=*/false);
+			// Flat rows (rugs) stay a single thin box; the rest are composed per label.
+			if (Flat[Idx])
+			{
+				const float Base = FHISim::FloorHeight(Floors[Idx]);
+				AddBox(FurnitureInstances,
+					FVector(Rects[Idx].GetCenter().X, Rects[Idx].GetCenter().Y, Base + Heights[Idx] * 0.5f),
+					FVector(Rects[Idx].GetSize().X, Rects[Idx].GetSize().Y, Heights[Idx]));
+			}
+			else
+			{
+				BuildFurniture(Labels[Idx], Rects[Idx],
+					FHISim::FloorHeight(Floors[Idx]), Heights[Idx]);
+			}
 		}
 	}
 
@@ -819,6 +986,16 @@ void AHIHouse::Build()
 	FHIMaterials::Tint(RoofInstance, FHIMaterials::WallExterior);
 	FHIMaterials::Textured(RoofInstance, TEXT("roof_shingle"), 8.0f);
 	FHIMaterials::Tint(FurnitureInstances, FHIMaterials::Wood);
+	// The composed furniture's materials (2026-10-19): fabric in the sofa blue, appliances
+	// in near-white, dark metal/screens in near-black -- body and detail share a tint so a
+	// sofa's cushions read as one piece with its base.
+	FHIMaterials::Tint(FurnitureSoftInstances, FHIMaterials::Sofa);
+	FHIMaterials::Tint(FurnitureSoftDecorInstances, FHIMaterials::Sofa);
+	FHIMaterials::Tint(FurnitureApplianceInstances, FHIMaterials::Trim);
+	FHIMaterials::Tint(FurnitureApplianceDecorInstances, FHIMaterials::Trim);
+	FHIMaterials::Tint(FurnitureDarkInstances, FHIMaterials::Tyre);
+	FHIMaterials::Tint(FurnitureDarkDecorInstances, FHIMaterials::Tyre);
+	FHIMaterials::Tint(FurnitureWoodDecorInstances, FHIMaterials::Wood);
 	// The decks: every deck in WorldSolids is drawn by SlabInstances now -- the ground
 	// deck, the storey slab AND the roof deck -- because the sim says each of them stops a
 	// bullet, and the invariant at the top of this header forbids a solid the sim knows
@@ -865,16 +1042,25 @@ void AHIHouse::Build()
 	// a house but could equally have been one wall seen edge-on, and a screenshot cannot tell
 	// those apart. These counts can. Phase 2's numbers, all derivable from the sim's tables:
 	// walls=27 (26 above-grade rows + the stairwell screen), basement_walls=6 (4 exterior
-	// runs + 2 partitions), furniture=48, slabs=9 decks, stairs=29 treads (15 + 14),
-	// railings=2, ceiling=9 panels, roof=19 (2 slopes + ridge + 16 gable steps), trim=44
-	// (22 interior rows x skirting + rail), ground=4 lawn strips, floor=4 wood panels,
-	// basement_floor=1, door_head=3, coat=2. Every other component must simply be non-zero,
-	// or something in this function silently did not run.
+	// runs + 2 partitions), slabs=9 decks, stairs=29 treads (15 + 14), railings=2, ceiling=9
+	// panels, roof=19 (2 slopes + ridge + 16 gable steps), trim=44 (22 interior rows x
+	// skirting + rail), ground=4 lawn strips, floor=4 wood panels, basement_floor=1,
+	// door_head=3, coat=2. Furniture bodies are split across wood/soft/appliance/dark since
+	// the 2026-10-19 composition, and its decor is counted separately; the four body counts
+	// together cover the 48 non-flat rows. Every other component must simply be non-zero, or
+	// something in this function silently did not run.
 	UE_LOG(LogTemp, Display,
-		TEXT("HI: house built -- walls=%d basement_walls=%d furniture=%d ground=%d floor=%d basement_floor=%d roof=%d ceiling=%d trim=%d frames=%d glass=%d fittings=%d props=%d coat=%d door_head=%d van=%d van_detail=%d slabs=%d stairs=%d railings=%d"),
+		TEXT("HI: house built -- walls=%d basement_walls=%d furniture=%d furniture_soft=%d furniture_appliance=%d furniture_dark=%d furn_woodd=%d furn_softd=%d furn_appd=%d furn_darkd=%d ground=%d floor=%d basement_floor=%d roof=%d ceiling=%d trim=%d frames=%d glass=%d fittings=%d props=%d coat=%d door_head=%d van=%d van_detail=%d slabs=%d stairs=%d railings=%d"),
 		WallInstances->GetInstanceCount(),
 		WallBasementInstances->GetInstanceCount(),
 		FurnitureInstances->GetInstanceCount(),
+		FurnitureSoftInstances->GetInstanceCount(),
+		FurnitureApplianceInstances->GetInstanceCount(),
+		FurnitureDarkInstances->GetInstanceCount(),
+		FurnitureWoodDecorInstances->GetInstanceCount(),
+		FurnitureSoftDecorInstances->GetInstanceCount(),
+		FurnitureApplianceDecorInstances->GetInstanceCount(),
+		FurnitureDarkDecorInstances->GetInstanceCount(),
 		GroundInstance->GetInstanceCount(), FloorInstance->GetInstanceCount(),
 		BasementFloorInstances->GetInstanceCount(),
 		RoofInstance->GetInstanceCount(), CeilingInstance->GetInstanceCount(),

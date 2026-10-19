@@ -71,6 +71,28 @@ public:
 	TObjectPtr<class UInstancedStaticMeshComponent> WallBasementInstances;
 
 	/**
+	 * Phase-2 realism (2026-10-19): furniture is no longer one box per piece. Each piece is
+	 * a BODY -- one colliding box that keeps the sim's exact footprint -- plus decor detail
+	 * parts in the same material. The three `*Instances` below collide and keep the collision
+	 * contract; the three `*Decor` ones do NOT (a cushion must not stop a bullet the sim's
+	 * sofa rect would not). One component per material, as everywhere in this class.
+	 */
+	UPROPERTY(VisibleAnywhere, Category = "Home Invasion")
+	TObjectPtr<class UInstancedStaticMeshComponent> FurnitureSoftInstances;
+	UPROPERTY(VisibleAnywhere, Category = "Home Invasion")
+	TObjectPtr<class UInstancedStaticMeshComponent> FurnitureApplianceInstances;
+	UPROPERTY(VisibleAnywhere, Category = "Home Invasion")
+	TObjectPtr<class UInstancedStaticMeshComponent> FurnitureDarkInstances;
+	UPROPERTY(VisibleAnywhere, Category = "Home Invasion")
+	TObjectPtr<class UInstancedStaticMeshComponent> FurnitureSoftDecorInstances;
+	UPROPERTY(VisibleAnywhere, Category = "Home Invasion")
+	TObjectPtr<class UInstancedStaticMeshComponent> FurnitureApplianceDecorInstances;
+	UPROPERTY(VisibleAnywhere, Category = "Home Invasion")
+	TObjectPtr<class UInstancedStaticMeshComponent> FurnitureDarkDecorInstances;
+	UPROPERTY(VisibleAnywhere, Category = "Home Invasion")
+	TObjectPtr<class UInstancedStaticMeshComponent> FurnitureWoodDecorInstances;
+
+	/**
 	 * The lawn, over the sim's world bounds, DELIBERATELY WITHOUT COLLISION.
 	 *
 	 * It exists so the scene reads as a place rather than as bodies in a void -- nothing
@@ -251,6 +273,9 @@ private:
 	/** One decorative box with a full rotation -- the gable roof's pitched planes. */
 	void AddBoxR(UInstancedStaticMeshComponent* Target, const FVector& Centre,
 		const FVector& SizeMeters, const FRotator& Rot);
+
+	/** Compose one furniture row into a colliding body plus decor detail, by its label. */
+	void BuildFurniture(const FString& Label, const FBox2D& Rect, float Base, float Height);
 
 	/**
 	 * One window in one wall. `Along` is the axis the wall runs down. `FloorZ` lifts the
