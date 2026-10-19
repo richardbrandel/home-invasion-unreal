@@ -305,7 +305,8 @@ private:
 	 *  to fill the given footprint. Used for the Sketchfab models, whose glb splits into many
 	 *  sub-meshes (body, wheels, glass) that the importer leaves in the model's local space. */
 	void PlaceSketchfabModel(const FString& Name, const FVector2D& Center,
-		float WidthM, float DepthM, float Base, float Height, const FRotator& Rot);
+		float WidthM, float DepthM, float Base, float Height, const FRotator& Rot,
+		bool bCollide = false, bool bPerAxis = false);
 
 	/**
 	 * One window in one wall. `Along` is the axis the wall runs down. `FloorZ` lifts the

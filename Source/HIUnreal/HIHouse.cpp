@@ -619,12 +619,12 @@ void AHIHouse::BuildDressing()
 	{
 		const FBox2D& V = FHISim::Van;
 		PlaceSketchfabModel(TEXT("van"), V.GetCenter(), V.GetSize().X, V.GetSize().Y,
-			0.0f, 2.5f, FRotator(0.0f, 90.0f, 90.0f));
+			0.0f, 2.5f, FRotator::ZeroRotator);
 	}
 }
 
 void AHIHouse::PlaceSketchfabModel(const FString& Name, const FVector2D& Center,
-	float WidthM, float DepthM, float Base, float Height, const FRotator& Rot)
+	float WidthM, float DepthM, float Base, float Height, const FRotator& Rot, bool bCollide, bool bPerAxis)
 {
 	// Every StaticMesh under /Game/HIImported/models/<Name>, placed at one shared transform
 	// (2026-10-19). The glTF importer bakes node transforms, so the sub-meshes -- a van's
@@ -661,23 +661,41 @@ void AHIHouse::PlaceSketchfabModel(const FString& Name, const FVector2D& Center,
 	}
 
 	const FVector Full = Combined.GetExtent() * 2.0f;   // full model size, in UU
-	const float Longest = FMath::Max3(Full.X, Full.Y, Full.Z);
-	if (Longest < 1.0f)
-	{
-		return;
-	}
-	// Uniform scale: the models are Y-up with varying length axes, so per-axis scaling would
-	// squash them. Fit the longest axis to the footprint's X (the caller passes the length,
-	// or the height for a tree), and let the model's own proportions carry the rest.
-	const float S = WidthM * HI_METERS_TO_UU / Longest;
-	const FVector Scale(S, S, S);
+	// Two scales: uniform fits the longest axis to WidthM (vehicles/trees, whose proportions
+	// are right); per-axis forces X/Y/Z onto WidthM/DepthM/Height (furniture, where the
+	// imports arrived with wildly non-uniform unit scales and need normalising to the sim's
+	// collision rect).
+	const FVector Scale = bPerAxis
+		? FVector(WidthM * HI_METERS_TO_UU / Full.X,
+			DepthM * HI_METERS_TO_UU / Full.Y,
+			Height * HI_METERS_TO_UU / Full.Z)
+		: [&]()
+		{
+			const float Longest = FMath::Max3(Full.X, Full.Y, Full.Z);
+			const float S = Longest > 1.0f ? WidthM * HI_METERS_TO_UU / Longest : 0.0f;
+			return FVector(S, S, S);
+		}();
 	const FVector C = Combined.GetCenter();
+	UE_LOG(LogTemp, Log, TEXT("HI: SketchfabModel %s full=(%.1f,%.1f,%.1f)UU center=(%.1f,%.1f,%.1f) scale=(%.4f,%.4f,%.4f) meshes=%d"),
+		*Name, Full.X, Full.Y, Full.Z, C.X, C.Y, C.Z, Scale.X, Scale.Y, Scale.Z, Meshes.Num());
 	const FVector Target(Center.X, Center.Y, Base + Height * 0.5f);
 	for (UStaticMesh* M : Meshes)
 	{
 		UStaticMeshComponent* Comp = NewObject<UStaticMeshComponent>(this);
 		Comp->SetStaticMesh(M);
-		Comp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		if (bCollide)
+		{
+			// Furniture: the mesh's own triangle collision blocks the bullet where the mesh
+			// is, replacing the sim's colliding box. The sim's sight is unchanged.
+			Comp->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+			Comp->SetCollisionResponseToAllChannels(ECR_Ignore);
+			Comp->SetCollisionResponseToChannel(ECC_Visibility, ECR_Block);
+			Comp->SetCollisionResponseToChannel(ECC_PhysicsBody, ECR_Block);
+		}
+		else
+		{
+			Comp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		}
 		Comp->SetMobility(EComponentMobility::Static);
 		Comp->RegisterComponent();
 		Comp->AttachToComponent(RootComponent, FAttachmentTransformRules::KeepWorldTransform);
@@ -810,19 +828,21 @@ void AHIHouse::BuildNeighborhood()
 			}
 		};
 		// Real Sketchfab models (CC BY, tools/fetch-sketchfab.py) replace the boxy sedans
-		// and the procedural GTO. The Phoenix 455 muscle car is Z-up with its length on Y
-		// (yaw 90); the Shvan is Y-up with its length on Z (yaw 90 + roll 90).
-		PlaceSketchfabModel(TEXT("car"), FVector2D(-5.5f, 8.3f), 4.5f, 1.8f, 0.0f, 1.5f, FRotator(0.0f, 90.0f, 90.0f));
-		PlaceSketchfabModel(TEXT("muscle"), FVector2D(5.5f, 8.3f), 4.7f, 1.8f, 0.0f, 1.4f, FRotator(0.0f, 90.0f, 0.0f));
-		PlaceSketchfabModel(TEXT("car"), FVector2D(11.0f, 8.3f), 4.5f, 1.8f, 0.0f, 1.5f, FRotator(0.0f, 90.0f, 90.0f));
+		// and the procedural GTO. The importer already puts length on X and up on Z, so no
+		// rotation is needed -- the earlier 90-degree turns were what parked them sideways
+		// in the walkway. The Shvan turned out to be a 19 m pack, so all three are the
+		// Phoenix muscle car until a single sedan is fetched.
+		PlaceSketchfabModel(TEXT("muscle"), FVector2D(-5.5f, 8.3f), 4.7f, 1.8f, 0.0f, 1.4f, FRotator::ZeroRotator);
+		PlaceSketchfabModel(TEXT("muscle"), FVector2D(5.5f, 8.3f), 4.7f, 1.8f, 0.0f, 1.4f, FRotator::ZeroRotator);
+		PlaceSketchfabModel(TEXT("muscle"), FVector2D(11.0f, 8.3f), 4.7f, 1.8f, 0.0f, 1.4f, FRotator::ZeroRotator);
 	}
 
 	// Real trees (CC BY, tools/fetch-sketchfab.py) replace the boxy trunk-and-boxes: a pine
-	// and an oak, Y-up so rolled upright (roll 90 about X).
-	PlaceSketchfabModel(TEXT("tree2"), FVector2D(-4.5f, 3.5f), 5.0f, 5.0f, 0.0f, 5.0f, FRotator(0.0f, 0.0f, 90.0f));
-	PlaceSketchfabModel(TEXT("tree2"), FVector2D(4.5f, 3.5f), 4.5f, 4.5f, 0.0f, 4.5f, FRotator(0.0f, 0.0f, 90.0f));
-	PlaceSketchfabModel(TEXT("tree1"), FVector2D(-9.0f, 12.5f), 6.0f, 6.0f, 0.0f, 6.0f, FRotator(0.0f, 0.0f, 90.0f));
-	PlaceSketchfabModel(TEXT("tree1"), FVector2D(9.0f, 12.5f), 6.0f, 6.0f, 0.0f, 6.0f, FRotator(0.0f, 0.0f, 90.0f));
+	// and an oak. The importer already puts up on Z, so no roll.
+	PlaceSketchfabModel(TEXT("tree2"), FVector2D(-4.5f, 3.5f), 5.0f, 5.0f, 0.0f, 5.0f, FRotator::ZeroRotator);
+	PlaceSketchfabModel(TEXT("tree2"), FVector2D(4.5f, 3.5f), 4.5f, 4.5f, 0.0f, 4.5f, FRotator::ZeroRotator);
+	PlaceSketchfabModel(TEXT("tree1"), FVector2D(-9.0f, 12.5f), 6.0f, 6.0f, 0.0f, 6.0f, FRotator::ZeroRotator);
+	PlaceSketchfabModel(TEXT("tree1"), FVector2D(9.0f, 12.5f), 6.0f, 6.0f, 0.0f, 6.0f, FRotator::ZeroRotator);
 
 	// A street light at the kerb and a mailbox by the front path.
 	AddBox(VanDetailInstances, FVector(2.6f, 5.9f, 2.6f), FVector(0.14f, 0.14f, 5.2f));
@@ -912,6 +932,26 @@ void AHIHouse::BuildFurniture(const FString& Label, const FBox2D& Rect, float Ba
 		{
 			UE_LOG(LogTemp, Warning, TEXT("HI: no model at %s -- run tools/fetch-models.py"), *Path);
 		}
+	}
+
+	// Sketchfab furniture (CC BY, tools/fetch-sketchfab.py): the pieces a box cannot read
+	// as, that Poly Haven had no no-account model for. The model REPLACES the body and its
+	// own triangle collision blocks the bullet; the sim's sight is unchanged. Uniform scale
+	// keys off the row's largest dimension so a tall fridge or a long bed both come out right.
+	auto SketchfabFor = [](const FString& L) -> const TCHAR*
+	{
+		if (L == TEXT("bed"))    return TEXT("bed");
+		if (L == TEXT("fridge")) return TEXT("fridge");
+		if (L == TEXT("toilet")) return TEXT("toilet");
+		if (L == TEXT("tub"))    return TEXT("tub");
+		if (L == TEXT("washer")) return TEXT("washer");
+		return nullptr;
+	};
+	if (const TCHAR* SModel = SketchfabFor(Label))
+	{
+		PlaceSketchfabModel(SModel, C, (float)S.X, (float)S.Y, Base, Height,
+			FRotator::ZeroRotator, /*bCollide=*/true, /*bPerAxis=*/true);
+		return;
 	}
 
 	// --- soft seating: fabric body, taller back on the -X edge, arms, two cushions
