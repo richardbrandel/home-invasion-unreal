@@ -18,7 +18,13 @@ AHIMark::AHIMark()
 	// Marks are small, numerous and never cast anything a player would notice -- but a
 	// hundred of them casting shadows across a room is a very visible cost for nothing.
 	Quad->SetCastShadow(false);
-	Quad->SetVisibility(false);
+	// NOT `SetVisibility(false)` here (2026-10-19): that flips the component's bVisible
+	// flag, which Stamp/StampLine never re-set -- they show with SetActorHiddenInGame(false),
+	// a DIFFERENT flag (the actor's bHiddenInGame). UE's IsVisible() is
+	// `!bHiddenInGame && bVisible`, so a constructor-time SetVisibility(false) left every
+	// bullet hole, blood slab, tracer and muzzle flash invisible for the life of the port.
+	// The mark pool owns hiding (SetActorHiddenInGame(true) at spawn); the component keeps
+	// its default bVisible=true, and the first Stamp shows it.
 
 	if (UStaticMesh* Mesh = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cube.Cube")))
 	{

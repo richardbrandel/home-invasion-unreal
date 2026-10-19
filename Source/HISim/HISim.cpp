@@ -198,6 +198,7 @@ bool FHISim::Shove(FHIPlayer& Player, FHIThief& Thief, TArray<FHILootItem>& Loot
 	DropCarried(Thief, Loot, Events);
 	FHIEvent Ev;
 	Ev.Type = TEXT("shoved");
+	Ev.Id = Thief.Id;   // so the actor layer can voice the man who was shoved, not the player
 	// FHIEvent carries one string payload; Godot's "shoved" calls it `dropped` and its
 	// "dropped" event calls the same value `label`. One field serves both.
 	Ev.Label = Dropped;
@@ -3404,6 +3405,16 @@ bool FHISim::StepThief(FHIThief& Thief, FHIPlayer& Player, TArray<FHILootItem>& 
 	// ---- decide
 	if (Thief.Mode == TEXT("flee") || Thief.Fear >= FearFlee)
 	{
+		// First entry into flee is the bark moment (2026-10-19): fix-list item 16's
+		// "he flees" hook was documented as firing but never had an event behind it. The
+		// mode is sticky, so emitting only on the transition keeps it one line per man.
+		if (Thief.Mode != TEXT("flee"))
+		{
+			FHIEvent FleeEv;
+			FleeEv.Type = TEXT("thiefFlee");
+			FleeEv.Id = Thief.Id;
+			Events.Add(FleeEv);
+		}
 		Thief.Mode = TEXT("flee");
 		if (Thief.Route.Num() == 0)
 		{
@@ -4050,6 +4061,17 @@ bool FHISim::StepThief(FHIThief& Thief, FHIPlayer& Player, TArray<FHILootItem>& 
 	if (bCan)
 	{
 		Thief.Aim = FMath::Min(Thief.Aim + Dt, ThiefAimTime);
+		// First direct sight of the homeowner is the "he spots you" bark (2026-10-19):
+		// item 16 documented it as firing; the hook never existed. One per man -- the latch
+		// keeps a break-then-resight silent, which is right: re-barks are noise, not news.
+		if (!Thief.bSpottedPlayer)
+		{
+			Thief.bSpottedPlayer = true;
+			FHIEvent SpotEv;
+			SpotEv.Type = TEXT("thiefSpot");
+			SpotEv.Id = Thief.Id;
+			Events.Add(SpotEv);
+		}
 	}
 	else
 	{

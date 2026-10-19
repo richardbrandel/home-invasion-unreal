@@ -3589,4 +3589,84 @@ bool FHISimThiefDescends::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHISimBarkEvents,
+	"HI.Sim.BarkEvents",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FHISimBarkEvents::RunTest(const FString& Parameters)
+{
+	// Fix-list item 16's "he spots you / he flees / he is shoved" barks were documented as
+	// firing for a full cycle before the events behind them existed (2026-10-19). These pin
+	// the two new sim events so a future edit cannot silently unwire the voices again.
+
+	const float Dt = 1.0f / 60.0f;
+
+	// ---- first direct sight raises thiefSpot exactly once per man.
+	{
+		FHISim::FHIRound R = FHISim::FHIRound::Start(1);
+		FHISim::FHIThief& Th = R.Intruders[0];
+		Th.Searched = FHISim::SearchNodes();   // idle: nothing to walk to, so he stays put
+		Th.Pos = FVector2D(0.0f, -9.6f);
+		Th.Floor = 0;
+		Th.Z = 0.0f;
+		Th.Yaw = -PI / 2.0f;                   // facing south, down the entry hall
+		R.Player.Pos = FVector2D(0.0f, -10.6f);
+		R.Player.Floor = 0;
+		R.Player.Z = 0.0f;
+
+		FHISim::FHIInput In;
+		R.Step(In, Dt);
+		int32 Spots = 0;
+		for (const FHISim::FHIEvent& Ev : R.ConsumeEvents())
+		{
+			if (Ev.Type == TEXT("thiefSpot") && Ev.Id == Th.Id)
+			{
+				++Spots;
+			}
+		}
+		TestEqual(TEXT("first direct sight raises thiefSpot once"), Spots, 1);
+
+		R.Step(In, Dt);
+		for (const FHISim::FHIEvent& Ev : R.ConsumeEvents())
+		{
+			if (Ev.Type == TEXT("thiefSpot"))
+			{
+				++Spots;
+			}
+		}
+		TestEqual(TEXT("and the latch keeps it one-shot (no re-bark next frame)"), Spots, 1);
+	}
+
+	// ---- a frightened man flees once, and only on the transition into flee.
+	{
+		FHISim::FHIRound R = FHISim::FHIRound::Start(1);
+		// The cap, not FearFlee: fear decays (FearDecay * Dt) BEFORE the flee branch runs, so
+		// a value parked exactly on the threshold is a hair under it by the time it is read.
+		R.Intruders[0].Fear = 8.0f;
+		FHISim::FHIInput In;
+		R.Step(In, Dt);
+		int32 Flees = 0;
+		for (const FHISim::FHIEvent& Ev : R.ConsumeEvents())
+		{
+			if (Ev.Type == TEXT("thiefFlee") && Ev.Id == R.Intruders[0].Id)
+			{
+				++Flees;
+			}
+		}
+		TestEqual(TEXT("a man at the fear cap flees once"), Flees, 1);
+
+		R.Step(In, Dt);
+		for (const FHISim::FHIEvent& Ev : R.ConsumeEvents())
+		{
+			if (Ev.Type == TEXT("thiefFlee"))
+			{
+				++Flees;
+			}
+		}
+		TestEqual(TEXT("and flee mode is sticky, so the bark does not repeat"), Flees, 1);
+	}
+
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS

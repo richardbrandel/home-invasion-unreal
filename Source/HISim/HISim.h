@@ -605,6 +605,10 @@ struct HISIM_API FHISim
 		float Fear = 0.0f;
 		bool bEscaped = false;
 		FVector2D LastSeen = FVector2D::ZeroVector;
+		/** Latches on the first direct sight of the homeowner (2026-10-19) so the
+		 * "thiefSpot" bark fires once on the transition, not every frame of line-of-sight.
+		 * Pure flavour: it gates a bark and changes no routing, fear or aiming. */
+		bool bSpottedPlayer = false;
 		float Speed = 0.0f;
 		TArray<FString> Searched;
 		/** -1 means nobody has called the police yet. */

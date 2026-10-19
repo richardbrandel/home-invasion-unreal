@@ -1822,6 +1822,13 @@ void AHIGameMode::Tick(float DeltaSeconds)
 				? FString(TEXT("You shoved him off."))
 				: FString::Printf(TEXT("You shoved him off - he dropped the %s."), *Ev.Label);
 			MessageTime = 2.0f;
+			// Item 16's "he is shoved" bark (2026-10-19): the hook existed in the fix-list
+			// prose but not in code. The event carries the shoved man's Id.
+			if (const FHISim::FHIThief* Who = Round.FindIntruder(Ev.Id))
+			{
+				FHIAudio::Voice(World, FVector(Who->Pos.X, Who->Pos.Y, 1.4f) * HI_METERS_TO_UU,
+					TEXT("thief_shoved"), 0.9f);
+			}
 		}
 		else if (Ev.Type == TEXT("thiefShove"))
 		{
@@ -1855,6 +1862,34 @@ void AHIGameMode::Tick(float DeltaSeconds)
 			MessageTime = 3.0f;
 			FHIAudio::Voice(World, FVector(Round.Player.Pos.X, Round.Player.Pos.Y, 1.6f) * HI_METERS_TO_UU,
 				TEXT("owner_police"));
+		}
+		else if (Ev.Type == TEXT("thiefSpot"))
+		{
+			// A man has SEEN you (2026-10-19). With a crew at his back it is an ORDER --
+			// "he's here, get him" -- alone it is just the spot ("there you are"). Both
+			// lines are used; the choice is audio-only, so no alert change rides in on it.
+			if (const FHISim::FHIThief* Who = Round.FindIntruder(Ev.Id))
+			{
+				int32 Crew = 0;
+				for (const FHISim::FHIThief& T : Round.Intruders)
+				{
+					if (T.bAlive)
+					{
+						++Crew;
+					}
+				}
+				FHIAudio::Voice(World, FVector(Who->Pos.X, Who->Pos.Y, 1.4f) * HI_METERS_TO_UU,
+					Crew > 1 ? TEXT("thief_order") : TEXT("thief_spot"), 1.0f);
+			}
+		}
+		else if (Ev.Type == TEXT("thiefFlee"))
+		{
+			// He breaks and runs (2026-10-19): the "he flees" hook from item 16.
+			if (const FHISim::FHIThief* Who = Round.FindIntruder(Ev.Id))
+			{
+				FHIAudio::Voice(World, FVector(Who->Pos.X, Who->Pos.Y, 1.4f) * HI_METERS_TO_UU,
+					TEXT("thief_flee"), 1.0f);
+			}
 		}
 		else if (Ev.Type == TEXT("allStolen"))
 		{
