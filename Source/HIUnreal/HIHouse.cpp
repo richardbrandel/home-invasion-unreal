@@ -700,9 +700,10 @@ void AHIHouse::PlaceSketchfabModel(const FString& Name, const FVector2D& Center,
 		Comp->SetMobility(EComponentMobility::Static);
 		Comp->RegisterComponent();
 		Comp->AttachToComponent(RootComponent, FAttachmentTransformRules::KeepWorldTransform);
-		Comp->SetWorldRotation(Rot);
-		Comp->SetWorldScale3D(Scale);
-		Comp->SetWorldLocation(Target * HI_METERS_TO_UU - Rot.RotateVector(C * Scale));
+		// One atomic transform: separate SetWorldRotation/Scale/Location calls can mis-compose
+		// when a scale and a rotation are both present (the cars parked sideways, 2026-10-20).
+		Comp->SetWorldTransform(FTransform(
+			Rot, Target * HI_METERS_TO_UU - Rot.RotateVector(C * Scale), Scale));
 	}
 }
 
