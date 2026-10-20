@@ -698,12 +698,17 @@ void AHIHouse::PlaceSketchfabModel(const FString& Name, const FVector2D& Center,
 		{
 			Comp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 		}
-		Comp->SetMobility(EComponentMobility::Static);
+		Comp->SetMobility(EComponentMobility::Movable);
 		Comp->RegisterComponent();
 		Comp->AttachToComponent(RootComponent, FAttachmentTransformRules::KeepWorldTransform);
 		// One atomic transform: separate SetWorldRotation/Scale/Location calls can mis-compose
 		// when a scale and a rotation are both present (the cars parked sideways, 2026-10-20).
-		Comp->SetWorldTransform(FTransform(Rot, Loc, Scale));
+		Comp->SetRelativeTransform(FTransform(Rot, Loc, Scale));
+		UE_LOG(LogTemp, Log, TEXT("HI: %s actualWorld=(%.1f,%.1f,%.1f) rel=(%.1f,%.1f,%.1f) parent=%s"),
+			*Name,
+			Comp->GetComponentLocation().X, Comp->GetComponentLocation().Y, Comp->GetComponentLocation().Z,
+			Comp->GetRelativeLocation().X, Comp->GetRelativeLocation().Y, Comp->GetRelativeLocation().Z,
+			Comp->GetAttachParent() ? *Comp->GetAttachParent()->GetName() : TEXT("none"));
 	}
 }
 
@@ -936,14 +941,14 @@ void AHIHouse::BuildFurniture(const FString& Label, const FBox2D& Rect, float Ba
 				UStaticMeshComponent* Comp = NewObject<UStaticMeshComponent>(this);
 				Comp->SetStaticMesh(Mesh);
 				Comp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-				Comp->SetMobility(EComponentMobility::Static);
+				Comp->SetMobility(EComponentMobility::Movable);
 				Comp->RegisterComponent();
 				Comp->AttachToComponent(RootComponent, FAttachmentTransformRules::KeepWorldTransform);
 				const FVector Loc = Target * HI_METERS_TO_UU - Rot.RotateVector(B.Origin * Scale);
 				UE_LOG(LogTemp, Log, TEXT("HI: place %s origin=(%.1f,%.1f,%.1f) loc=(%.1f,%.1f,%.1f) scale=(%.2f,%.2f,%.2f) mats=%d"),
 					*Label, B.Origin.X, B.Origin.Y, B.Origin.Z, Loc.X, Loc.Y, Loc.Z,
 					Scale.X, Scale.Y, Scale.Z, Mesh->GetStaticMaterials().Num());
-				Comp->SetWorldTransform(FTransform(Rot, Loc, Scale));
+				Comp->SetRelativeTransform(FTransform(Rot, Loc, Scale));
 				return;
 			}
 		}
