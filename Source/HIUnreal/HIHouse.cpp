@@ -677,20 +677,19 @@ void AHIHouse::PlaceSketchfabModel(const FString& Name, const FVector2D& Center,
 			return FVector(S, S, S);
 		}();
 	const FVector C = Combined.GetCenter();
-	UE_LOG(LogTemp, Log, TEXT("HI: SketchfabModel %s full=(%.1f,%.1f,%.1f)UU center=(%.1f,%.1f,%.1f) scale=(%.4f,%.4f,%.4f) meshes=%d"),
-		*Name, Full.X, Full.Y, Full.Z, C.X, C.Y, C.Z, Scale.X, Scale.Y, Scale.Z, Meshes.Num());
 	const FVector Target(Center.X, Center.Y, Base + Height * 0.5f);
+	const FVector Loc = Target * HI_METERS_TO_UU - Rot.RotateVector(C * Scale);
+	UE_LOG(LogTemp, Log, TEXT("HI: SketchfabModel %s full=(%.1f,%.1f,%.1f)UU center=(%.1f,%.1f,%.1f) scale=(%.3f,%.3f,%.3f) Loc=(%.1f,%.1f,%.1f) meshes=%d"),
+		*Name, Full.X, Full.Y, Full.Z, C.X, C.Y, C.Z, Scale.X, Scale.Y, Scale.Z, Loc.X, Loc.Y, Loc.Z, Meshes.Num());
 	for (UStaticMesh* M : Meshes)
 	{
 		UStaticMeshComponent* Comp = NewObject<UStaticMeshComponent>(this);
 		Comp->SetStaticMesh(M);
-		if (bCollide)
+		// Diagnostic 2026-10-20: the imported gltf material sometimes lands black/broken
+		// (invisible). Force a visible one on EVERY model until the import is fixed.
+		for (int32 SM = 0; SM < Comp->GetNumMaterials(); ++SM)
 		{
-			// The imported gltf material sometimes lands black/broken; force a visible one.
-			for (int32 SM = 0; SM < Comp->GetNumMaterials(); ++SM)
-			{
-				FHIMaterials::Tint(Comp, FHIMaterials::Wood, SM);
-			}
+			FHIMaterials::Tint(Comp, FHIMaterials::Wood, SM);
 		}
 		if (bCollide)
 		{
@@ -710,8 +709,7 @@ void AHIHouse::PlaceSketchfabModel(const FString& Name, const FVector2D& Center,
 		Comp->AttachToComponent(RootComponent, FAttachmentTransformRules::KeepWorldTransform);
 		// One atomic transform: separate SetWorldRotation/Scale/Location calls can mis-compose
 		// when a scale and a rotation are both present (the cars parked sideways, 2026-10-20).
-		Comp->SetWorldTransform(FTransform(
-			Rot, Target * HI_METERS_TO_UU - Rot.RotateVector(C * Scale), Scale));
+		Comp->SetWorldTransform(FTransform(Rot, Loc, Scale));
 	}
 }
 
@@ -936,6 +934,11 @@ void AHIHouse::BuildFurniture(const FString& Label, const FBox2D& Rect, float Ba
 						S.Y * HI_METERS_TO_UU / MS.Y,
 						Height * HI_METERS_TO_UU / MS.Z);
 				const FVector Target(C.X, C.Y, Base + Height * 0.5f);
+				// The colliding body stays a plain box (the sim's exact rect) so a bullet still
+				// cannot pass where the AI cannot see. The imported mesh is NON-colliding decor
+				// on top -- QueryAndPhysics on an imported mesh with no collision hull was hiding
+				// the mesh entirely (2026-10-20, "the house is empty").
+				Part(FurnitureInstances, C.X, C.Y, Base, Top, S.X, S.Y);
 				UStaticMeshComponent* Comp = NewObject<UStaticMeshComponent>(this);
 				Comp->SetStaticMesh(Mesh);
 				// The imported gltf material sometimes lands black/broken (the furniture was
@@ -944,10 +947,7 @@ void AHIHouse::BuildFurniture(const FString& Label, const FBox2D& Rect, float Ba
 				{
 					FHIMaterials::Tint(Comp, FHIMaterials::Wood, M);
 				}
-				Comp->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
-				Comp->SetCollisionResponseToAllChannels(ECR_Ignore);
-				Comp->SetCollisionResponseToChannel(ECC_Visibility, ECR_Block);
-				Comp->SetCollisionResponseToChannel(ECC_PhysicsBody, ECR_Block);
+				Comp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 				Comp->SetMobility(EComponentMobility::Static);
 				Comp->RegisterComponent();
 				Comp->AttachToComponent(RootComponent, FAttachmentTransformRules::KeepWorldTransform);
@@ -989,8 +989,11 @@ void AHIHouse::BuildFurniture(const FString& Label, const FBox2D& Rect, float Ba
 	};
 	if (const TCHAR* SModel = SketchfabFor(Label))
 	{
+		// Colliding body = the sim's box; the imported mesh is non-colliding decor (see the
+		// ModelFor note above -- QueryAndPhysics was hiding the mesh).
+		Part(FurnitureInstances, C.X, C.Y, Base, Top, S.X, S.Y);
 		PlaceSketchfabModel(SModel, C, (float)S.X, (float)S.Y, Base, Height,
-			FRotator::ZeroRotator, /*bCollide=*/true, /*bPerAxis=*/true);
+			FRotator::ZeroRotator, /*bCollide=*/false, /*bPerAxis=*/true);
 		return;
 	}
 
