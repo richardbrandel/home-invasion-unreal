@@ -685,12 +685,6 @@ void AHIHouse::PlaceSketchfabModel(const FString& Name, const FVector2D& Center,
 	{
 		UStaticMeshComponent* Comp = NewObject<UStaticMeshComponent>(this);
 		Comp->SetStaticMesh(M);
-		// Diagnostic 2026-10-20: the imported gltf material sometimes lands black/broken
-		// (invisible). Force a visible one on EVERY model until the import is fixed.
-		for (int32 SM = 0; SM < Comp->GetNumMaterials(); ++SM)
-		{
-			FHIMaterials::Tint(Comp, FHIMaterials::Wood, SM);
-		}
 		if (bCollide)
 		{
 			// Furniture: the mesh's own triangle collision blocks the bullet where the mesh
@@ -728,7 +722,7 @@ void AHIHouse::BuildNeighborhood()
 			AddBox(StreetInstances, FVector((X1 + X2) * 0.5f, (Y1 + Y2) * 0.5f, 0.01f),
 				FVector(X2 - X1, Y2 - Y1, SZ));
 		};
-		Strip(-45.0f, 45.0f, 6.6f, 10.0f);    // the street, containing the van (y 7..9.4)
+		Strip(-45.0f, 45.0f, 6.6f, 11.2f);    // the street, containing the van (y 7..9.4) and a parking lane
 		Strip(-45.0f, 45.0f, 5.4f, 6.6f);     // its south sidewalk
 		Strip(-1.6f, 1.6f, -7.75f, 6.6f);     // the driveway to the front door
 		// The kerbs: two slightly proud edges either side of the sidewalk, so the walk and
@@ -840,9 +834,9 @@ void AHIHouse::BuildNeighborhood()
 		// are now a '53 Cadillac and a '63 Chevy C10, both textured. These two import with
 		// their length on Y (unlike the muscle, which was on X), so yaw 90 parks them along
 		// the street. Spread well clear of the driveway (x +-1.6) and the van (x 0).
-		PlaceSketchfabModel(TEXT("car"), FVector2D(-15.0f, 8.3f), 4.9f, 1.8f, 0.0f, 1.5f, FRotator(0.0f, 90.0f, 0.0f));
-		PlaceSketchfabModel(TEXT("pickup"), FVector2D(15.0f, 8.3f), 4.9f, 1.8f, 0.0f, 1.5f, FRotator(0.0f, 90.0f, 0.0f));
-		PlaceSketchfabModel(TEXT("car"), FVector2D(27.0f, 8.3f), 4.9f, 1.8f, 0.0f, 1.5f, FRotator(0.0f, 90.0f, 0.0f));
+		PlaceSketchfabModel(TEXT("car"), FVector2D(-12.0f, 10.0f), 4.9f, 1.8f, 0.0f, 1.5f, FRotator(0.0f, 90.0f, 0.0f));
+		PlaceSketchfabModel(TEXT("pickup"), FVector2D(12.0f, 10.0f), 4.9f, 1.8f, 0.0f, 1.5f, FRotator(0.0f, 90.0f, 0.0f));
+		PlaceSketchfabModel(TEXT("car"), FVector2D(24.0f, 10.0f), 4.9f, 1.8f, 0.0f, 1.5f, FRotator(0.0f, 90.0f, 0.0f));
 	}
 
 	// Real trees (CC BY, tools/fetch-sketchfab.py) replace the boxy trunk-and-boxes: a pine
@@ -941,12 +935,6 @@ void AHIHouse::BuildFurniture(const FString& Label, const FBox2D& Rect, float Ba
 				Part(FurnitureInstances, C.X, C.Y, Base, Top, S.X, S.Y);
 				UStaticMeshComponent* Comp = NewObject<UStaticMeshComponent>(this);
 				Comp->SetStaticMesh(Mesh);
-				// The imported gltf material sometimes lands black/broken (the furniture was
-				// invisible); force a visible one until the import is fixed.
-				for (int32 M = 0; M < Comp->GetNumMaterials(); ++M)
-				{
-					FHIMaterials::Tint(Comp, FHIMaterials::Wood, M);
-				}
 				Comp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 				Comp->SetMobility(EComponentMobility::Static);
 				Comp->RegisterComponent();
