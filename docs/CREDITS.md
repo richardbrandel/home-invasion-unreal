@@ -11,8 +11,8 @@ Downloaded via `tools/fetch-sketchfab.py` (needs a Sketchfab account).
 | File | Model | Author | License |
 |---|---|---|---|
 | `SourceAssets/models/van.glb` | 2003 Chevrolet Express GMC Savana 2500 Cargo Van | ddiaz-design | CC BY |
-| `SourceAssets/models/car.glb` | Shvan 92 Traveller — Low poly model | DanielZhabotinsky | CC BY |
-| `SourceAssets/models/muscle.glb` | Phoenix 455 '71 — Low poly model | DanielZhabotinsky | CC BY |
+| `SourceAssets/models/car.glb` | Low Poly Car — Cadillac 75 Sedan 1953 | roh3d | CC BY |
+| `SourceAssets/models/pickup.glb` | Low Poly Car — Chevrolet C10 Pickup 1963 | roh3d | CC BY |
 | `SourceAssets/models/tree1.glb` | oak trees | bumstrum | CC BY |
 | `SourceAssets/models/tree2.glb` | Pine Tree — Proto Series — Free | bitgem | CC BY |
 

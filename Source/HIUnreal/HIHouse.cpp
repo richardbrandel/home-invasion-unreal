@@ -427,11 +427,12 @@ void AHIHouse::BuildDressing()
 		const float SlabZ = (RidgeZ + EaveZ) * 0.5f;
 		const FVector SlabSize(H.GetSize().X + 2.0f * Over, SlabLen, 0.12f);
 		// Roll about X tilts in the YZ plane -- the plane a north-south roof slope lives
-		// in. The south slab's +Y end is its low eave (roll negative); the north mirrors.
+		// in. The south slab's +Y end is its low eave (roll POSITIVE -- the 2026-10-19
+		// neighbour roofs came out as a V, which proved the sign was inverted).
 		AddBoxR(RoofInstance, FVector(0.0f, (SouthEaveY + RidgeY) * 0.5f, SlabZ),
-			SlabSize, FRotator(0.0f, 0.0f, -PitchDeg));
-		AddBoxR(RoofInstance, FVector(0.0f, (NorthEaveY + RidgeY) * 0.5f, SlabZ),
 			SlabSize, FRotator(0.0f, 0.0f, PitchDeg));
+		AddBoxR(RoofInstance, FVector(0.0f, (NorthEaveY + RidgeY) * 0.5f, SlabZ),
+			SlabSize, FRotator(0.0f, 0.0f, -PitchDeg));
 		// A ridge cap over the joint, so the two planes meet in a spine, not a seam.
 		AddBox(RoofInstance, FVector(0.0f, RidgeY, RidgeZ + 0.07f),
 			FVector(H.GetSize().X + 2.0f * Over + 0.10f, 0.35f, 0.14f));
@@ -748,7 +749,7 @@ void AHIHouse::BuildNeighborhood()
 			for (float S : { -1.0f, 1.0f })
 			{
 				AddBoxR(RoofInstance, FVector(CX, CY + S * HalfD * 0.5f, WallH + Rise * 0.5f),
-					FVector(W + 0.4f, Slope, 0.12f), FRotator(0.0f, 0.0f, -S * Pitch));
+					FVector(W + 0.4f, Slope, 0.12f), FRotator(0.0f, 0.0f, S * Pitch));
 			}
 			AddBox(RoofInstance, FVector(CX, CY, WallH + Rise + 0.05f), FVector(W + 0.5f, 0.3f, 0.1f));
 			// Front door and two windows on the street side (the -Y, south face).
@@ -827,14 +828,14 @@ void AHIHouse::BuildNeighborhood()
 				}
 			}
 		};
-		// Real Sketchfab models (CC BY, tools/fetch-sketchfab.py) replace the boxy sedans
-		// and the procedural GTO. The importer already puts length on X and up on Z, so no
-		// rotation is needed -- the earlier 90-degree turns were what parked them sideways
-		// in the walkway. The Shvan turned out to be a 19 m pack, so all three are the
-		// Phoenix muscle car until a single sedan is fetched.
-		PlaceSketchfabModel(TEXT("muscle"), FVector2D(-5.5f, 8.3f), 4.7f, 1.8f, 0.0f, 1.4f, FRotator::ZeroRotator);
-		PlaceSketchfabModel(TEXT("muscle"), FVector2D(5.5f, 8.3f), 4.7f, 1.8f, 0.0f, 1.4f, FRotator::ZeroRotator);
-		PlaceSketchfabModel(TEXT("muscle"), FVector2D(11.0f, 8.3f), 4.7f, 1.8f, 0.0f, 1.4f, FRotator::ZeroRotator);
+		// Real Sketchfab models (CC BY, tools/fetch-sketchfab.py) replace the boxy sedans.
+		// The Phoenix muscle car had a BLACK body (invisible on the dark street), so the cars
+		// are now a '53 Cadillac and a '63 Chevy C10, both textured. These two import with
+		// their length on Y (unlike the muscle, which was on X), so yaw 90 parks them along
+		// the street.
+		PlaceSketchfabModel(TEXT("car"), FVector2D(-5.5f, 8.3f), 4.9f, 1.8f, 0.0f, 1.5f, FRotator(0.0f, 90.0f, 0.0f));
+		PlaceSketchfabModel(TEXT("pickup"), FVector2D(5.5f, 8.3f), 4.9f, 1.8f, 0.0f, 1.5f, FRotator(0.0f, 90.0f, 0.0f));
+		PlaceSketchfabModel(TEXT("car"), FVector2D(11.0f, 8.3f), 4.9f, 1.8f, 0.0f, 1.5f, FRotator(0.0f, 90.0f, 0.0f));
 	}
 
 	// Real trees (CC BY, tools/fetch-sketchfab.py) replace the boxy trunk-and-boxes: a pine
@@ -898,6 +899,14 @@ void AHIHouse::BuildFurniture(const FString& Label, const FBox2D& Rect, float Ba
 		if (L == TEXT("bookshelf"))    return TEXT("wooden_bookshelf_worn");
 		return nullptr;
 	};
+	// The sofa and bookshelf models import with their length on X, but the sim's rect has
+	// length on Y; without a 90-degree yaw the per-axis scale stretches their depth 3.6x into
+	// a boxy blob (2026-10-19, "furniture still boxy").
+	auto ModelYaw = [](const FString& L) -> float
+	{
+		if (L == TEXT("sofa") || L == TEXT("bookshelf")) return 90.0f;
+		return 0.0f;
+	};
 	if (const TCHAR* Model = ModelFor(Label))
 	{
 		const FString Path = FString::Printf(
@@ -908,9 +917,15 @@ void AHIHouse::BuildFurniture(const FString& Label, const FBox2D& Rect, float Ba
 			const FVector MS = B.BoxExtent * 2.0f;   // full mesh size, in UU
 			if (MS.X > 1.0f && MS.Y > 1.0f && MS.Z > 1.0f)
 			{
-				const FVector Scale(S.X * HI_METERS_TO_UU / MS.X,
-					S.Y * HI_METERS_TO_UU / MS.Y,
-					Height * HI_METERS_TO_UU / MS.Z);
+				const float Yaw = ModelYaw(Label);
+				const FRotator Rot(0.0f, Yaw, 0.0f);
+				const FVector Scale = FMath::IsNearlyEqual(Yaw, 90.0f)
+					? FVector(S.Y * HI_METERS_TO_UU / MS.X,
+						S.X * HI_METERS_TO_UU / MS.Y,
+						Height * HI_METERS_TO_UU / MS.Z)
+					: FVector(S.X * HI_METERS_TO_UU / MS.X,
+						S.Y * HI_METERS_TO_UU / MS.Y,
+						Height * HI_METERS_TO_UU / MS.Z);
 				const FVector Target(C.X, C.Y, Base + Height * 0.5f);
 				UStaticMeshComponent* Comp = NewObject<UStaticMeshComponent>(this);
 				Comp->SetStaticMesh(Mesh);
@@ -921,10 +936,11 @@ void AHIHouse::BuildFurniture(const FString& Label, const FBox2D& Rect, float Ba
 				Comp->SetMobility(EComponentMobility::Static);
 				Comp->RegisterComponent();
 				Comp->AttachToComponent(RootComponent, FAttachmentTransformRules::KeepWorldTransform);
+				Comp->SetWorldRotation(Rot);
 				Comp->SetWorldScale3D(Scale);
 				// The model's pivot is rarely its bounds centre; offset so the BOUNDS land
 				// centred on the row, not the pivot.
-				Comp->SetWorldLocation(Target * HI_METERS_TO_UU - B.Origin * Scale);
+				Comp->SetWorldLocation(Target * HI_METERS_TO_UU - Rot.RotateVector(B.Origin * Scale));
 				return;
 			}
 		}
