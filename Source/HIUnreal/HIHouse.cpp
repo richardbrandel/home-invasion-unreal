@@ -686,6 +686,14 @@ void AHIHouse::PlaceSketchfabModel(const FString& Name, const FVector2D& Center,
 		Comp->SetStaticMesh(M);
 		if (bCollide)
 		{
+			// The imported gltf material sometimes lands black/broken; force a visible one.
+			for (int32 SM = 0; SM < Comp->GetNumMaterials(); ++SM)
+			{
+				FHIMaterials::Tint(Comp, FHIMaterials::Wood, SM);
+			}
+		}
+		if (bCollide)
+		{
 			// Furniture: the mesh's own triangle collision blocks the bullet where the mesh
 			// is, replacing the sim's colliding box. The sim's sight is unchanged.
 			Comp->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
@@ -930,6 +938,12 @@ void AHIHouse::BuildFurniture(const FString& Label, const FBox2D& Rect, float Ba
 				const FVector Target(C.X, C.Y, Base + Height * 0.5f);
 				UStaticMeshComponent* Comp = NewObject<UStaticMeshComponent>(this);
 				Comp->SetStaticMesh(Mesh);
+				// The imported gltf material sometimes lands black/broken (the furniture was
+				// invisible); force a visible one until the import is fixed.
+				for (int32 M = 0; M < Comp->GetNumMaterials(); ++M)
+				{
+					FHIMaterials::Tint(Comp, FHIMaterials::Wood, M);
+				}
 				Comp->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
 				Comp->SetCollisionResponseToAllChannels(ECR_Ignore);
 				Comp->SetCollisionResponseToChannel(ECC_Visibility, ECR_Block);
@@ -937,11 +951,11 @@ void AHIHouse::BuildFurniture(const FString& Label, const FBox2D& Rect, float Ba
 				Comp->SetMobility(EComponentMobility::Static);
 				Comp->RegisterComponent();
 				Comp->AttachToComponent(RootComponent, FAttachmentTransformRules::KeepWorldTransform);
-				Comp->SetWorldRotation(Rot);
-				Comp->SetWorldScale3D(Scale);
-				// The model's pivot is rarely its bounds centre; offset so the BOUNDS land
-				// centred on the row, not the pivot.
-				Comp->SetWorldLocation(Target * HI_METERS_TO_UU - Rot.RotateVector(B.Origin * Scale));
+				const FVector Loc = Target * HI_METERS_TO_UU - Rot.RotateVector(B.Origin * Scale);
+				UE_LOG(LogTemp, Log, TEXT("HI: place %s origin=(%.1f,%.1f,%.1f) loc=(%.1f,%.1f,%.1f) scale=(%.2f,%.2f,%.2f) mats=%d"),
+					*Label, B.Origin.X, B.Origin.Y, B.Origin.Z, Loc.X, Loc.Y, Loc.Z,
+					Scale.X, Scale.Y, Scale.Z, Mesh->GetStaticMaterials().Num());
+				Comp->SetWorldTransform(FTransform(Rot, Loc, Scale));
 				return;
 			}
 		}
@@ -957,11 +971,20 @@ void AHIHouse::BuildFurniture(const FString& Label, const FBox2D& Rect, float Ba
 	// keys off the row's largest dimension so a tall fridge or a long bed both come out right.
 	auto SketchfabFor = [](const FString& L) -> const TCHAR*
 	{
-		if (L == TEXT("bed"))    return TEXT("bed");
-		if (L == TEXT("fridge")) return TEXT("fridge");
-		if (L == TEXT("toilet")) return TEXT("toilet");
-		if (L == TEXT("tub"))    return TEXT("tub");
-		if (L == TEXT("washer")) return TEXT("washer");
+		if (L == TEXT("bed"))        return TEXT("bed");
+		if (L == TEXT("fridge"))     return TEXT("fridge");
+		if (L == TEXT("toilet"))     return TEXT("toilet");
+		if (L == TEXT("tub"))        return TEXT("tub");
+		if (L == TEXT("washer"))     return TEXT("washer");
+		if (L == TEXT("dryer"))      return TEXT("dryer");
+		if (L == TEXT("wardrobe"))   return TEXT("wardrobe");
+		if (L == TEXT("desk"))       return TEXT("desk");
+		if (L == TEXT("desk_chair")) return TEXT("deskchair");
+		if (L == TEXT("sideboard"))  return TEXT("sideboard");
+		if (L == TEXT("vanity"))     return TEXT("vanity");
+		if (L == TEXT("lamp"))       return TEXT("floorlamp");
+		if (L == TEXT("workbench"))  return TEXT("workbench");
+		if (L == TEXT("shelving"))   return TEXT("shelving");
 		return nullptr;
 	};
 	if (const TCHAR* SModel = SketchfabFor(Label))
