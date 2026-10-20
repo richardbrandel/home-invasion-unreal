@@ -833,10 +833,10 @@ void AHIHouse::BuildNeighborhood()
 		// The Phoenix muscle car had a BLACK body (invisible on the dark street), so the cars
 		// are now a '53 Cadillac and a '63 Chevy C10, both textured. These two import with
 		// their length on Y (unlike the muscle, which was on X), so yaw 90 parks them along
-		// the street.
-		PlaceSketchfabModel(TEXT("car"), FVector2D(-5.5f, 8.3f), 4.9f, 1.8f, 0.0f, 1.5f, FRotator(0.0f, 90.0f, 0.0f));
-		PlaceSketchfabModel(TEXT("pickup"), FVector2D(5.5f, 8.3f), 4.9f, 1.8f, 0.0f, 1.5f, FRotator(0.0f, 90.0f, 0.0f));
-		PlaceSketchfabModel(TEXT("car"), FVector2D(11.0f, 8.3f), 4.9f, 1.8f, 0.0f, 1.5f, FRotator(0.0f, 90.0f, 0.0f));
+		// the street. Spread well clear of the driveway (x +-1.6) and the van (x 0).
+		PlaceSketchfabModel(TEXT("car"), FVector2D(-15.0f, 8.3f), 4.9f, 1.8f, 0.0f, 1.5f, FRotator(0.0f, 90.0f, 0.0f));
+		PlaceSketchfabModel(TEXT("pickup"), FVector2D(15.0f, 8.3f), 4.9f, 1.8f, 0.0f, 1.5f, FRotator(0.0f, 90.0f, 0.0f));
+		PlaceSketchfabModel(TEXT("car"), FVector2D(27.0f, 8.3f), 4.9f, 1.8f, 0.0f, 1.5f, FRotator(0.0f, 90.0f, 0.0f));
 	}
 
 	// Real trees (CC BY, tools/fetch-sketchfab.py) replace the boxy trunk-and-boxes: a pine
