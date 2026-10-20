@@ -925,13 +925,13 @@ void AHIHouse::BuildFurniture(const FString& Label, const FBox2D& Rect, float Ba
 			{
 				const float Yaw = ModelYaw(Label);
 				const FRotator Rot(0.0f, Yaw, 0.0f);
-				const FVector Scale = FMath::IsNearlyEqual(Yaw, 90.0f)
-					? FVector(S.Y * HI_METERS_TO_UU / MS.X,
-						S.X * HI_METERS_TO_UU / MS.Y,
-						Height * HI_METERS_TO_UU / MS.Z)
-					: FVector(S.X * HI_METERS_TO_UU / MS.X,
-						S.Y * HI_METERS_TO_UU / MS.Y,
-						Height * HI_METERS_TO_UU / MS.Z);
+				// Uniform scale: fit the model's longest axis to the row's largest dimension,
+				// preserving its proportions (per-axis stretching was what made a scanned sofa
+				// read as a box, 2026-10-20).
+				const float Longest = FMath::Max3(MS.X, MS.Y, MS.Z);
+				const float Key = FMath::Max3((float)S.X, (float)S.Y, Height);
+				const float US = Key * HI_METERS_TO_UU / Longest;
+				const FVector Scale(US, US, US);
 				const FVector Target(C.X, C.Y, Base + Height * 0.5f);
 				// The colliding body stays a plain box (the sim's exact rect) so a bullet still
 				// cannot pass where the AI cannot see. The imported mesh is NON-colliding decor
