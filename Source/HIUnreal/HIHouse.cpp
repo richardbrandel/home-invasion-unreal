@@ -1431,7 +1431,7 @@ void AHIHouse::Build()
 	FHIMaterials::Textured(GroundInstance, TEXT("lawn"), 400.0f);
 	FHIMaterials::Tint(RoofInstance, FHIMaterials::WallExterior);
 	FHIMaterials::Textured(RoofInstance, TEXT("roof_shingle"), 8.0f);
-	FHIMaterials::Tint(FurnitureInstances, FLinearColor(1.0f, 0.0f, 0.0f));  // DEBUG: base = RED
+	FHIMaterials::Tint(FurnitureInstances, FHIMaterials::Wood);
 	// The composed furniture's materials (2026-10-19): fabric in the sofa blue, appliances
 	// in near-white, dark metal/screens in near-black -- body and detail share a tint so a
 	// sofa's cushions read as one piece with its base.
@@ -1442,7 +1442,8 @@ void AHIHouse::Build()
 	FHIMaterials::Tint(FurnitureDarkInstances, FHIMaterials::Tyre);
 	FHIMaterials::Tint(FurnitureDarkDecorInstances, FHIMaterials::Tyre);
 	FHIMaterials::Tint(FurnitureWoodDecorInstances, FHIMaterials::Wood);
-	FHIMaterials::Tint(CountertopInstances, FLinearColor(0.0f, 1.0f, 0.0f));  // DEBUG: countertop = GREEN
+	FHIMaterials::Tint(CountertopInstances, FHIMaterials::Wood);
+	FHIMaterials::Textured(CountertopInstances, TEXT("floor_wood"), 4.0f);
 	// The neighborhood scenery (2026-10-19): grey street/sidewalk/driveway, plaster neighbor
 	// shells, green tree canopies.
 	FHIMaterials::Tint(StreetInstances, FHIMaterials::Path);
@@ -1482,8 +1483,8 @@ void AHIHouse::Build()
 		FHIMaterials::Tint(GlassInstances, FHIMaterials::Glass);
 	}
 	FHIMaterials::Tint(CoatInstances, FHIMaterials::Coat);
-	FHIMaterials::Tint(FittingInstances, FLinearColor(0.0f, 0.0f, 1.0f));  // DEBUG: outlet = BLUE
-	FHIMaterials::Tint(PropInstances, FHIMaterials::Counter);
+	FHIMaterials::Tint(FittingInstances, FHIMaterials::Trim);
+	FHIMaterials::Tint(PropInstances, FLinearColor(0.48f, 0.50f, 0.54f));  // steel (was Counter, read as white boxes)
 	// The door surround is WALL, not trim: jambs and a head against a cream facade should
 	// still read as masonry-adjacent paint, not as a white outline where a door was cut.
 	FHIMaterials::Tint(DoorHeadInstances, FHIMaterials::Wall);
