@@ -9,9 +9,14 @@ Makefile
 *.target
 *.modules
 
-# Copied engine art, not authored content. Reproduce with tools/fetch-engine-assets.sh --
-# see that script for why this is derived state rather than something to commit.
-Content/
+# Engine art and generated content are derived; the imported/authored assets (models,
+# characters, weapons, materials) ARE committed so a fresh clone builds and runs.
+Content/*
+!Content/HIImported/
+!Content/Characters/
+!Content/Weapons/
+!Content/HIGenerated/
+!Content/HIProbe/
 
 # Verification captures. Reproducible from the harness in README.md, and large.
 shots/
