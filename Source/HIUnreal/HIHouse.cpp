@@ -989,6 +989,8 @@ void AHIHouse::BuildFurniture(const FString& Label, const FBox2D& Rect, float Ba
 		if (L == TEXT("tub"))        return TEXT("tub");
 		if (L == TEXT("washer"))     return TEXT("washer");
 		if (L == TEXT("dryer"))      return TEXT("dryer");
+		if (L == TEXT("furnace"))    return TEXT("furnace");
+		if (L == TEXT("water_heater")) return TEXT("water_heater");
 		if (L == TEXT("dresser"))    return TEXT("dresser");
 		if (L == TEXT("wardrobe"))   return TEXT("wardrobe");
 		if (L == TEXT("desk"))       return TEXT("desk");
@@ -998,6 +1000,9 @@ void AHIHouse::BuildFurniture(const FString& Label, const FBox2D& Rect, float Ba
 		if (L == TEXT("lamp"))       return TEXT("floorlamp");
 		if (L == TEXT("workbench"))  return TEXT("workbench");
 		if (L == TEXT("shelving"))   return TEXT("shelving");
+		// Reuse: the linen closet is shelving, and the coat closet is a tall cabinet (wardrobe).
+		if (L == TEXT("linen_shelving")) return TEXT("shelving");
+		if (L == TEXT("coat_closet"))    return TEXT("wardrobe");
 		return nullptr;
 	};
 	if (const TCHAR* SModel = SketchfabFor(Label))
