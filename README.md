@@ -48,11 +48,14 @@ rsync -a --exclude='Intermediate/' --exclude='Binaries/' --exclude='DerivedDataC
   ./ ubuntu-dev:/data/projects/HIUnreal/
 ```
 
-## Engine art — fetched, not committed
+## Engine art and models — committed
 
-`Content/` is **gitignored**. Everything in it is copied out of the Unreal install by
-`tools/fetch-engine-assets.sh`, because committing ~135 MB of duplicated engine content
-would make this repository mostly a copy of something the machine already has.
+`Content/` is **partly gitignored**. The authored/imported assets are **committed** so a
+fresh clone builds and runs with the real models (not placeholder boxes): `Content/HIImported/`
+(the Poly Haven/Sketchfab models, textures and character meshes), `Content/Characters/` (the
+Mannequin), `Content/Weapons/` and `Content/HIGenerated/` (the generated materials). Only
+truly-derived state stays out. `tools/fetch-engine-assets.sh` is kept for regenerating the
+engine art if it is ever removed:
 
 ```sh
 ssh ubuntu-dev '/data/projects/HIUnreal/tools/fetch-engine-assets.sh'
@@ -67,8 +70,8 @@ skeletons and textures.
 ## Assets this project GENERATES — the .uasset wall is gone
 
 `tools/make-assets.py`, driven by `tools/make-assets.sh`, creates materials headlessly.
-Their output is also in `Content/`, and also gitignored, for the same reason: it is derived
-state and the script is the source of truth.
+Their output (`Content/HIGenerated/`) is **committed**; the script remains the source of
+truth for regenerating it.
 
 ```sh
 ssh ubuntu-dev '/data/projects/HIUnreal/tools/make-assets.sh'
