@@ -863,12 +863,6 @@ void AHIHouse::BuildNeighborhood()
 
 void AHIHouse::BuildFurniture(const FString& Label, const FBox2D& Rect, float Base, float Height)
 {
-	// DEBUG 2026-10-20: Richard asked to isolate the dining set first -- hide every other
-	// row (no box, no model) so we can make the table + chairs look right in one place.
-	if (Label != TEXT("dining_table") && Label != TEXT("chair"))
-	{
-		return;
-	}
 	// Compose one furniture row into a recognisable silhouette (2026-10-19). The BODY is the
 	// sim's exact footprint -- one colliding box, so a bullet still cannot pass where the AI
 	// cannot see. Everything else is non-colliding decor that reads against the body. All
