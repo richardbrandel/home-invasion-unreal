@@ -1408,6 +1408,13 @@ void AHIHouse::Build()
 	//
 	// Each of these keeps its `Tint` fallback underneath, so a missing texture or a missing
 	// generator run leaves the previous look rather than a black house.
+
+	// Build dressing + neighbourhood BEFORE the material pass: SetMaterial on an instanced
+	// component does not reach instances added afterwards, which left the props, windows and
+	// street as default grey instead of their tints.
+	BuildDressing();
+	BuildNeighborhood();
+
 	FHIMaterials::Tint(WallInstances, FHIMaterials::Wall);
 	if (FHIMaterials::Textured(WallInstances, TEXT("ceiling_plaster"), 40.0f) == nullptr)
 	{
@@ -1492,9 +1499,6 @@ void AHIHouse::Build()
 	FHIMaterials::Tint(VanInstances, FHIMaterials::Van);
 	FHIMaterials::Tint(VanDetailInstances, FHIMaterials::Tyre);
 	FHIMaterials::Tint(GTOInstances, FHIMaterials::GTOGreen);
-
-	BuildDressing();
-	BuildNeighborhood();
 
 	// WHAT WAS ACTUALLY BUILT, counted. The first render of this port showed what looked like
 	// a house but could equally have been one wall seen edge-on, and a screenshot cannot tell
