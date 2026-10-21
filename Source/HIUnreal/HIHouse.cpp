@@ -1128,11 +1128,10 @@ void AHIHouse::BuildFurniture(const FString& Label, const FBox2D& Rect, float Ba
 	// --- kitchen + bathroom appliances: near-white body, dark worktop or details
 	else if (Label == TEXT("counter") || Label == TEXT("island") || Label == TEXT("vanity"))
 	{
-		Part(FurnitureApplianceInstances, C.X, C.Y, Base, Top, S.X, S.Y);           // white base
-		// A wood countertop (butcher block) overhanging the base, so the top reads as one
-		// surface instead of a separate slab. No seams -- the thin front boxes read as
-		// stray white/black posts (2026-10-21).
-		Part(FurnitureInstances, C.X, C.Y, Top - 0.05f, Top + 0.02f,
+		// Wood base + wood top: the near-white base read as a bare white box (2026-10-21).
+		Part(FurnitureInstances, C.X, C.Y, Base, Top, S.X, S.Y);           // wood base
+		// A slightly overhanging countertop so the top reads as a work surface.
+		Part(FurnitureWoodDecorInstances, C.X, C.Y, Top - 0.05f, Top + 0.02f,
 			S.X + 0.10f, S.Y + 0.10f);
 	}
 	else if (Label == TEXT("fridge") || Label == TEXT("washer") || Label == TEXT("dryer"))
@@ -1180,17 +1179,18 @@ void AHIHouse::BuildFurniture(const FString& Label, const FBox2D& Rect, float Ba
 		Part(FurnitureWoodDecorInstances, C.X, C.Y, Top - 0.04f, Top + 0.02f,
 			S.X + 0.06f, S.Y + 0.06f); // top
 		// 3 pale drawer fronts, on BOTH faces so the wall side cannot hide them (the dresser
-		// reads as a chest of drawers instead of a plain box).
+		// reads as a chest of drawers instead of a plain box). Proud of the body by 2 cm so
+		// they don't z-fight with the brown face behind them.
 		for (int32 D = 0; D < 3; ++D)
 		{
 			const float Z1 = Base + Height * (0.08f + 0.28f * (float)D);
 			const float Z2 = Z1 + 0.22f;
 			for (float Sgn : { -1.0f, 1.0f })
 			{
-				Part(FurnitureApplianceDecorInstances, C.X, C.Y + Sgn * (S.Y * 0.5f + 0.01f), Z1, Z2,
-					S.X * 0.86f, 0.02f); // pale drawer front
-				Part(FurnitureDarkDecorInstances, C.X, C.Y + Sgn * (S.Y * 0.5f + 0.03f),
-					(Z1 + Z2) * 0.5f, (Z1 + Z2) * 0.5f + 0.03f, 0.10f, 0.02f); // handle
+				Part(FurnitureApplianceDecorInstances, C.X, C.Y + Sgn * (S.Y * 0.5f + 0.02f), Z1, Z2,
+					S.X * 0.90f, 0.03f); // pale drawer front
+				Part(FurnitureDarkDecorInstances, C.X, C.Y + Sgn * (S.Y * 0.5f + 0.05f),
+					(Z1 + Z2) * 0.5f, (Z1 + Z2) * 0.5f + 0.03f, 0.12f, 0.02f); // handle
 			}
 		}
 	}
