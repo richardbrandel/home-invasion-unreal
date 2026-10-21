@@ -133,3 +133,35 @@ UMaterialInstanceDynamic* FHIMaterials::Textured(UMeshComponent* Mesh, const TCH
 	Mesh->SetMaterial(Slot, Mid);
 	return Mid;
 }
+
+UMaterialInstanceDynamic* FHIMaterials::TexturedModels(UMeshComponent* Mesh, const TCHAR* TextureName,
+	float Tiling, int32 Slot)
+{
+	if (Mesh == nullptr || TextureName == nullptr)
+	{
+		return nullptr;
+	}
+	UMaterialInterface* Base = Generated(TEXT("M_HITextured"));
+	if (Base == nullptr)
+	{
+		return nullptr;
+	}
+	// The gltf/glb textures land flat under /Game/HIImported/models/, not /textures/.
+	const FString AssetPath =
+		FString::Printf(TEXT("/Game/HIImported/models/%s.%s"), TextureName, TextureName);
+	UTexture* Tex = LoadObject<UTexture>(nullptr, *AssetPath);
+	if (Tex == nullptr)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("HI: no model texture at %s"), *AssetPath);
+		return nullptr;
+	}
+	UMaterialInstanceDynamic* Mid = UMaterialInstanceDynamic::Create(Base, Mesh);
+	if (Mid == nullptr)
+	{
+		return nullptr;
+	}
+	Mid->SetTextureParameterValue(TEXT("BaseTexture"), Tex);
+	Mid->SetScalarParameterValue(TEXT("UVTiling"), Tiling);
+	Mesh->SetMaterial(Slot, Mid);
+	return Mid;
+}

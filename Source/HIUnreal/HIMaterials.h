@@ -66,6 +66,11 @@ struct FHIMaterials
 	static UMaterialInstanceDynamic* Textured(UMeshComponent* Mesh, const TCHAR* TextureName,
 		float Tiling, int32 Slot = 0);
 
+	/** Like Textured but resolves the texture under /Game/HIImported/models/ (the imported
+	 *  gltf/glb textures land there, flat, not under /textures/). */
+	static UMaterialInstanceDynamic* TexturedModels(UMeshComponent* Mesh, const TCHAR* TextureName,
+		float Tiling, int32 Slot = 0);
+
 	// The palette, in one place so two things that should match do not drift apart.
 	static const FLinearColor Grass;
 	static const FLinearColor Path;

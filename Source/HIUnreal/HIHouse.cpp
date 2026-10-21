@@ -859,6 +859,12 @@ void AHIHouse::BuildNeighborhood()
 
 void AHIHouse::BuildFurniture(const FString& Label, const FBox2D& Rect, float Base, float Height)
 {
+	// DEBUG 2026-10-20: Richard asked to isolate the dining set first -- hide every other
+	// row (no box, no model) so we can make the table + chairs look right in one place.
+	if (Label != TEXT("dining_table") && Label != TEXT("chair"))
+	{
+		return;
+	}
 	// Compose one furniture row into a recognisable silhouette (2026-10-19). The BODY is the
 	// sim's exact footprint -- one colliding box, so a bullet still cannot pass where the AI
 	// cannot see. Everything else is non-colliding decor that reads against the body. All
@@ -913,6 +919,20 @@ void AHIHouse::BuildFurniture(const FString& Label, const FBox2D& Rect, float Ba
 		if (L == TEXT("sofa") || L == TEXT("bookshelf")) return 90.0f;
 		return 0.0f;
 	};
+	// The gltf import did NOT link each model's material to its diff texture (the material
+	// shipped with no texture reference), so the meshes rendered black. Apply the diff texture
+	// by name instead (2026-10-20).
+	auto DiffTex = [](const FString& L) -> const TCHAR*
+	{
+		if (L == TEXT("sofa"))         return TEXT("Sofa_01_diff_1k");
+		if (L == TEXT("armchair"))     return TEXT("Armchair_01_diff_1k");
+		if (L == TEXT("dining_table")) return TEXT("dining_table_diff_1k");
+		if (L == TEXT("chair"))        return TEXT("dining_chair_02_diff_1k");
+		if (L == TEXT("coffee_table")) return TEXT("modern_coffee_table_01_diff_1k");
+		if (L == TEXT("nightstand"))   return TEXT("ClassicNightstand_01_diff_1k");
+		if (L == TEXT("bookshelf"))    return TEXT("wooden_bookshelf_worn_diff_1k");
+		return nullptr;
+	};
 	if (const TCHAR* Model = ModelFor(Label))
 	{
 		const FString Path = FString::Printf(
@@ -940,6 +960,10 @@ void AHIHouse::BuildFurniture(const FString& Label, const FBox2D& Rect, float Ba
 				Part(FurnitureInstances, C.X, C.Y, Base, Top, S.X, S.Y);
 				UStaticMeshComponent* Comp = NewObject<UStaticMeshComponent>(this);
 				Comp->SetStaticMesh(Mesh);
+				if (const TCHAR* DTex = DiffTex(Label))
+				{
+					FHIMaterials::TexturedModels(Comp, DTex, 1.0f, 0);
+				}
 				Comp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 				Comp->SetMobility(EComponentMobility::Movable);
 				Comp->RegisterComponent();
