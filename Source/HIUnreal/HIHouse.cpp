@@ -630,7 +630,7 @@ void AHIHouse::BuildDressing()
 
 void AHIHouse::PlaceSketchfabModel(const FString& Name, const FVector2D& Center,
 	float WidthM, float DepthM, float Base, float Height, const FRotator& Rot, bool bCollide,
-	bool bPerAxis, const FLinearColor* OpaqueTint)
+	bool bPerAxis, const TCHAR* OpaqueTexture)
 {
 	// Every StaticMesh under /Game/HIImported/models/<Name>, placed at one shared transform
 	// (2026-10-19). The glTF importer bakes node transforms, so the sub-meshes -- a van's
@@ -691,12 +691,28 @@ void AHIHouse::PlaceSketchfabModel(const FString& Name, const FVector2D& Center,
 		UStaticMeshComponent* Comp = NewObject<UStaticMeshComponent>(this);
 		Comp->SetStaticMesh(M);
 		// Some glb materials import with a translucent blend (the fridge read as
-		// semi-transparent); override every slot with a solid colour when asked.
-		if (OpaqueTint != nullptr)
+		// semi-transparent); override every slot with the model's own base-colour texture,
+		// sampled opaquely, when asked.
+		if (OpaqueTexture != nullptr)
 		{
-			for (int32 SM = 0; SM < Comp->GetNumMaterials(); ++SM)
+			const FString TexPath = FString::Printf(TEXT("/Game/HIImported/models/%s/Textures/%s.%s"),
+				*Name, OpaqueTexture, OpaqueTexture);
+			if (UTexture* Tex = LoadObject<UTexture>(nullptr, *TexPath))
 			{
-				FHIMaterials::Tint(Comp, *OpaqueTint, SM);
+				if (UMaterialInterface* BaseMat = FHIMaterials::Generated(TEXT("M_HITextured")))
+				{
+					for (int32 SM = 0; SM < Comp->GetNumMaterials(); ++SM)
+					{
+						UMaterialInstanceDynamic* Mid = UMaterialInstanceDynamic::Create(BaseMat, Comp);
+						Mid->SetTextureParameterValue(TEXT("BaseTexture"), Tex);
+						Mid->SetScalarParameterValue(TEXT("UVTiling"), 1.0f);
+						Comp->SetMaterial(SM, Mid);
+					}
+				}
+			}
+			else
+			{
+				UE_LOG(LogTemp, Warning, TEXT("HI: no opaque texture at %s"), *TexPath);
 			}
 		}
 		if (bCollide)
@@ -1019,7 +1035,9 @@ void AHIHouse::BuildFurniture(const FString& Label, const FBox2D& Rect, float Ba
 		// Colliding body = the sim's box on the HIDDEN component, so the box never pokes out.
 		Part(FurnitureCollisionInstances, C.X, C.Y, Base, Top, S.X, S.Y);
 		// The fridge's glb material imported translucent; force it opaque.
-		const FLinearColor* Opaque = (Label == TEXT("fridge")) ? &FHIMaterials::Trim : nullptr;
+		// The fridge's glb material imported translucent; sample its own base-colour texture
+		// opaquely so it reads as a cream fridge, not a white box.
+		const TCHAR* Opaque = (Label == TEXT("fridge")) ? TEXT("fridge_texture_0") : nullptr;
 		PlaceSketchfabModel(SModel, C, (float)S.X, (float)S.Y, Base, Height,
 			FRotator::ZeroRotator, /*bCollide=*/false, /*bPerAxis=*/true, Opaque);
 		return;

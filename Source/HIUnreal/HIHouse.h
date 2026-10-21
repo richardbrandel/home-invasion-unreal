@@ -309,7 +309,7 @@ private:
 	 *  sub-meshes (body, wheels, glass) that the importer leaves in the model's local space. */
 	void PlaceSketchfabModel(const FString& Name, const FVector2D& Center,
 		float WidthM, float DepthM, float Base, float Height, const FRotator& Rot,
-		bool bCollide = false, bool bPerAxis = false, const FLinearColor* OpaqueTint = nullptr);
+		bool bCollide = false, bool bPerAxis = false, const TCHAR* OpaqueTexture = nullptr);
 
 	/**
 	 * One window in one wall. `Along` is the axis the wall runs down. `FloorZ` lifts the
