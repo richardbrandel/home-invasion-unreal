@@ -629,7 +629,8 @@ void AHIHouse::BuildDressing()
 }
 
 void AHIHouse::PlaceSketchfabModel(const FString& Name, const FVector2D& Center,
-	float WidthM, float DepthM, float Base, float Height, const FRotator& Rot, bool bCollide, bool bPerAxis)
+	float WidthM, float DepthM, float Base, float Height, const FRotator& Rot, bool bCollide,
+	bool bPerAxis, const FLinearColor* OpaqueTint)
 {
 	// Every StaticMesh under /Game/HIImported/models/<Name>, placed at one shared transform
 	// (2026-10-19). The glTF importer bakes node transforms, so the sub-meshes -- a van's
@@ -689,6 +690,15 @@ void AHIHouse::PlaceSketchfabModel(const FString& Name, const FVector2D& Center,
 	{
 		UStaticMeshComponent* Comp = NewObject<UStaticMeshComponent>(this);
 		Comp->SetStaticMesh(M);
+		// Some glb materials import with a translucent blend (the fridge read as
+		// semi-transparent); override every slot with a solid colour when asked.
+		if (OpaqueTint != nullptr)
+		{
+			for (int32 SM = 0; SM < Comp->GetNumMaterials(); ++SM)
+			{
+				FHIMaterials::Tint(Comp, *OpaqueTint, SM);
+			}
+		}
 		if (bCollide)
 		{
 			// Furniture: the mesh's own triangle collision blocks the bullet where the mesh
@@ -1008,8 +1018,10 @@ void AHIHouse::BuildFurniture(const FString& Label, const FBox2D& Rect, float Ba
 	{
 		// Colliding body = the sim's box on the HIDDEN component, so the box never pokes out.
 		Part(FurnitureCollisionInstances, C.X, C.Y, Base, Top, S.X, S.Y);
+		// The fridge's glb material imported translucent; force it opaque.
+		const FLinearColor* Opaque = (Label == TEXT("fridge")) ? &FHIMaterials::Trim : nullptr;
 		PlaceSketchfabModel(SModel, C, (float)S.X, (float)S.Y, Base, Height,
-			FRotator::ZeroRotator, /*bCollide=*/false, /*bPerAxis=*/true);
+			FRotator::ZeroRotator, /*bCollide=*/false, /*bPerAxis=*/true, Opaque);
 		return;
 	}
 
@@ -1118,14 +1130,10 @@ void AHIHouse::BuildFurniture(const FString& Label, const FBox2D& Rect, float Ba
 	{
 		Part(FurnitureApplianceInstances, C.X, C.Y, Base, Top, S.X, S.Y);           // white base
 		// A wood countertop (butcher block) overhanging the base, so the top reads as one
-		// surface instead of a separate slab.
+		// surface instead of a separate slab. No seams -- the thin front boxes read as
+		// stray white/black posts (2026-10-21).
 		Part(FurnitureInstances, C.X, C.Y, Top - 0.05f, Top + 0.02f,
 			S.X + 0.10f, S.Y + 0.10f);
-		// Two cabinet-door seams down the front, so the base reads as cabinets.
-		Part(FurnitureDarkDecorInstances, C.X - S.X * 0.25f, C.Y - S.Y * 0.5f - 0.02f,
-			Base + 0.06f, Top - 0.06f, 0.03f, 0.03f);
-		Part(FurnitureDarkDecorInstances, C.X + S.X * 0.25f, C.Y - S.Y * 0.5f - 0.02f,
-			Base + 0.06f, Top - 0.06f, 0.03f, 0.03f);
 	}
 	else if (Label == TEXT("fridge") || Label == TEXT("washer") || Label == TEXT("dryer"))
 	{
@@ -1165,17 +1173,25 @@ void AHIHouse::BuildFurniture(const FString& Label, const FBox2D& Rect, float Ba
 			FVector(C.X, C.Y, (Base + Top) * 0.5f) * HI_METERS_TO_UU,
 			FVector(S.X, S.Y, Top - Base)), /*bWorldSpace=*/false);
 	}
-	// --- dresser: a chest of drawers (wood body + drawer fronts + top)
+	// --- dresser: a chest of drawers (wood body + pale drawer fronts + top)
 	else if (Label == TEXT("dresser"))
 	{
 		Part(FurnitureInstances, C.X, C.Y, Base, Top, S.X, S.Y);
-		Part(FurnitureWoodDecorInstances, C.X, C.Y, Top - 0.03f, Top + 0.02f,
+		Part(FurnitureWoodDecorInstances, C.X, C.Y, Top - 0.04f, Top + 0.02f,
 			S.X + 0.06f, S.Y + 0.06f); // top
+		// 3 pale drawer fronts, on BOTH faces so the wall side cannot hide them (the dresser
+		// reads as a chest of drawers instead of a plain box).
 		for (int32 D = 0; D < 3; ++D)
 		{
-			const float Z = Base + Height * (0.12f + 0.25f * (float)D);
-			Part(FurnitureDarkDecorInstances, C.X, C.Y - S.Y * 0.5f - 0.01f, Z, Z + 0.05f,
-				S.X * 0.92f, 0.02f); // drawer front
+			const float Z1 = Base + Height * (0.08f + 0.28f * (float)D);
+			const float Z2 = Z1 + 0.22f;
+			for (float Sgn : { -1.0f, 1.0f })
+			{
+				Part(FurnitureApplianceDecorInstances, C.X, C.Y + Sgn * (S.Y * 0.5f + 0.01f), Z1, Z2,
+					S.X * 0.86f, 0.02f); // pale drawer front
+				Part(FurnitureDarkDecorInstances, C.X, C.Y + Sgn * (S.Y * 0.5f + 0.03f),
+					(Z1 + Z2) * 0.5f, (Z1 + Z2) * 0.5f + 0.03f, 0.10f, 0.02f); // handle
+			}
 		}
 	}
 	// --- everything else keeps its single wooden box (desk, workbench already covered above)
