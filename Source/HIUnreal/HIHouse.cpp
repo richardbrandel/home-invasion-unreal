@@ -1484,7 +1484,7 @@ void AHIHouse::Build()
 	}
 	FHIMaterials::Tint(CoatInstances, FHIMaterials::Coat);
 	FHIMaterials::Tint(FittingInstances, FHIMaterials::Trim);
-	FHIMaterials::Tint(PropInstances, FLinearColor(0.48f, 0.50f, 0.54f));  // steel (was Counter, read as white boxes)
+	FHIMaterials::Tint(PropInstances, FLinearColor(0.30f, 0.32f, 0.36f));  // dark steel (0.48 still read white under the light)
 	// The door surround is WALL, not trim: jambs and a head against a cream facade should
 	// still read as masonry-adjacent paint, not as a white outline where a door was cut.
 	FHIMaterials::Tint(DoorHeadInstances, FHIMaterials::Wall);
