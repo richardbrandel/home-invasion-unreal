@@ -1111,13 +1111,15 @@ void AHIHouse::BuildFurniture(const FString& Label, const FBox2D& Rect, float Ba
 		}
 	}
 	// --- storage with doors: wood body, two door panels and a handle seam
+	// (the dresser was removed from this group -- it has its own chest-of-drawers block
+	// below, and being caught here first meant the drawer fronts never ran, 2026-10-21)
 	else if (Label == TEXT("wardrobe") || Label == TEXT("coat_closet")
 		|| Label == TEXT("bookshelf") || Label == TEXT("shelving") || Label == TEXT("linen_shelving")
-		|| Label == TEXT("dresser") || Label == TEXT("nightstand"))
+		|| Label == TEXT("nightstand"))
 	{
 		Part(FurnitureInstances, C.X, C.Y, Base, Top, S.X, S.Y);
 		Part(FurnitureDarkDecorInstances, C.X, C.Y, Base + 0.03f, Top - 0.03f, 0.02f, S.Y - 0.10f); // seam
-		if (Label == TEXT("wardrobe") || Label == TEXT("dresser") || Label == TEXT("nightstand"))
+		if (Label == TEXT("wardrobe") || Label == TEXT("nightstand"))
 		{
 			Part(FurnitureDarkDecorInstances, C.X - S.X * 0.5f + 0.03f, C.Y - S.Y * 0.32f,
 				Top * 0.5f, Top * 0.5f + 0.05f, 0.05f, 0.05f);                        // handle
@@ -1131,7 +1133,7 @@ void AHIHouse::BuildFurniture(const FString& Label, const FBox2D& Rect, float Ba
 		// Wood base + wood top: the near-white base read as a bare white box (2026-10-21).
 		Part(FurnitureInstances, C.X, C.Y, Base, Top, S.X, S.Y);           // wood base
 		// A slightly overhanging countertop so the top reads as a work surface.
-		Part(FurnitureWoodDecorInstances, C.X, C.Y, Top - 0.05f, Top + 0.02f,
+		Part(FurnitureInstances, C.X, C.Y, Top - 0.05f, Top + 0.02f,
 			S.X + 0.10f, S.Y + 0.10f);
 	}
 	else if (Label == TEXT("fridge") || Label == TEXT("washer") || Label == TEXT("dryer"))
@@ -1176,7 +1178,7 @@ void AHIHouse::BuildFurniture(const FString& Label, const FBox2D& Rect, float Ba
 	else if (Label == TEXT("dresser"))
 	{
 		Part(FurnitureInstances, C.X, C.Y, Base, Top, S.X, S.Y);
-		Part(FurnitureWoodDecorInstances, C.X, C.Y, Top - 0.04f, Top + 0.02f,
+		Part(FurnitureInstances, C.X, C.Y, Top - 0.04f, Top + 0.02f,
 			S.X + 0.06f, S.Y + 0.06f); // top
 		// 3 pale drawer fronts, on BOTH faces so the wall side cannot hide them (the dresser
 		// reads as a chest of drawers instead of a plain box). Proud of the body by 2 cm so
