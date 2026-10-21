@@ -332,15 +332,8 @@ void AHIHouse::AddWindow(bool bAlongX, float Along, float WallCoord, float Facin
 	Place(WindowInstances, (Width * 0.5f) + (FrameT * 0.5f), 0.0f, FrameT, Height);
 	// A central mullion, because one big pane reads as a hole and two reads as a window.
 	Place(WindowInstances, 0.0f, 0.0f, FrameT * 0.8f, Height);
-	// The sill, a thin ledge standing just proud of the wall below the opening (kept slim so
-	// it reads as a sill, not a white box, 2026-10-21).
-	const FVector SillCentre = bAlongX
-		? FVector(Along, Out + Facing * 0.03f, Sill - 0.03f)
-		: FVector(Out + Facing * 0.03f, Along, Sill - 0.03f);
-	const FVector SillSize = bAlongX
-		? FVector(Width + 0.16f, 0.12f, 0.05f)
-		: FVector(0.12f, Width + 0.16f, 0.05f);
-	AddBox(WindowInstances, SillCentre, SillSize);
+	// No sill: the white ledge at counter height read as a white box on the counter
+	// (2026-10-21). The frame + frosted glass read as a window on their own.
 }
 
 void AHIHouse::BuildDressing()
