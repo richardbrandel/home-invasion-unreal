@@ -989,6 +989,7 @@ void AHIHouse::BuildFurniture(const FString& Label, const FBox2D& Rect, float Ba
 		if (L == TEXT("tub"))        return TEXT("tub");
 		if (L == TEXT("washer"))     return TEXT("washer");
 		if (L == TEXT("dryer"))      return TEXT("dryer");
+		if (L == TEXT("dresser"))    return TEXT("dresser");
 		if (L == TEXT("wardrobe"))   return TEXT("wardrobe");
 		if (L == TEXT("desk"))       return TEXT("desk");
 		if (L == TEXT("desk_chair")) return TEXT("deskchair");
