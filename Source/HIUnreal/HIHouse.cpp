@@ -1479,8 +1479,8 @@ void AHIHouse::Build()
 	{
 		if (UMaterialInstanceDynamic* Mid = UMaterialInstanceDynamic::Create(GlassMat, GlassInstances))
 		{
-			Mid->SetScalarParameterValue(TEXT("Opacity"), 0.22f);
-			Mid->SetVectorParameterValue(TEXT("GlassColor"), FLinearColor(0.42f, 0.52f, 0.58f, 1.0f));
+			Mid->SetScalarParameterValue(TEXT("Opacity"), 0.72f);
+			Mid->SetVectorParameterValue(TEXT("GlassColor"), FLinearColor(0.30f, 0.40f, 0.52f, 1.0f));
 			GlassInstances->SetMaterial(0, Mid);
 		}
 	}
