@@ -152,6 +152,10 @@ AHIHouse::AHIHouse()
 	SlabInstances = MakeSolid(TEXT("Slabs"));
 	StairInstances = MakeSolid(TEXT("Stairs"));
 	RailingInstances = MakeSolid(TEXT("Railings"));
+	// Collision-only boxes for the MODELED furniture: colliding but never drawn, so the mesh
+	// is the only thing the player sees.
+	FurnitureCollisionInstances = MakeSolid(TEXT("FurnitureCollision"));
+	FurnitureCollisionInstances->SetHiddenInGame(true);
 	// Phase 2: the below-grade walls collide exactly like the walls above them; only the
 	// material differs (cinderblock, per Richard's brief), and a material is a
 	// component-level property -- hence a second component, not a second opinion.
@@ -954,25 +958,22 @@ void AHIHouse::BuildFurniture(const FString& Label, const FBox2D& Rect, float Ba
 				const FVector Scale(US, US, US);
 				const FVector Target(C.X, C.Y, Base + Height * 0.5f);
 				// The colliding body stays a plain box (the sim's exact rect) so a bullet still
-				// cannot pass where the AI cannot see. The imported mesh is NON-colliding decor
-				// on top -- QueryAndPhysics on an imported mesh with no collision hull was hiding
-				// the mesh entirely (2026-10-20, "the house is empty").
-				Part(FurnitureInstances, C.X, C.Y, Base, Top, S.X, S.Y);
+				// cannot pass where the AI cannot see -- but on a HIDDEN component so the box
+				// never pokes out around the mesh.
+				Part(FurnitureCollisionInstances, C.X, C.Y, Base, Top, S.X, S.Y);
 				UStaticMeshComponent* Comp = NewObject<UStaticMeshComponent>(this);
 				Comp->SetStaticMesh(Mesh);
-				if (const TCHAR* DTex = DiffTex(Label))
-				{
-					FHIMaterials::TexturedModels(Comp, DTex, 1.0f, 0);
-				}
 				Comp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 				Comp->SetMobility(EComponentMobility::Movable);
 				Comp->RegisterComponent();
 				Comp->AttachToComponent(RootComponent, FAttachmentTransformRules::KeepWorldTransform);
 				const FVector Loc = Target * HI_METERS_TO_UU - Rot.RotateVector(B.Origin * Scale);
-				UE_LOG(LogTemp, Log, TEXT("HI: place %s origin=(%.1f,%.1f,%.1f) loc=(%.1f,%.1f,%.1f) scale=(%.2f,%.2f,%.2f) mats=%d"),
-					*Label, B.Origin.X, B.Origin.Y, B.Origin.Z, Loc.X, Loc.Y, Loc.Z,
-					Scale.X, Scale.Y, Scale.Z, Mesh->GetStaticMaterials().Num());
 				Comp->SetRelativeTransform(FTransform(Rot, Loc, Scale));
+				// Apply the texture AFTER register+transform so it is not reset by registration.
+				if (const TCHAR* DTex = DiffTex(Label))
+				{
+					FHIMaterials::TexturedModels(Comp, DTex, 1.0f, 0);
+				}
 				return;
 			}
 		}
@@ -1006,9 +1007,8 @@ void AHIHouse::BuildFurniture(const FString& Label, const FBox2D& Rect, float Ba
 	};
 	if (const TCHAR* SModel = SketchfabFor(Label))
 	{
-		// Colliding body = the sim's box; the imported mesh is non-colliding decor (see the
-		// ModelFor note above -- QueryAndPhysics was hiding the mesh).
-		Part(FurnitureInstances, C.X, C.Y, Base, Top, S.X, S.Y);
+		// Colliding body = the sim's box on the HIDDEN component, so the box never pokes out.
+		Part(FurnitureCollisionInstances, C.X, C.Y, Base, Top, S.X, S.Y);
 		PlaceSketchfabModel(SModel, C, (float)S.X, (float)S.Y, Base, Height,
 			FRotator::ZeroRotator, /*bCollide=*/false, /*bPerAxis=*/true);
 		return;
@@ -1173,6 +1173,7 @@ void AHIHouse::Build()
 	// would double every slab on a second call. It is called once per game today; the
 	// promise is what keeps a second call site from being a bug.
 	for (UInstancedStaticMeshComponent* Comp : { WallInstances, FurnitureInstances,
+		FurnitureCollisionInstances,
 		SlabInstances, StairInstances, RailingInstances, WallBasementInstances,
 		FurnitureSoftInstances, FurnitureApplianceInstances, FurnitureDarkInstances,
 		FurnitureSoftDecorInstances, FurnitureApplianceDecorInstances, FurnitureDarkDecorInstances,

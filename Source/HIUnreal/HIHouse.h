@@ -47,6 +47,9 @@ public:
 	/** Non-flat furniture: the things that block a route or a sightline. These collide. */
 	UPROPERTY(VisibleAnywhere, Category = "Home Invasion")
 	TObjectPtr<class UInstancedStaticMeshComponent> FurnitureInstances;
+	/** Collision-only twin of FurnitureInstances (hidden): the modeled furniture keeps a
+	 *  bullet-blocking box here, so the visible box never pokes out around the mesh. */
+	TObjectPtr<class UInstancedStaticMeshComponent> FurnitureCollisionInstances;
 
 	/** The fork's slice: second-floor slab decks. These collide -- the slab is what stops a
 	 *  bullet, a body and a sightline from crossing storeys except through the hole. */
