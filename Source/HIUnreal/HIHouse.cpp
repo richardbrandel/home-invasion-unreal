@@ -991,7 +991,6 @@ void AHIHouse::BuildFurniture(const FString& Label, const FBox2D& Rect, float Ba
 		if (L == TEXT("dryer"))      return TEXT("dryer");
 		if (L == TEXT("furnace"))    return TEXT("furnace");
 		if (L == TEXT("water_heater")) return TEXT("water_heater");
-		if (L == TEXT("dresser"))    return TEXT("dresser");
 		if (L == TEXT("wardrobe"))   return TEXT("wardrobe");
 		if (L == TEXT("desk"))       return TEXT("desk");
 		if (L == TEXT("desk_chair")) return TEXT("deskchair");
@@ -1009,9 +1008,7 @@ void AHIHouse::BuildFurniture(const FString& Label, const FBox2D& Rect, float Ba
 	{
 		// Colliding body = the sim's box on the HIDDEN component, so the box never pokes out.
 		Part(FurnitureCollisionInstances, C.X, C.Y, Base, Top, S.X, S.Y);
-		// The dresser model's own proportions made it read too small; Richard asked for 3x.
-		const float Boost = (Label == TEXT("dresser")) ? 3.0f : 1.0f;
-		PlaceSketchfabModel(SModel, C, (float)S.X * Boost, (float)S.Y * Boost, Base, Height * Boost,
+		PlaceSketchfabModel(SModel, C, (float)S.X, (float)S.Y, Base, Height,
 			FRotator::ZeroRotator, /*bCollide=*/false, /*bPerAxis=*/true);
 		return;
 	}
@@ -1119,21 +1116,16 @@ void AHIHouse::BuildFurniture(const FString& Label, const FBox2D& Rect, float Ba
 	// --- kitchen + bathroom appliances: near-white body, dark worktop or details
 	else if (Label == TEXT("counter") || Label == TEXT("island") || Label == TEXT("vanity"))
 	{
-		Part(FurnitureApplianceInstances, C.X, C.Y, Base, Top, S.X, S.Y);           // body
-		// A thicker overhanging countertop so it reads as a work surface, not a slab.
-		Part(FurnitureDarkDecorInstances, C.X, C.Y, Top - 0.06f, Top + 0.03f,
-			S.X + 0.12f, S.Y + 0.12f);
+		Part(FurnitureApplianceInstances, C.X, C.Y, Base, Top, S.X, S.Y);           // white base
+		// A wood countertop (butcher block) overhanging the base, so the top reads as one
+		// surface instead of a separate slab.
+		Part(FurnitureInstances, C.X, C.Y, Top - 0.05f, Top + 0.02f,
+			S.X + 0.10f, S.Y + 0.10f);
 		// Two cabinet-door seams down the front, so the base reads as cabinets.
 		Part(FurnitureDarkDecorInstances, C.X - S.X * 0.25f, C.Y - S.Y * 0.5f - 0.02f,
 			Base + 0.06f, Top - 0.06f, 0.03f, 0.03f);
 		Part(FurnitureDarkDecorInstances, C.X + S.X * 0.25f, C.Y - S.Y * 0.5f - 0.02f,
 			Base + 0.06f, Top - 0.06f, 0.03f, 0.03f);
-		// A recessed sink on the counter (not the island).
-		if (Label == TEXT("counter"))
-		{
-			Part(FurnitureDarkDecorInstances, C.X + S.X * 0.10f, C.Y, Top - 0.16f, Top - 0.03f,
-				0.50f, 0.40f);
-		}
 	}
 	else if (Label == TEXT("fridge") || Label == TEXT("washer") || Label == TEXT("dryer"))
 	{
@@ -1172,6 +1164,19 @@ void AHIHouse::BuildFurniture(const FString& Label, const FBox2D& Rect, float Ba
 			FRotator::ZeroRotator,
 			FVector(C.X, C.Y, (Base + Top) * 0.5f) * HI_METERS_TO_UU,
 			FVector(S.X, S.Y, Top - Base)), /*bWorldSpace=*/false);
+	}
+	// --- dresser: a chest of drawers (wood body + drawer fronts + top)
+	else if (Label == TEXT("dresser"))
+	{
+		Part(FurnitureInstances, C.X, C.Y, Base, Top, S.X, S.Y);
+		Part(FurnitureWoodDecorInstances, C.X, C.Y, Top - 0.03f, Top + 0.02f,
+			S.X + 0.06f, S.Y + 0.06f); // top
+		for (int32 D = 0; D < 3; ++D)
+		{
+			const float Z = Base + Height * (0.12f + 0.25f * (float)D);
+			Part(FurnitureDarkDecorInstances, C.X, C.Y - S.Y * 0.5f - 0.01f, Z, Z + 0.05f,
+				S.X * 0.92f, 0.02f); // drawer front
+		}
 	}
 	// --- everything else keeps its single wooden box (desk, workbench already covered above)
 	else
