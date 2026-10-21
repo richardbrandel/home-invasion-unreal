@@ -170,6 +170,7 @@ AHIHouse::AHIHouse()
 	FurnitureApplianceDecorInstances = MakeDecor(TEXT("FurnitureApplianceDecor"), Cube, WallInstances);
 	FurnitureDarkDecorInstances = MakeDecor(TEXT("FurnitureDarkDecor"), Cube, WallInstances);
 	FurnitureWoodDecorInstances = MakeDecor(TEXT("FurnitureWoodDecor"), Cube, WallInstances);
+	CountertopInstances = MakeDecor(TEXT("Countertop"), Cube, WallInstances);
 	StreetInstances = MakeDecor(TEXT("Street"), Cube, WallInstances);
 	NeighborInstances = MakeDecor(TEXT("Neighbors"), Cube, WallInstances);
 	TreeInstances = MakeDecor(TEXT("Trees"), Cube, WallInstances);
@@ -331,13 +332,14 @@ void AHIHouse::AddWindow(bool bAlongX, float Along, float WallCoord, float Facin
 	Place(WindowInstances, (Width * 0.5f) + (FrameT * 0.5f), 0.0f, FrameT, Height);
 	// A central mullion, because one big pane reads as a hole and two reads as a window.
 	Place(WindowInstances, 0.0f, 0.0f, FrameT * 0.8f, Height);
-	// The sill, standing proud of the wall below the opening.
+	// The sill, a thin ledge standing just proud of the wall below the opening (kept slim so
+	// it reads as a sill, not a white box, 2026-10-21).
 	const FVector SillCentre = bAlongX
-		? FVector(Along, Out + Facing * 0.06f, Sill - 0.03f)
-		: FVector(Out + Facing * 0.06f, Along, Sill - 0.03f);
+		? FVector(Along, Out + Facing * 0.03f, Sill - 0.03f)
+		: FVector(Out + Facing * 0.03f, Along, Sill - 0.03f);
 	const FVector SillSize = bAlongX
-		? FVector(Width + 0.30f, 0.22f, 0.06f)
-		: FVector(0.22f, Width + 0.30f, 0.06f);
+		? FVector(Width + 0.16f, 0.12f, 0.05f)
+		: FVector(0.12f, Width + 0.16f, 0.05f);
 	AddBox(WindowInstances, SillCentre, SillSize);
 }
 
@@ -1148,10 +1150,9 @@ void AHIHouse::BuildFurniture(const FString& Label, const FBox2D& Rect, float Ba
 	// --- kitchen + bathroom appliances: near-white body, dark worktop or details
 	else if (Label == TEXT("counter") || Label == TEXT("island") || Label == TEXT("vanity"))
 	{
-		// Wood base + wood top: the near-white base read as a bare white box (2026-10-21).
+		// Wood base + a wood-textured worktop (the flat colour's top face read white).
 		Part(FurnitureInstances, C.X, C.Y, Base, Top, S.X, S.Y);           // wood base
-		// A slightly overhanging countertop so the top reads as a work surface.
-		Part(FurnitureInstances, C.X, C.Y, Top - 0.05f, Top + 0.02f,
+		Part(CountertopInstances, C.X, C.Y, Top - 0.05f, Top + 0.02f,
 			S.X + 0.10f, S.Y + 0.10f);
 	}
 	else if (Label == TEXT("fridge") || Label == TEXT("washer") || Label == TEXT("dryer"))
@@ -1232,7 +1233,7 @@ void AHIHouse::Build()
 	// would double every slab on a second call. It is called once per game today; the
 	// promise is what keeps a second call site from being a bug.
 	for (UInstancedStaticMeshComponent* Comp : { WallInstances, FurnitureInstances,
-		FurnitureCollisionInstances,
+		FurnitureCollisionInstances, CountertopInstances,
 		SlabInstances, StairInstances, RailingInstances, WallBasementInstances,
 		FurnitureSoftInstances, FurnitureApplianceInstances, FurnitureDarkInstances,
 		FurnitureSoftDecorInstances, FurnitureApplianceDecorInstances, FurnitureDarkDecorInstances,
@@ -1448,6 +1449,8 @@ void AHIHouse::Build()
 	FHIMaterials::Tint(FurnitureDarkInstances, FHIMaterials::Tyre);
 	FHIMaterials::Tint(FurnitureDarkDecorInstances, FHIMaterials::Tyre);
 	FHIMaterials::Tint(FurnitureWoodDecorInstances, FHIMaterials::Wood);
+	FHIMaterials::Tint(CountertopInstances, FHIMaterials::Wood);
+	FHIMaterials::Textured(CountertopInstances, TEXT("floor_wood"), 4.0f);
 	// The neighborhood scenery (2026-10-19): grey street/sidewalk/driveway, plaster neighbor
 	// shells, green tree canopies.
 	FHIMaterials::Tint(StreetInstances, FHIMaterials::Path);

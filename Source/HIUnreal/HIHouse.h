@@ -50,6 +50,8 @@ public:
 	/** Collision-only twin of FurnitureInstances (hidden): the modeled furniture keeps a
 	 *  bullet-blocking box here, so the visible box never pokes out around the mesh. */
 	TObjectPtr<class UInstancedStaticMeshComponent> FurnitureCollisionInstances;
+	/** The counter/island worktops, wood-textured so their top face doesn't read white. */
+	TObjectPtr<class UInstancedStaticMeshComponent> CountertopInstances;
 
 	/** The fork's slice: second-floor slab decks. These collide -- the slab is what stops a
 	 *  bullet, a body and a sightline from crossing storeys except through the hole. */
