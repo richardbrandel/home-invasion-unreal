@@ -70,3 +70,20 @@ Config/` immediately before any commit.
   walker's hysteresis carries the fix, the data-level answer is Richard's call (item 12).
 - Push uses SSH (`git@github.com:richardbrandel/home-invasion-unreal.git`); the HTTPS remote
   has no credentials on this box.
+
+## Release builds (first packaged build, 2026-10-23)
+
+- **Windows is built on Plane1**, the Windows machine (`ssh plane1`), not here. It carries a
+  5.8.3 source engine at `C:\UnrealEngine` and the project at `C:\HIUnreal`; the helper
+  scripts live in `~/.dsh/tools/` here and on Plane1. This box cannot make a Windows exe,
+  which is why the Windows VM was abandoned.
+- Every asset is loaded by path, so **cooking needs `bCookAll=True`** (`Config/DefaultGame.ini`).
+  Without it the package ships engine content only: invisible people, no refrigerator, cube
+  furniture, and `Failed to find object` lines in the log.
+- **`bUseZenStore=False`** for the same class of reason: the cook reaches Zen at the hardcoded
+  IPv6 loopback `[::1]:8558`, and this host has no IPv6 loopback at all, so the cook dies with
+  `Error_UnknownCookFailure`.
+- Strip before shipping: `*.debug`, `*.sym`, `*.pdb`, `VkLayer_*validation|gfxreconstruct|api_dump`
+  and `d3d12SDKLayers.dll`. That is 3.4 GB down to 937 MB, none of it runnable.
+- **Next release: build Shipping, not Development**, so the debug info inside the binaries goes
+  too, not just the sidecar symbol files (Richard, 2026-10-23).
