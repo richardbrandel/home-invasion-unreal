@@ -295,10 +295,12 @@ is a reboot. `tools/play.sh` checks this and says so instead of launching into a
 | `L` | lights — off makes them shoot worse, and you see worse too |
 | `Enter` | play again, once the round is decided |
 
-**The port has never been played by a person.** A packaged build is deliberately absent: the
-standing instruction is to tell Richard it is ready and let him test, not to ship builds
-unasked. Packaging for Windows or macOS from here would need the engine's cross-compilation
-toolchain, which is a separate job from making the game work.
+**A packaged Windows build exists.** The first one is
+[v0.1](https://github.com/richardbrandel/home-invasion-unreal/releases/latest): unzip it and
+run `HIUnreal.exe`; it is unsigned, so SmartScreen needs **More info → Run anyway**. It is a
+Development build and still represents the game mid-dress, but it is the real thing rather
+than an editor session. How it is built -- and the two cook settings a package silently
+depends on -- is recorded in `AGENTS.md`, "Release builds".
 
 ## Layout
 
