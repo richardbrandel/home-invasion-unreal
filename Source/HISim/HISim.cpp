@@ -1553,12 +1553,12 @@ const TArray<FHISim::FHISolid>& FHISim::WorldSolids()
 		TArray<FHISolid> Out;
 		auto Add = [&Out](const FBox2D& R, const FHISolidSpan& Span, int32 Floor, bool bDeck)
 		{
-			FHISolid S;
-			S.Rect = R;
-			S.Span = Span;
-			S.Floor = Floor;
-			S.bDeck = bDeck;
-			Out.Add(S);
+			FHISolid Solid;
+			Solid.Rect = R;
+			Solid.Span = Span;
+			Solid.Floor = Floor;
+			Solid.bDeck = bDeck;
+			Out.Add(Solid);
 		};
 		// A storey-topping helper: walls and furniture span from their floor's height to
 		// the surface above -- the next floor's height, or the roof over the top storey.

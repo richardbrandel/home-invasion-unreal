@@ -758,7 +758,7 @@ struct HISIM_API FHISim
 	 * Everything the trace cannot decide -- ammunition, cooldown, recoil bookkeeping, and
 	 * who heard the shot -- is here, where it can be asserted.
 	 */
-	struct FHIRound
+	struct HISIM_API FHIRound
 	{
 		FHIPlayer Player;
 		TArray<FHIThief> Intruders;
