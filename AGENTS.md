@@ -120,3 +120,18 @@ Config/` immediately before any commit.
   not a build -- so a screenshot loop must use the editor's `-game` path, which picks up a
   rebuilt module in seconds, and only re-cook when the package itself is the thing being
   checked.
+- **Packaging command (deployment session)**, and it must use the `/data` spelling for the same
+  PCH reason as builds above -- `RunUAT.sh` compiles the Game target, so a cached no-op will not
+  save it:
+
+  ```sh
+  /data/UnrealEngine/Engine/Build/BatchFiles/RunUAT.sh BuildCookRun \
+      -project=/data/projects/HIUnreal/HIUnreal.uproject -noP4 -platform=Linux \
+      -clientconfig=Development -build -cook -stage -pak -archive \
+      -archivedirectory=/data/projects/HIUnreal/PackagedLinux -utf8output
+  ```
+
+  Then verify by running it, not by trusting `BUILD SUCCESSFUL`: a 15 s soak
+  (`-HISoak=15 -unattended -RenderOffscreen -log -abslog=...`) must print `HISOAK RESULT=` and
+  `grep -c 'Failed to find object'` must be **0**. That single check is what caught the cook
+  shipping no content while the build reported success.
