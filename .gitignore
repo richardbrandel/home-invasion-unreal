@@ -18,6 +18,17 @@ Content/*
 !Content/HIGenerated/
 !Content/HIProbe/
 
+# THE FOUR TREES BELOW WERE MISSING UNTIL 2026-10-24, and their absence was a live footgun
+# rather than untidiness: `PackagedLinux/` was 2.9 GB, `Dist/` 959 MB, `SourceAssets/` 592 MB,
+# and none of it was ignored -- so `git add -A` on this repository would have tried to push
+# ~4.4 GB into a PUBLIC repo, and every `git status` listed them as untracked work. They are
+# all derived: build output, a cook, packaging staging, and the un-imported sources that
+# `tools/import-assets.sh` turns into the `Content/` assets that ARE committed.
+Build/
+Dist/
+PackagedLinux/
+SourceAssets/
+
 # Verification captures. Reproducible from the harness in README.md, and large.
 shots/
 

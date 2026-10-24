@@ -2,10 +2,15 @@
 #
 # Download the photoreal surface textures into SourceAssets/textures/, then import them.
 #
-# WHY THIS IS A SCRIPT AND NOT A COMMIT. `SourceAssets/` and `Content/` are gitignored for
-# the same reason as the engine art: they are derived/owned content, and a commit would be a
-# copy that rots. The SOURCE here is Poly Haven (polyhaven.com), all CC0 -- public domain, no
-# attribution, commercial use OK, no account needed to download. This is the derivation.
+# WHY THIS IS A SCRIPT AND NOT A COMMIT. The downloaded files land in `SourceAssets/`, which
+# is gitignored as derived content -- a commit would be a copy that rots, and this script is
+# the derivation. (Corrected 2026-10-24: the previous wording said flatly that "SourceAssets/
+# and Content/ are gitignored", which was wrong twice. `SourceAssets/` was NOT ignored at all
+# until this change, which is why 592 MB of it showed up as untracked work; and `Content/` is
+# only ignored at the top level, with `HIImported/`, `HIGenerated/`, `Characters/`, `Weapons/`
+# and `HIProbe/` deliberately un-ignored so a fresh clone builds and runs without re-importing.)
+# The SOURCE here is Poly Haven (polyhaven.com), all CC0 -- public domain, no attribution,
+# commercial use OK, no account needed to download.
 #
 # The names are load-bearing: `FHIMaterials::Textured` loads /Game/HIImported/textures/<name>,
 # and the importer names each asset after its file stem, so a texture dropped here as
