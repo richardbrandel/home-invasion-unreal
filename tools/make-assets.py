@@ -158,7 +158,38 @@ def make_textured():
 		lib.connect_material_expressions(uv, "", mul, "A")
 		lib.connect_material_expressions(tiling, "", mul, "B")
 		lib.connect_material_expressions(mul, "", tex, "Coordinates")
-		lib.connect_material_property(tex, "RGB", unreal.MaterialProperty.MP_BASE_COLOR)
+
+		# ---- the colour, and this is a FIX rather than a feature (2026-10-23).
+		#
+		# Until this graph existed the image went straight into base colour with no colour
+		# input at all, so every `FHIMaterials::Tint()` on a textured component was discarded
+		# the moment the texture replaced it. Measured in a frame: the 5 km lawn rendered the
+		# source scan's own dry tan while `Grass` said deep green, and every interior wall
+		# rendered the plaster scan's olive blotches while `Wall` said warm off-white -- which
+		# is why the rooms read as sandstone and the yard as desert. The tint is a MULTIPLY,
+		# so a white default is a no-op and an existing caller that passes nothing is unchanged.
+		#
+		# `TextureStrength` blends the image against WHITE before the tint: 1.0 is the
+		# photograph (a lawn), 0.3 is a grain over paint (a drywall wall). Lerping toward white
+		# rather than toward the tint keeps the two parameters doing one job each.
+		white = lib.create_material_expression(
+			mat, unreal.MaterialExpressionConstant3Vector, -620, 260)
+		white.set_editor_property("constant", unreal.LinearColor(1.0, 1.0, 1.0, 1.0))
+		strength = _param(
+			mat, unreal.MaterialExpressionScalarParameter, "TextureStrength", 1.0, -1100, 340)
+		blend = lib.create_material_expression(
+			mat, unreal.MaterialExpressionLinearInterpolate, -380, 120)
+		lib.connect_material_expressions(white, "", blend, "A")
+		lib.connect_material_expressions(tex, "RGB", blend, "B")
+		lib.connect_material_expressions(strength, "", blend, "Alpha")
+
+		tint = _param(mat, unreal.MaterialExpressionVectorParameter, "Tint",
+			unreal.LinearColor(1.0, 1.0, 1.0, 1.0), -380, -160)
+		tinted = lib.create_material_expression(
+			mat, unreal.MaterialExpressionMultiply, -160, 0)
+		lib.connect_material_expressions(blend, "", tinted, "A")
+		lib.connect_material_expressions(tint, "", tinted, "B")
+		lib.connect_material_property(tinted, "", unreal.MaterialProperty.MP_BASE_COLOR)
 
 		# Matte. A wall and a lawn are the two least shiny things in the game, and the default
 		# roughness of a fresh material is 0.5, which makes plaster look like plastic under

@@ -62,9 +62,19 @@ struct FHIMaterials
 	 * `Tiling` is roughly "how many times the image repeats across the object", and the engine
 	 * cube has 0..1 UVs on every face -- so a 16 m wall needs about 8 and a 5 km lawn needs
 	 * hundreds, which is why it is a parameter and not baked into the material.
+	 *
+	 * `TintColour` and `TextureStrength` exist because the material used to sample the image
+	 * STRAIGHT into base colour, with no colour parameter at all -- so every `Tint()` call on a
+	 * textured component was silently discarded. OBSERVED: the lawn rendered the scan's own dry
+	 * tan while `Grass` said deep green, and the interior walls rendered the plaster scan's
+	 * olive blotches while `Wall` said warm off-white (front and interior frames, 2026-10-19 and
+	 * 2026-10-23). `TextureStrength` is the blend against WHITE: 1.0 keeps the photograph, 0.3
+	 * turns it into a grain over paint, which is what a painted drywall wants and a lawn does
+	 * not.
 	 */
 	static UMaterialInstanceDynamic* Textured(UMeshComponent* Mesh, const TCHAR* TextureName,
-		float Tiling, int32 Slot = 0);
+		float Tiling, int32 Slot = 0, const FLinearColor& TintColour = FLinearColor::White,
+		float TextureStrength = 1.0f);
 
 	/** Like Textured but resolves the texture under /Game/HIImported/models/ (the imported
 	 *  gltf/glb textures land there, flat, not under /textures/). */
@@ -75,6 +85,18 @@ struct FHIMaterials
 	static const FLinearColor Grass;
 	static const FLinearColor Path;
 	static const FLinearColor Wall;
+	/**
+	 * Painted interior wall, which is not `Wall`.
+	 *
+	 * `Wall` is the colour the plaster TEXTURE was supposed to be multiplied by, and it was
+	 * never applied (see `Textured`). It is also a mid tone chosen to stand against a dark
+	 * ceiling, so as a multiply on a photographed plaster scan it is likely to render the room
+	 * a muddy tan rather than paint -- inferred, not yet measured, and the reason this constant
+	 * is a light, slightly warm off-white. A painted wall is a LIGHT surface with a little
+	 * grain over it: this colour plus TextureStrength 0.30 is intended to be that, and the two
+	 * are chosen together. Correct this comment against the first frame that shows it.
+	 */
+	static const FLinearColor WallPaint;
 	static const FLinearColor WallExterior;
 	static const FLinearColor Floor;
 	static const FLinearColor Ceiling;
@@ -89,6 +111,7 @@ struct FHIMaterials
 	static const FLinearColor GTOGreen;
 	/** Tyres, and van glass reuses `Glass`. Contrast is the only detail this project has. */
 	static const FLinearColor Tyre;
+	static const FLinearColor DarkSteel;
 	/**
 	 * A coat, and the reason it has its own colour is that it did not.
 	 *

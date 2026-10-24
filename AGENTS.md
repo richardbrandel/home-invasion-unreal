@@ -7,11 +7,24 @@ divergences are recorded in the code + changelog, not re-litigated against Godot
 
 ## Build, test, soak (this machine)
 
-Engine at `/home/richard/UnrealEngine`; project at `/data/projects/HIUnreal`.
+Project at `/data/projects/HIUnreal`. The engine is the same files under two paths --
+`/dev/sdb1` is mounted at both `/data/UnrealEngine` and `/home/richard/UnrealEngine`, and
+`stat` gives the identical device:inode (`2065:56885249`). **Building is not indifferent to
+which spelling is used; running is.**
 
 ```sh
 # build (~25-60 s). ALWAYS check "Result: Succeeded" -- a FAILED build silently runs the OLD binary.
-/home/richard/UnrealEngine/Engine/Build/BatchFiles/Linux/Build.sh HIUnrealEditor Linux Development -project=/data/projects/HIUnreal/HIUnreal.uproject
+# USE /data/UnrealEngine FOR BUILDS. Same files, different spelling from /home, and the engine's
+# shared PCH was regenerated under `/data` by the 2026-10-23 full rebuild: building through
+# `/home` fails inside any translation unit that includes engine Core headers, with
+# `redefinition of 'CSameAsHelper' / 'CDecaysTo' / 'TAreTypesEqual_V'` and -Wshadow errors on
+# engine enumerators nobody edited (measured 2026-10-24, three times). `#pragma once` does not
+# dedupe a header that arrives once from the PCH under one spelling and again under the other.
+# A fully-cached no-op build still "succeeds" through /home, which is what makes it look
+# intermittent -- it only bites when something actually compiles. To move back to /home the
+# engine's `SharedPCH.*.h.gch` files must be deleted and the engine rebuilt under that spelling
+# (hours on 4 cores), so it is a scheduled job, not a loop step.
+/data/UnrealEngine/Engine/Build/BatchFiles/Linux/Build.sh HIUnrealEditor Linux Development -project=/data/projects/HIUnreal/HIUnreal.uproject
 
 # test. Exit 0 only when tests RAN and passed. The runner MASKS crashes -- after it, confirm
 # "tests run : N" AND grep -c 'Assertion failed' on the newest /tmp/ue_auto_*.log.
@@ -21,8 +34,20 @@ Engine at `/home/richard/UnrealEngine`; project at `/data/projects/HIUnreal`.
 
 # soak (one headless round, or rounds). Switches: -HISoak=SEC -HIThieves=N -HINoAuto -HIAuto -HINoThiefDamage.
 # "HISOAK RESULT=" prints per round; "HISOAK THIEF" lines print only at round END.
+# RUNNING works through either spelling; the project's own scripts use /home/richard/UnrealEngine.
 /home/richard/UnrealEngine/Engine/Binaries/Linux/UnrealEditor /data/projects/HIUnreal/HIUnreal.uproject -game -RenderOffscreen -ResX=1280 -ResY=720 -unattended -nopause -nosplash -log -abslog=/tmp/hi.log <switches>
 ```
+
+**Two sessions run on this machine and they SHARE the build tree, the engine and the GPU.**
+Richard, 2026-10-24. Consequences that are not theoretical -- both were measured the same day:
+
+- **Two builds at once corrupts the build, not the source.** Overlapping about a minute of
+  two builds produced the Core-header `redefinition` storm above in a tree nobody had edited.
+  `tools/devloop-shots.py` takes an `flock` (`/tmp/hi_devloop_build.lock`) around its build;
+  any other caller should do the same rather than trusting a quiet machine.
+- **A capture kills a running game** (`capture.sh` pkills `UnrealEditor` by name). If the other
+  session is playing, that reads to them as a crash. `capture.sh` and `tools/devloop-shots.py`
+  both refuse unless `--take-over` is passed.
 
 **`-game` launches mangle `Config/*.ini`** (AndroidFileServer junk in DefaultEngine.ini, a
 comment-stripped rewrite of DefaultInput.ini). Re-check `git status` and `git checkout --
@@ -73,10 +98,13 @@ Config/` immediately before any commit.
 
 ## Release builds (first packaged build, 2026-10-23)
 
-- **Windows is built on Plane1**, the Windows machine (`ssh plane1`), not here. It carries a
-  5.8.3 source engine at `C:\UnrealEngine` and the project at `C:\HIUnreal`; the helper
-  scripts live in `~/.dsh/tools/` here and on Plane1. This box cannot make a Windows exe,
-  which is why the Windows VM was abandoned.
+- **DEVELOPMENT IS LINUX-ONLY ON THIS BOX** (Richard, 2026-10-24). Windows is not a
+  development target and this machine does not build it. When the game is promoted to Steam,
+  the **deployment session** handles Windows; until then nothing here should carry a
+  Windows-specific constraint, and "it will not build on Windows" is not a reason to defer a
+  change. The earlier plan -- building Windows on Plane1, the Windows machine, with a 5.8.3
+  engine at `C:\UnrealEngine` and the project at `C:\HIUnreal` -- is HISTORY, kept only
+  because the first packaged build came from there.
 - Every asset is loaded by path, so **cooking needs `bCookAll=True`** (`Config/DefaultGame.ini`).
   Without it the package ships engine content only: invisible people, no refrigerator, cube
   furniture, and `Failed to find object` lines in the log.
@@ -87,3 +115,8 @@ Config/` immediately before any commit.
   and `d3d12SDKLayers.dll`. That is 3.4 GB down to 937 MB, none of it runnable.
 - **Next release: build Shipping, not Development**, so the debug info inside the binaries goes
   too, not just the sidecar symbol files (Richard, 2026-10-23).
+- The Linux package built here is the one development verifies against
+  (`Dist/Linux/HIUnreal.sh`). It goes **stale** the moment `Source/` changes -- it is a cook,
+  not a build -- so a screenshot loop must use the editor's `-game` path, which picks up a
+  rebuilt module in seconds, and only re-cook when the package itself is the thing being
+  checked.

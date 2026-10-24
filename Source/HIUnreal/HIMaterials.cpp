@@ -11,6 +11,7 @@
 const FLinearColor FHIMaterials::Grass         = FLinearColor(0.16f, 0.30f, 0.12f);
 const FLinearColor FHIMaterials::Path          = FLinearColor(0.34f, 0.32f, 0.29f);
 const FLinearColor FHIMaterials::Wall          = FLinearColor(0.74f, 0.70f, 0.62f);
+const FLinearColor FHIMaterials::WallPaint     = FLinearColor(0.94f, 0.92f, 0.87f);
 const FLinearColor FHIMaterials::WallExterior  = FLinearColor(0.56f, 0.52f, 0.46f);
 const FLinearColor FHIMaterials::Floor         = FLinearColor(0.38f, 0.26f, 0.15f);
 const FLinearColor FHIMaterials::Ceiling       = FLinearColor(0.90f, 0.89f, 0.86f);
@@ -23,6 +24,7 @@ const FLinearColor FHIMaterials::Glass         = FLinearColor(0.16f, 0.21f, 0.26
 const FLinearColor FHIMaterials::Van           = FLinearColor(0.22f, 0.36f, 0.24f);
 const FLinearColor FHIMaterials::GTOGreen      = FLinearColor(0.06f, 0.13f, 0.07f);
 const FLinearColor FHIMaterials::Tyre          = FLinearColor(0.05f, 0.05f, 0.055f);
+const FLinearColor FHIMaterials::DarkSteel     = FLinearColor(0.20f, 0.20f, 0.22f);
 const FLinearColor FHIMaterials::Coat          = FLinearColor(0.14f, 0.13f, 0.18f);
 const FLinearColor FHIMaterials::PlayerSkin    = FLinearColor(0.62f, 0.66f, 0.74f);
 const FLinearColor FHIMaterials::IntruderSkin  = FLinearColor(0.34f, 0.30f, 0.28f);
@@ -100,7 +102,7 @@ UMaterialInstanceDynamic* FHIMaterials::Tint(UMeshComponent* Mesh, const FLinear
 }
 
 UMaterialInstanceDynamic* FHIMaterials::Textured(UMeshComponent* Mesh, const TCHAR* TextureName,
-	float Tiling, int32 Slot)
+	float Tiling, int32 Slot, const FLinearColor& TintColour, float TextureStrength)
 {
 	if (Mesh == nullptr || TextureName == nullptr)
 	{
@@ -130,6 +132,11 @@ UMaterialInstanceDynamic* FHIMaterials::Textured(UMeshComponent* Mesh, const TCH
 	}
 	Mid->SetTextureParameterValue(TEXT("BaseTexture"), Tex);
 	Mid->SetScalarParameterValue(TEXT("UVTiling"), Tiling);
+	// The colour that the texture pass used to swallow. Both names are checked against the
+	// generated asset by `HI.Unreal.Materials`, so a rename fails a test instead of quietly
+	// returning the scan's own colour again.
+	Mid->SetVectorParameterValue(TEXT("Tint"), TintColour);
+	Mid->SetScalarParameterValue(TEXT("TextureStrength"), TextureStrength);
 	Mesh->SetMaterial(Slot, Mid);
 	return Mid;
 }

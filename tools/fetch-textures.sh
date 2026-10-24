@@ -27,6 +27,13 @@ PAIRS=(
 	"grass_ground          lawn"
 	"grey_roof_tiles       roof_shingle"
 	"concrete_block_wall   cinderblock"
+	# The house's own skin, added 2026-10-23. The exterior walls wore the interior plaster
+	# texture, which at 40 tiling read as a mottled concrete shed rather than a house; this is
+	# Poly Haven's `white_planks_clean` (CC0), vertical board-and-batten. VERTICAL boards and
+	# not clapboard, because `M_HITextured` has ONE tiling scalar for both UV axes and every
+	# wall box maps 0..1 on its face: vertical features survive a horizontal stretch, and
+	# horizontal clapboard would render at a different course height on every wall segment.
+	"white_planks_clean    siding"
 )
 
 command -v python3 >/dev/null || { echo "python3 required" >&2; exit 1; }

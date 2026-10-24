@@ -44,6 +44,23 @@ public:
 	UPROPERTY(VisibleAnywhere, Category = "Home Invasion")
 	TObjectPtr<class UInstancedStaticMeshComponent> WallInstances;
 
+	/**
+	 * The house's OUTSIDE skin: board-and-batten panels on the four facades, decor only.
+	 *
+	 * Added 2026-10-23 because `WallInstances` serves the interior and the exterior from one
+	 * component, and the exterior therefore wore the interior plaster texture -- measured in a
+	 * front view, the house read as a mottled concrete shed with white panels taped to it.
+	 * A separate component is the only way to give the outside its own material without
+	 * cutting the wall build apart.
+	 *
+	 * PANELS, not four long slabs, and that is a UV consequence rather than a style one:
+	 * every instance of a cube maps 0..1 on each face, so one tiling across a 12.7 m facade
+	 * and a 2 m one draws two different board widths. Equal-width panels make the density
+	 * uniform, and the joints are a bonus.
+	 */
+	UPROPERTY(VisibleAnywhere, Category = "Home Invasion")
+	TObjectPtr<class UInstancedStaticMeshComponent> SidingInstances;
+
 	/** Non-flat furniture: the things that block a route or a sightline. These collide. */
 	UPROPERTY(VisibleAnywhere, Category = "Home Invasion")
 	TObjectPtr<class UInstancedStaticMeshComponent> FurnitureInstances;

@@ -479,6 +479,13 @@ void AHIGameMode::SetupLighting()
 		{  4.60f, -15.20f, -0.35f, 600.0f },   // mechanical room
 		// ---- ground (ceiling 2.53)
 		{ -3.60f, -10.00f, 2.39f,  900.0f },   // living room
+		// ---- the PORCH (2026-10-23): beside the front door, OUTSIDE the wall. The front
+		// facade faces away from the sun, so every front frame showed the house as an unlit
+		// slab with a black doorway -- and `REALISM-BACKLOG.md` item 2 lists "porch light by
+		// the front door" and it had never been built. It lives in this array so the light
+		// switch still turns the house dark. Its fixture is drawn in
+		// `AHIHouse::BuildDressing`; it has no ceiling rose because it is not a ceiling lamp.
+		{  1.45f,  -7.62f, 2.10f,  500.0f },   // front door, outside face (H.Max.Y = -7.75)
 		{ -4.40f, -14.20f, 2.39f,  700.0f },   // master bedroom
 		{ -2.60f, -16.00f, 2.39f,  600.0f },   // master bath
 		{  3.60f, -16.00f, 2.39f,  800.0f },   // kitchen

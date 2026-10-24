@@ -8,6 +8,13 @@
 #include "HIUnits.h"
 #include "UObject/ConstructorHelpers.h"
 
+// (A file-local `AddInstance` helper lived here until 2026-10-23. It took metres and built
+// the transform with them directly, which Unreal reads as centimetres, and it also turned
+// collision on for the whole component every call. Its last two callers were the broken
+// hedge blocks, now rewritten against `AddBox`, so it is gone rather than left as a trap:
+// with -Werror an unused static is a build break, and a second way to add a box is how this
+// project got a hedge at the wrong scale in the first place.)
+
 namespace
 {
 	/** The four ways a decoration is always the same, in one place. */
@@ -220,6 +227,7 @@ AHIHouse::AHIHouse()
 	// nothing at all.
 	RoofInstance->SetCastShadow(true);
 	CeilingInstance = MakeDecor(TEXT("Ceiling"), Cube, WallInstances);
+	SidingInstances = MakeDecor(TEXT("Siding"), Cube, WallInstances);
 	TrimInstances = MakeDecor(TEXT("Trim"), Cube, WallInstances);
 	WindowInstances = MakeDecor(TEXT("Windows"), Cube, WallInstances);
 	GlassInstances = MakeDecor(TEXT("Glass"), Cube, WallInstances);
@@ -355,7 +363,7 @@ void AHIHouse::BuildDressing()
 		// sim already carries ([BasementCeiling..0] in WorldSolids, drawn as structure in
 		// Build()). The strips share the top face at 0.0 exactly.
 		const float LawnHalf = 2600.0f;
-		const float LZ = -0.25f;
+		const float LZ = -0.27f;   // top face at -0.02, clear of the street's +0.04 (see BuildNeighborhood)
 		const float LT = 0.5f;
 		const float HCY = (H.Min.Y + H.Max.Y) * 0.5f;
 		const float HDY = H.Max.Y - H.Min.Y;
@@ -495,11 +503,80 @@ void AHIHouse::BuildDressing()
 			FVector(FHISim::DoorGap.Y - FHISim::DoorGap.X + 0.20f, JamDepth, 0.10f));
 	}
 
-	// ---- skirting and picture rail, DERIVED from the wall rows rather than hand-placed,
-	// now per storey: a band at each row's floor and another at floor + 2.06. Interior
-	// partitions only -- the exterior rows (TopZ = RoofTop, and the door transom) get no
-	// trim, because skirting on the outside of a house is a plinth and the transom floats
-	// 2.1 m up in the air.
+	// ---- the porch light's FIXTURE (2026-10-23): the lamp itself is spawned by
+	// `AHIGameMode::SetupLighting` at (1.45, -7.62, 2.10), just outside the front door, and a
+	// lamp with nothing on the wall reads as a bulb hanging in mid-air. Dark metal body with a
+	// pale diffuser under it, so the glow has a source.
+	AddBox(VanDetailInstances,
+		FVector(1.45f, H.Max.Y + 0.10f, 2.10f), FVector(0.16f, 0.20f, 0.26f));
+	AddBox(TrimInstances,
+		FVector(1.45f, H.Max.Y + 0.21f, 2.02f), FVector(0.12f, 0.04f, 0.16f));
+
+	// ---- the house's OUTSIDE SKIN (2026-10-23): board-and-batten panels on the four
+	// facades, in their own component so the interior keeps its painted plaster. This is
+	// what turns the front view from a mottled concrete shed into a house -- measured in a
+	// front frame, the exterior walls wore `ceiling_plaster` at 40 tiling and read as render.
+	//
+	// Equal-width panels, because every cube face maps 0..1 and `M_HITextured` has one
+	// tiling scalar: a 12.7 m facade and a 2 m one would otherwise draw different board
+	// widths side by side. The front ground floor is split around the door gap, which is a
+	// real hole in the wall; the windows are panels ON the wall, so they need no split and
+	// their frames stand proud of this skin.
+	{
+		const float PanelWidth = 1.9f;
+		const float Thick = 0.04f;
+		const float Out = Thick * 0.5f + 0.005f;   // 5 mm clear of the wall face: no z-fight
+		const float Z0 = FHISim::FloorHeight(0);
+		const float Z1 = FHISim::FloorHeight(1);
+		const float Z2 = FHISim::RoofTop;
+
+		auto PanelRun = [&](bool bAlongX, float Face, float From, float To, float MinZ, float MaxZ)
+		{
+			const float Len = To - From;
+			if (Len <= 0.05f || MaxZ - MinZ <= 0.05f)
+			{
+				return;
+			}
+			const int32 Panels = FMath::Max(1, FMath::RoundToInt(Len / PanelWidth));
+			const float Each = Len / Panels;
+			for (int32 i = 0; i < Panels; ++i)
+			{
+				const float C = From + (i + 0.5f) * Each;
+				const float Zc = (MinZ + MaxZ) * 0.5f;
+				const FVector Centre = bAlongX ? FVector(C, Face, Zc) : FVector(Face, C, Zc);
+				const FVector Size = bAlongX
+					? FVector(Each - 0.02f, Thick, MaxZ - MinZ)
+					: FVector(Thick, Each - 0.02f, MaxZ - MinZ);
+				AddBox(SidingInstances, Centre, Size);
+			}
+		};
+
+		// south (front): ground floor split around the front door, then the storey above
+		PanelRun(true, H.Max.Y + Out, H.Min.X, FHISim::DoorGap.X, Z0, Z1);
+		PanelRun(true, H.Max.Y + Out, FHISim::DoorGap.Y, H.Max.X, Z0, Z1);
+		PanelRun(true, H.Max.Y + Out, H.Min.X, H.Max.X, Z1, Z2);
+		// north (back)
+		PanelRun(true, H.Min.Y - Out, H.Min.X, H.Max.X, Z0, Z1);
+		PanelRun(true, H.Min.Y - Out, H.Min.X, H.Max.X, Z1, Z2);
+		// west and east
+		PanelRun(false, H.Min.X - Out, H.Min.Y, H.Max.Y, Z0, Z1);
+		PanelRun(false, H.Min.X - Out, H.Min.Y, H.Max.Y, Z1, Z2);
+		PanelRun(false, H.Max.X + Out, H.Min.Y, H.Max.Y, Z0, Z1);
+		PanelRun(false, H.Max.X + Out, H.Min.Y, H.Max.Y, Z1, Z2);
+	}
+
+	// ---- skirting, DERIVED from the wall rows rather than hand-placed, per storey: a band
+	// at each row's floor. Interior partitions only -- the exterior rows (TopZ = RoofTop, and
+	// the door transom) get no trim, because skirting on the outside of a house is a plinth
+	// and the transom floats 2.1 m up in the air.
+	//
+	// THE PICTURE RAIL AT 2.06 m IS GONE (2026-10-23). It was a second box over the row's
+	// whole plan footprint at head height, and in a first-person frame it read as a bright
+	// white STRIPE PAINTED ACROSS the wall -- in the living room it ran straight across the
+	// doorway opening it was supposed to terminate at, because a wall ROW spans the row's
+	// rect and the opening is not a row. Picture rail is a Victorian detail on a modern
+	// house, and the skirting is the piece a real room actually has; removing the rail is
+	// cheaper and more honest than giving it mitred ends at every opening.
 	for (const FHISim::FHIWallRow& Row : FHISim::WallRows())
 	{
 		if (Row.TopZ > 0.0f)
@@ -513,10 +590,6 @@ void AHIHouse::BuildDressing()
 			FVector((Row.Rect.Min.X + Row.Rect.Max.X) * 0.5f,
 				(Row.Rect.Min.Y + Row.Rect.Max.Y) * 0.5f, Base + 0.06f),
 			FVector(Size.X + Girth * 2.0f, Size.Y + Girth * 2.0f, 0.12f));
-		AddBox(TrimInstances,
-			FVector((Row.Rect.Min.X + Row.Rect.Max.X) * 0.5f,
-				(Row.Rect.Min.Y + Row.Rect.Max.Y) * 0.5f, Base + 2.06f),
-			FVector(Size.X + Girth * 2.0f, Size.Y + Girth * 2.0f, 0.07f));
 	}
 
 	// ---- windows, the HOUSE-DESIGN.md §4.6 schedule. Ground floor first, then the
@@ -735,151 +808,6 @@ void AHIHouse::PlaceSketchfabModel(const FString& Name, const FVector2D& Center,
 			Comp->GetRelativeLocation().X, Comp->GetRelativeLocation().Y, Comp->GetRelativeLocation().Z,
 			Comp->GetAttachParent() ? *Comp->GetAttachParent()->GetName() : TEXT("none"));
 	}
-}
-
-void AHIHouse::BuildNeighborhood()
-{
-	// Realism item 2, "the outside doesn't look like a neighborhood" (2026-10-19): a street
-	// with a centre line and curbs, a sidewalk, a driveway, five gabled neighbor houses with
-	// doors and windows, three parked cars, four trees, a street light and a mailbox. All
-	// decor, laid proud of the lawn, so the sim's Bounds and collision are untouched. The
-	// street is also Louise's walk limit (FHISim::PlayerNorthLimit), so the houses across it
-	// are scenery she can see but never reach.
-	{
-		const float SZ = 0.02f;
-		auto Strip = [&](float X1, float X2, float Y1, float Y2)
-		{
-			AddBox(StreetInstances, FVector((X1 + X2) * 0.5f, (Y1 + Y2) * 0.5f, 0.01f),
-				FVector(X2 - X1, Y2 - Y1, SZ));
-		};
-		Strip(-45.0f, 45.0f, 6.6f, 11.2f);    // the street, containing the van (y 7..9.4) and a parking lane
-		Strip(-45.0f, 45.0f, 5.4f, 6.6f);     // its south sidewalk
-		Strip(-1.6f, 1.6f, -7.75f, 6.6f);     // the driveway to the front door
-		// The kerbs: two slightly proud edges either side of the sidewalk, so the walk and
-		// the road read as separate surfaces rather than two grey strips.
-		Strip(-45.0f, 45.0f, 6.6f, 6.74f);
-		Strip(-45.0f, 45.0f, 5.26f, 5.4f);
-		// The lane's centre line, dashed.
-		for (float X = -43.0f; X <= 43.0f; X += 3.0f)
-		{
-			AddBox(TrimInstances, FVector(X, 8.3f, 0.015f), FVector(1.5f, 0.10f, 0.02f));
-		}
-	}
-
-	// Neighbor houses: a plaster box under a PITCHED roof, a dark front door and two windows
-	// facing the street. Gabled so they read as houses, not sheds.
-	{
-		const float WallH = 4.6f;
-		const float Rise = 1.6f;
-		auto House = [&](float CX, float CY, float W, float D)
-		{
-			const float HalfD = D * 0.5f + 0.2f;
-			const float Slope = FMath::Sqrt(HalfD * HalfD + Rise * Rise);
-			const float Pitch = FMath::RadiansToDegrees(FMath::Atan2(Rise, HalfD));
-			AddBox(NeighborInstances, FVector(CX, CY, WallH * 0.5f), FVector(W, D, WallH));
-			for (float S : { -1.0f, 1.0f })
-			{
-				AddBoxR(RoofInstance, FVector(CX, CY + S * HalfD * 0.5f, WallH + Rise * 0.5f),
-					FVector(W + 0.4f, Slope, 0.12f), FRotator(0.0f, 0.0f, S * Pitch));
-			}
-			AddBox(RoofInstance, FVector(CX, CY, WallH + Rise + 0.05f), FVector(W + 0.5f, 0.3f, 0.1f));
-			// Front door and two windows on the street side (the -Y, south face).
-			AddBox(GlassInstances, FVector(CX, CY - D * 0.5f - 0.03f, 1.05f), FVector(0.9f, 0.06f, 2.1f));
-			AddBox(GlassInstances, FVector(CX - W * 0.30f, CY - D * 0.5f - 0.03f, 1.55f), FVector(1.0f, 0.06f, 1.2f));
-			AddBox(GlassInstances, FVector(CX + W * 0.30f, CY - D * 0.5f - 0.03f, 1.55f), FVector(1.0f, 0.06f, 1.2f));
-		};
-		House(-13.0f, 15.5f, 9.0f, 7.0f);
-		House(13.0f, 15.5f, 9.0f, 7.0f);
-		House(0.0f, 21.0f, 10.0f, 7.0f);
-		House(-26.0f, 16.0f, 8.0f, 6.0f);
-		House(26.0f, 16.0f, 8.0f, 6.0f);
-	}
-
-	// Three parked cars on the street, one each side of the driveway and one further up.
-	{
-		// A sedan, not a box (2026-10-19, "the cars look real boxy"): a chassis, a sloped
-		// hood, a raked windscreen and backlight, a cabin and roof, a trunk, a grille,
-		// lights, bumpers, mirrors, door seams, and round wheels. Length runs along X (the
-		// road), so every slope is a PITCH (about Y).
-		auto Car = [&](float CX, float CY)
-		{
-			const float L = 4.4f, W = 1.8f;
-			// Chassis: the lower body, full length and width, sitting over the wheels.
-			AddBox(VanInstances, FVector(CX, CY, 0.47f), FVector(L, W, 0.30f));
-			// Trunk deck, from the backlight down to the tail.
-			AddBox(VanInstances, FVector(CX + 1.05f, CY, 0.82f), FVector(1.15f, W, 0.34f));
-			// Greenhouse: the cabin glass, narrower than the body.
-			AddBox(VanInstances, FVector(CX + 0.15f, CY, 1.18f), FVector(1.30f, W - 0.10f, 0.46f));
-			// Roof cap.
-			AddBox(VanInstances, FVector(CX + 0.15f, CY, 1.42f), FVector(1.20f, W - 0.10f, 0.06f));
-			// Sloped hood: the front edge drops toward the bumper.
-			AddBoxR(VanInstances, FVector(CX - 1.30f, CY, 0.78f), FVector(1.45f, W - 0.02f, 0.10f),
-				FRotator(-9.0f, 0.0f, 0.0f));
-			// Raked windscreen and backlight (glass), leaning back and forward respectively.
-			AddBoxR(GlassInstances, FVector(CX - 0.45f, CY, 1.18f), FVector(0.06f, W - 0.16f, 0.52f),
-				FRotator(34.0f, 0.0f, 0.0f));
-			AddBoxR(GlassInstances, FVector(CX + 0.72f, CY, 1.16f), FVector(0.06f, W - 0.16f, 0.48f),
-				FRotator(-32.0f, 0.0f, 0.0f));
-			// Side glass, both doors.
-			AddBox(GlassInstances, FVector(CX + 0.15f, CY - W * 0.5f - 0.02f, 1.18f),
-				FVector(1.00f, 0.04f, 0.34f));
-			AddBox(GlassInstances, FVector(CX + 0.15f, CY + W * 0.5f + 0.02f, 1.18f),
-				FVector(1.00f, 0.04f, 0.34f));
-			// Grille and headlights at the front, taillights at the rear.
-			AddBox(VanDetailInstances, FVector(CX - L * 0.5f - 0.02f, CY, 0.55f), FVector(0.06f, W * 0.6f, 0.18f));
-			AddBox(TrimInstances, FVector(CX - L * 0.5f - 0.03f, CY - W * 0.32f, 0.62f), FVector(0.06f, 0.34f, 0.12f));
-			AddBox(TrimInstances, FVector(CX - L * 0.5f - 0.03f, CY + W * 0.32f, 0.62f), FVector(0.06f, 0.34f, 0.12f));
-			AddBox(TrimInstances, FVector(CX + L * 0.5f + 0.03f, CY - W * 0.32f, 0.82f), FVector(0.06f, 0.34f, 0.12f));
-			AddBox(TrimInstances, FVector(CX + L * 0.5f + 0.03f, CY + W * 0.32f, 0.82f), FVector(0.06f, 0.34f, 0.12f));
-			// Bumpers.
-			AddBox(VanDetailInstances, FVector(CX - L * 0.5f, CY, 0.34f), FVector(0.10f, W * 0.95f, 0.16f));
-			AddBox(VanDetailInstances, FVector(CX + L * 0.5f, CY, 0.34f), FVector(0.10f, W * 0.95f, 0.16f));
-			// Door seams, one per side.
-			AddBox(VanDetailInstances, FVector(CX + 0.15f, CY - W * 0.5f - 0.02f, 0.62f), FVector(0.03f, 0.03f, 0.30f));
-			AddBox(VanDetailInstances, FVector(CX + 0.15f, CY + W * 0.5f + 0.02f, 0.62f), FVector(0.03f, 0.03f, 0.30f));
-			// Rocker panels: a dark strip along the bottom of each side, between the wheels.
-			AddBox(VanDetailInstances, FVector(CX, CY - W * 0.5f - 0.015f, 0.36f), FVector(L - 0.4f, 0.03f, 0.12f));
-			AddBox(VanDetailInstances, FVector(CX, CY + W * 0.5f + 0.015f, 0.36f), FVector(L - 0.4f, 0.03f, 0.12f));
-			// Side mirrors on stalks.
-			AddBox(VanDetailInstances, FVector(CX - 0.55f, CY - W * 0.5f - 0.06f, 1.10f), FVector(0.10f, 0.04f, 0.08f));
-			AddBox(VanDetailInstances, FVector(CX - 0.55f, CY + W * 0.5f + 0.06f, 1.10f), FVector(0.10f, 0.04f, 0.08f));
-			// Four round wheels (the engine Cylinder on its side).
-			for (float SX : { -1.35f, 1.35f })
-			{
-				for (float SY : { -0.78f, 0.78f })
-				{
-					WheelInstances->AddInstance(FTransform(
-						FRotator(0.0f, 0.0f, 90.0f),
-						FVector(CX + SX, CY + SY, 0.31f) * HI_METERS_TO_UU,
-						FVector(0.62f, 0.62f, 0.22f)), /*bWorldSpace=*/false);
-					WheelRimInstances->AddInstance(FTransform(
-						FRotator(0.0f, 0.0f, 90.0f),
-						FVector(CX + SX, CY + SY, 0.31f) * HI_METERS_TO_UU,
-						FVector(0.32f, 0.32f, 0.25f)), /*bWorldSpace=*/false);
-				}
-			}
-		};
-		// Real Sketchfab models (CC BY, tools/fetch-sketchfab.py) replace the boxy sedans.
-		// The Phoenix muscle car had a BLACK body (invisible on the dark street), so the cars
-		// are now a '53 Cadillac and a '63 Chevy C10, both textured. These two import with
-		// their length on Y (unlike the muscle, which was on X), so yaw 90 parks them along
-		// the street. Spread well clear of the driveway (x +-1.6) and the van (x 0).
-		PlaceSketchfabModel(TEXT("car"), FVector2D(-12.0f, 10.0f), 4.9f, 1.8f, 0.0f, 1.5f, FRotator(0.0f, 90.0f, 0.0f));
-		PlaceSketchfabModel(TEXT("pickup"), FVector2D(12.0f, 10.0f), 4.9f, 1.8f, 0.0f, 1.5f, FRotator(0.0f, 90.0f, 0.0f));
-		PlaceSketchfabModel(TEXT("car"), FVector2D(24.0f, 10.0f), 4.9f, 1.8f, 0.0f, 1.5f, FRotator(0.0f, 90.0f, 0.0f));
-	}
-
-	// Real trees (CC BY, tools/fetch-sketchfab.py) replace the boxy trunk-and-boxes: a pine
-	// and an oak. The importer already puts up on Z, so no roll.
-	PlaceSketchfabModel(TEXT("tree2"), FVector2D(-4.5f, 3.5f), 5.0f, 5.0f, 0.0f, 5.0f, FRotator::ZeroRotator);
-	PlaceSketchfabModel(TEXT("tree2"), FVector2D(4.5f, 3.5f), 4.5f, 4.5f, 0.0f, 4.5f, FRotator::ZeroRotator);
-	PlaceSketchfabModel(TEXT("tree1"), FVector2D(-9.0f, 12.5f), 6.0f, 6.0f, 0.0f, 6.0f, FRotator::ZeroRotator);
-	PlaceSketchfabModel(TEXT("tree1"), FVector2D(9.0f, 12.5f), 6.0f, 6.0f, 0.0f, 6.0f, FRotator::ZeroRotator);
-
-	// A street light at the kerb and a mailbox by the front path.
-	AddBox(VanDetailInstances, FVector(2.6f, 5.9f, 2.6f), FVector(0.14f, 0.14f, 5.2f));
-	AddBox(GlassInstances, FVector(2.6f, 5.9f, 5.2f), FVector(0.5f, 0.5f, 0.2f));
-	AddBox(VanInstances, FVector(1.7f, -6.9f, 0.5f), FVector(0.3f, 0.5f, 1.0f));
 }
 
 void AHIHouse::BuildFurniture(const FString& Label, const FBox2D& Rect, float Base, float Height)
@@ -1233,6 +1161,7 @@ void AHIHouse::Build()
 		FurnitureWoodDecorInstances,
 		StreetInstances, NeighborInstances, TreeInstances, WheelInstances, WheelRimInstances,
 		GroundInstance, FloorInstance, BasementFloorInstances, RoofInstance, CeilingInstance,
+		SidingInstances,
 		TrimInstances, WindowInstances, GlassInstances, FittingInstances, PropInstances,
 		CoatInstances, DoorHeadInstances, VanInstances, VanDetailInstances, GTOInstances })
 	{
@@ -1415,29 +1344,49 @@ void AHIHouse::Build()
 	BuildDressing();
 	BuildNeighborhood();
 
-	FHIMaterials::Tint(WallInstances, FHIMaterials::Wall);
-	if (FHIMaterials::Textured(WallInstances, TEXT("ceiling_plaster"), 40.0f) == nullptr)
+	// 2026-10-23: the wall texture now takes the tint it was always meant to. `WallPaint`
+	// at strength 0.30 is painted drywall with the plaster scan's grain through it, instead
+	// of the scan's own olive blotches at full strength (which read as sandstone).
+	FHIMaterials::Tint(WallInstances, FHIMaterials::WallPaint);
+	if (FHIMaterials::Textured(WallInstances, TEXT("ceiling_plaster"), 40.0f,
+			0, FHIMaterials::WallPaint, 0.30f) == nullptr)
 	{
 		UE_LOG(LogTemp, Warning, TEXT("HI: walls stay flat -- no M_HITextured or texture"));
 	}
+	// The house's outside skin (2026-10-23). Tiling 1.0 puts the scan's full run of boards
+	// across one ~1.9 m panel, which lands near 12 cm a board on every facade -- the whole
+	// reason the panels are equal-width. A missing `siding` texture degrades to the tint.
+	FHIMaterials::Tint(SidingInstances, FHIMaterials::WallExterior);
+	FHIMaterials::Textured(SidingInstances, TEXT("siding"), 1.0f,
+		0, FLinearColor(0.97f, 0.95f, 0.90f), 1.0f);
 	// The basement: Richard's brief is CINDERBLOCK. The asset set once had no cinderblock
 	// texture, so it wore a coarse plaster grain as a stand-in. A real concrete-block
 	// texture is now imported (Poly Haven `concrete_block_wall`, CC0, 2026-10-19), so the
 	// brief is met as written: block, not the cream plaster of the rooms above.
+	// Tiling 14 -> 26 (2026-10-23): at 14 the courses rendered ~30 cm high on a 10 m wall,
+	// which reads as a retaining wall, not a basement.
 	FHIMaterials::Tint(WallBasementInstances, FHIMaterials::WallExterior);
-	FHIMaterials::Textured(WallBasementInstances, TEXT("cinderblock"), 14.0f);
+	FHIMaterials::Textured(WallBasementInstances, TEXT("cinderblock"), 26.0f,
+		0, FHIMaterials::WallExterior, 1.0f);
 	// The basement slab wears the asset set's one tile floor -- a utility floor may be
 	// tiled where the storeys above are wood.
 	FHIMaterials::Tint(BasementFloorInstances, FHIMaterials::Floor);
-	FHIMaterials::Textured(BasementFloorInstances, TEXT("floor_tile"), 8.0f);
+	FHIMaterials::Textured(BasementFloorInstances, TEXT("floor_tile"), 8.0f,
+		0, FLinearColor(0.86f, 0.86f, 0.83f), 1.0f);
 	FHIMaterials::Tint(FloorInstance, FHIMaterials::Floor);
-	FHIMaterials::Textured(FloorInstance, TEXT("floor_wood"), 6.0f);
+	FHIMaterials::Textured(FloorInstance, TEXT("floor_wood"), 6.0f,
+		0, FHIMaterials::Floor, 1.0f);
 	FHIMaterials::Tint(GroundInstance, FHIMaterials::Grass);
 	// The lawn is a 5 km plane, so its tiling is large: one repeat every ~13 m reads as grass
 	// from the doorstep without turning to noise at the horizon.
-	FHIMaterials::Textured(GroundInstance, TEXT("lawn"), 400.0f);
+	// 2026-10-23: this is THE fix for the yard. The scan is a dry, tan-dominated lawn, and
+	// at full strength with no tint the front yard rendered as desert -- the single largest
+	// "this is not a suburb" tell in the frame. Tinted green and slightly darker.
+	FHIMaterials::Textured(GroundInstance, TEXT("lawn"), 400.0f,
+		0, FLinearColor(0.55f, 0.78f, 0.34f), 1.0f);
 	FHIMaterials::Tint(RoofInstance, FHIMaterials::WallExterior);
-	FHIMaterials::Textured(RoofInstance, TEXT("roof_shingle"), 8.0f);
+	FHIMaterials::Textured(RoofInstance, TEXT("roof_shingle"), 8.0f,
+		0, FLinearColor(0.86f, 0.84f, 0.80f), 1.0f);
 	FHIMaterials::Tint(FurnitureInstances, FHIMaterials::Wood);
 	// The composed furniture's materials (2026-10-19): fabric in the sofa blue, appliances
 	// in near-white, dark metal/screens in near-black -- body and detail share a tint so a
@@ -1449,13 +1398,20 @@ void AHIHouse::Build()
 	FHIMaterials::Tint(FurnitureDarkInstances, FHIMaterials::Tyre);
 	FHIMaterials::Tint(FurnitureDarkDecorInstances, FHIMaterials::Tyre);
 	FHIMaterials::Tint(FurnitureWoodDecorInstances, FHIMaterials::Wood);
-	FHIMaterials::Tint(CountertopInstances, FHIMaterials::Wood);
-	FHIMaterials::Textured(CountertopInstances, TEXT("floor_wood"), 4.0f);
+	FHIMaterials::Tint(CountertopInstances, FHIMaterials::DarkSteel);
 	// The neighborhood scenery (2026-10-19): grey street/sidewalk/driveway, plaster neighbor
 	// shells, green tree canopies.
 	FHIMaterials::Tint(StreetInstances, FHIMaterials::Path);
 	FHIMaterials::Tint(NeighborInstances, FHIMaterials::WallExterior);
-	FHIMaterials::Textured(NeighborInstances, TEXT("ceiling_plaster"), 20.0f);
+	FHIMaterials::Textured(NeighborInstances, TEXT("ceiling_plaster"), 20.0f,
+		0, FHIMaterials::WallExterior, 0.45f);
+	// (A second copy of the neighbour houses and their hedges lived here, in the MATERIAL
+	// pass, from the 2026-10-23 patch. It was added while `BuildNeighborhood` itself was
+	// emptied, so the same five houses were built twice from two lambdas -- once here and
+	// once in `BuildNeighborhood` -- and the copy here carried the metre/centimetre hedge bug
+	// and the grey-plaster hedges. `BuildNeighborhood` has the one remaining definition. The
+	// block also would not compile once its `AddInstance` helper was removed, which is how
+	// this was found: the patch had never been built.)
 	FHIMaterials::Tint(TreeInstances, FHIMaterials::Grass);
 	FHIMaterials::Tint(WheelInstances, FHIMaterials::Tyre);
 	FHIMaterials::Tint(WheelRimInstances, FHIMaterials::Trim);
@@ -1465,7 +1421,8 @@ void AHIHouse::Build()
 	// about that the engine does not. The slab's walked face wears the floor's wood; its
 	// undersides are hidden by the ceiling panels; the roof deck hides under the gable.
 	FHIMaterials::Tint(SlabInstances, FHIMaterials::Floor);
-	FHIMaterials::Textured(SlabInstances, TEXT("floor_wood"), 6.0f);
+	FHIMaterials::Textured(SlabInstances, TEXT("floor_wood"), 6.0f,
+		0, FHIMaterials::Floor, 1.0f);
 	FHIMaterials::Tint(StairInstances, FHIMaterials::Wood);
 	FHIMaterials::Tint(RailingInstances, FHIMaterials::Trim);
 	FHIMaterials::Tint(CeilingInstance, FHIMaterials::Ceiling);
@@ -1479,8 +1436,21 @@ void AHIHouse::Build()
 	{
 		if (UMaterialInstanceDynamic* Mid = UMaterialInstanceDynamic::Create(GlassMat, GlassInstances))
 		{
-			Mid->SetScalarParameterValue(TEXT("Opacity"), 0.72f);
-			Mid->SetVectorParameterValue(TEXT("GlassColor"), FLinearColor(0.30f, 0.40f, 0.52f, 1.0f));
+			// DARK NIGHT GLASS, and the reason is geometric rather than stylistic: `AddWindow`
+			// puts the pane 15 cm PROUD of a SOLID wall (nothing in `WallRows` is cut for a
+			// window -- the sim's sight lines run straight through that wall). So there is no
+			// room behind the glass to see: a bright pane was showing the plaster wall it
+			// stands in front of, and every window in an exterior frame read as a white
+			// sticker on the siding instead of as a window. A dark pane over a lit facade is
+			// what glass actually looks like from outside at night, and it is the only honest
+			// answer available while the opening is a panel.
+			//
+			// OBSERVED: 0.30/0.40/0.52 at opacity 0.72 put the pane BRIGHTER than the wall in
+			// every front view (the 10-cell grid sheet, 2026-10-19, cells 1 and 3, and again in
+			// the packaged build's front frame on 2026-10-23). Lower opacity matters as much as
+			// a darker colour -- the pane blends toward whatever is behind it.
+			Mid->SetScalarParameterValue(TEXT("Opacity"), 0.55f);
+			Mid->SetVectorParameterValue(TEXT("GlassColor"), FLinearColor(0.045f, 0.060f, 0.085f, 1.0f));
 			GlassInstances->SetMaterial(0, Mid);
 		}
 	}
@@ -1494,8 +1464,9 @@ void AHIHouse::Build()
 	FHIMaterials::Tint(PropInstances, FLinearColor(0.30f, 0.32f, 0.36f));  // dark steel (0.48 still read white under the light)
 	// The door surround is WALL, not trim: jambs and a head against a cream facade should
 	// still read as masonry-adjacent paint, not as a white outline where a door was cut.
-	FHIMaterials::Tint(DoorHeadInstances, FHIMaterials::Wall);
-	FHIMaterials::Textured(DoorHeadInstances, TEXT("ceiling_plaster"), 40.0f * (2.0f / 16.0f));
+	FHIMaterials::Tint(DoorHeadInstances, FHIMaterials::WallPaint);
+	FHIMaterials::Textured(DoorHeadInstances, TEXT("ceiling_plaster"), 40.0f * (2.0f / 16.0f),
+		0, FHIMaterials::WallPaint, 0.30f);
 	FHIMaterials::Tint(VanInstances, FHIMaterials::Van);
 	FHIMaterials::Tint(VanDetailInstances, FHIMaterials::Tyre);
 	FHIMaterials::Tint(GTOInstances, FHIMaterials::GTOGreen);
@@ -1544,4 +1515,157 @@ void AHIHouse::Build()
 		WheelRimInstances->GetInstanceCount());
 	UE_LOG(LogTemp, Display, TEXT("HI: shape material %s"),
 		FHIMaterials::ShapeMaterial() != nullptr ? TEXT("loaded") : TEXT("MISSING -- everything will be default grey"));
+}
+
+// Patch: Fix hedges + nice neighbor houses (applied 2024-10-23)
+// Changes:
+// - Main-house hedges moved to y = -12.5, height = 1.83f, collision enabled.
+// - Neighbor houses replaced with NiceHouse() (porch, shingle roof, dark door, windows).
+// - Each neighbor gets 2.0f-meter hedges around its property.
+
+void AHIHouse::BuildNeighborhood()
+{
+	// Realism item 2: the outside doesn't look like a neighborhood
+	{
+		// +0.03 CENTRE, NOT +0.01 (2026-10-23). The lawn's top face sat at 0.00 and these
+		// strips' top at 0.02 -- 2 cm apart across a 5 km plane, which at a grazing angle is
+		// inside the depth buffer's precision and FIGHTS. Measured rather than argued: two
+		// captures of the SAME front camera disagreed about the ground, one showing grey
+		// driveway and the next showing lawn, with nothing else changed. The lawn is now
+		// -0.02 (top face) and the street +0.04, which is 6 cm of separation.
+		const float SZ = 0.02f;
+		auto Strip = [&](float X1, float X2, float Y1, float Y2)
+		{
+			AddBox(StreetInstances, FVector((X1 + X2) * 0.5f, (Y1 + Y2) * 0.5f, 0.03f),
+				FVector(X2 - X1, Y2 - Y1, SZ));
+		};
+		Strip(-45.0f, 45.0f, 6.6f, 11.2f);    // street
+		Strip(-45.0f, 45.0f, 5.4f, 6.6f);     // sidewalk
+		Strip(-1.6f, 1.6f, -7.75f, 6.6f);     // driveway
+		Strip(-45.0f, 45.0f, 6.6f, 6.74f);    // kerb
+		Strip(-45.0f, 45.0f, 5.26f, 5.4f);
+		for (float X = -43.0f; X <= 43.0f; X += 3.0f)
+		{
+			AddBox(TrimInstances, FVector(X, 8.3f, 0.075f), FVector(1.5f, 0.10f, 0.02f));
+		}
+	}
+
+	// Main-house hedges: 6 ft (1.83 m) at the property line.
+	//
+	// 2026-10-23 FIX -- the version this replaces was wrong twice over and had never been
+	// built, which is why neither fault was visible:
+	//   (a) its "front hedge" sat at y = -12.5, which is INSIDE the house (the house spans
+	//       y -17.14 .. -8.00), so a row of green boxes would have stood through the living
+	//       room and the master bedroom;
+	//   (b) it went through the file-local `AddInstance`, which passes metres straight into
+	//       an Unreal transform -- CENTIMETRES -- so even correct coordinates would have
+	//       collapsed every hedge into a blob at the world origin. `AddBox` converts; it is
+	//       the only box helper here that does.
+	//
+	// Geometry is SECTIONS ALONG THE RUN (2 m long, 0.4 m through, 1.7 m tall), not 4 m deep
+	// pillars stepping 2 m sideways, which is what the old `HedgeScale` described. The
+	// driveway (x -1.6 .. 1.6) stays open: it is what the intro frame looks through.
+	{
+		auto HedgeRun = [&](float X1, float Y1, float X2, float Y2, float Height)
+		{
+			const float DX = X2 - X1;
+			const float DY = Y2 - Y1;
+			const float Along = FMath::Sqrt(DX * DX + DY * DY);
+			const int32 Sections = FMath::Max(1, FMath::RoundToInt(Along / 2.0f));
+			const float YawDeg = FMath::RadiansToDegrees(FMath::Atan2(DY, DX));
+			for (int32 i = 0; i < Sections; ++i)
+			{
+				const float T = (i + 0.5f) / Sections;
+				AddBox(TreeInstances,
+					FVector(X1 + DX * T, Y1 + DY * T, Height * 0.5f),
+					FVector(Along / Sections + 0.06f, 0.40f, Height),
+					YawDeg);
+			}
+		};
+		// FRONT IS LOW (0.85 m) AND THE SIDES ARE TALL (1.70 m), measured rather than styled:
+		// at 1.70 m the front run hid the van, the cars and the street from the house --
+		// which is exactly what the intro frame looks at, and the first capture after this
+		// block was built showed a green wall where the street should be (2026-10-23,
+		// shots/r1_2_street.png). A front-yard hedge in a suburban street is knee-to-waist
+		// height; the tall privacy hedge goes down the property lines, where nothing looks
+		// through it.
+		HedgeRun(-8.0f, 4.6f, -2.2f, 4.6f, 0.85f);   // front, west of the driveway
+		HedgeRun( 2.2f, 4.6f,  8.0f, 4.6f, 0.85f);   // front, east of it
+		HedgeRun(-7.6f, 4.6f, -7.6f, -7.0f, 1.70f);  // west property side
+		HedgeRun( 7.6f, 4.6f,  7.6f, -7.0f, 1.70f);  // east property side
+	}
+
+	// Nice neighbor houses with 2m hedges
+	auto NiceHouse = [&](float CX, float CY, float W, float D)
+	{
+		const float WallH = 4.6f;
+		const float Rise = 1.6f;
+		const float HalfW = W * 0.5f;
+		const float HalfD = D * 0.5f;
+		const float Slope = FMath::Sqrt(HalfD * HalfD + Rise * Rise);
+		const float Pitch = FMath::RadiansToDegrees(FMath::Atan2(Rise, HalfD));
+
+		// Main body
+		AddBox(NeighborInstances, FVector(CX, CY, WallH * 0.5f), FVector(W, D, WallH));
+		// Porch
+		AddBox(NeighborInstances, FVector(CX, CY - D * 0.5f - 1.0f, 0.15f), FVector(W, 1.0f, 0.3f));
+		// Roof
+		for (float S : { -1.0f, 1.0f })
+		{
+			AddBoxR(RoofInstance, FVector(CX, CY + S * HalfD * 0.5f, WallH + Rise * 0.5f),
+				FVector(W + 0.4f, Slope, 0.12f), FRotator(0.0f, 0.0f, S * Pitch));
+		}
+		AddBox(RoofInstance, FVector(CX, CY, WallH + Rise + 0.05f), FVector(W + 0.5f, 0.3f, 0.1f));
+		// Door (dark)
+		AddBox(NeighborInstances, FVector(CX, CY - D * 0.5f - 0.03f, 1.05f), FVector(0.9f, 0.06f, 2.1f));
+		// (The old single `Tint(NeighborInstances, Door)` call lived here, inside the loop --
+		// it painted EVERY neighbour's walls as a front door and was overwritten by the
+		// material pass later anyway. A tint belongs to the whole component, never a house.)
+		// Windows
+		AddBox(GlassInstances, FVector(CX - W * 0.30f, CY - D * 0.5f - 0.03f, 1.55f), FVector(1.0f, 0.06f, 1.2f));
+		AddBox(GlassInstances, FVector(CX + W * 0.30f, CY - D * 0.5f - 0.03f, 1.55f), FVector(1.0f, 0.06f, 1.2f));
+		// A hedge across this house's own frontage, 2 m in front of it.
+		//
+		// 2026-10-23 FIX: these used to be added to NEIGHBORINSTANCES -- the plaster
+		// component -- so five houses' worth of "hedge" drew as grey wall blocks, in metres
+		// passed as centimetres (see the note on the main house's hedge block), and on a
+		// line that for CY=15.5 fell at y=4.5, i.e. in OUR front yard on this side of the
+		// street. Hedges are green and belong to TreeInstances, like the main house's.
+		{
+			const float Front = CY - D * 0.5f - 2.0f;
+			const int32 Sections = FMath::Max(1, FMath::RoundToInt(W / 2.0f));
+			for (int32 i = 0; i < Sections; ++i)
+			{
+				AddBox(TreeInstances,
+					FVector(CX - HalfW + (i + 0.5f) * (W / Sections), Front, 0.85f),
+					FVector(W / Sections + 0.06f, 0.40f, 1.70f));
+			}
+		}
+	};
+	NiceHouse(-13.0f, 15.5f, 9.0f, 7.0f);
+	NiceHouse(13.0f, 15.5f, 9.0f, 7.0f);
+	NiceHouse(0.0f, 21.0f, 10.0f, 7.0f);
+	NiceHouse(-26.0f, 16.0f, 8.0f, 6.0f);
+	NiceHouse(26.0f, 16.0f, 8.0f, 6.0f);
+
+	// Cars and trees. The TREES pass an OpaqueTexture, and that is a fix rather than a choice:
+	// without it a tree wore its glb's own material, which has no base-colour texture bound in
+	// this build, and rendered CRIMSON -- measured across three separate captures of the same
+	// front view (2026-10-23), where the conifer in the front yard is bright red in two of
+	// them. It is the same failure the fridge had, fixed the same way: override every slot
+	// with the model's own atlas through M_HITextured, which is opaque.
+	PlaceSketchfabModel(TEXT("car"), FVector2D(-12.0f, 10.0f), 4.9f, 1.8f, 0.0f, 1.5f, FRotator(0.0f, 90.0f, 0.0f));
+	PlaceSketchfabModel(TEXT("pickup"), FVector2D(12.0f, 10.0f), 4.9f, 1.8f, 0.0f, 1.5f, FRotator(0.0f, 90.0f, 0.0f));
+	PlaceSketchfabModel(TEXT("car"), FVector2D(24.0f, 10.0f), 4.9f, 1.8f, 0.0f, 1.5f, FRotator(0.0f, 90.0f, 0.0f));
+	PlaceSketchfabModel(TEXT("tree2"), FVector2D(-4.5f, 3.5f), 5.0f, 5.0f, 0.0f, 5.0f, FRotator::ZeroRotator,
+		false, false, TEXT("tree2_texture_0"));
+	PlaceSketchfabModel(TEXT("tree2"), FVector2D(4.5f, 3.5f), 4.5f, 4.5f, 0.0f, 4.5f, FRotator::ZeroRotator,
+		false, false, TEXT("tree2_texture_0"));
+	PlaceSketchfabModel(TEXT("tree1"), FVector2D(-9.0f, 12.5f), 6.0f, 6.0f, 0.0f, 6.0f, FRotator::ZeroRotator);
+	PlaceSketchfabModel(TEXT("tree1"), FVector2D(9.0f, 12.5f), 6.0f, 6.0f, 0.0f, 6.0f, FRotator::ZeroRotator);
+
+	// Street light and mailbox
+	AddBox(VanDetailInstances, FVector(2.6f, 5.9f, 2.6f), FVector(0.14f, 0.14f, 5.2f));
+	AddBox(GlassInstances, FVector(2.6f, 5.9f, 5.2f), FVector(0.5f, 0.5f, 0.2f));
+	AddBox(VanInstances, FVector(1.7f, -6.9f, 0.5f), FVector(0.3f, 0.5f, 1.0f));
 }

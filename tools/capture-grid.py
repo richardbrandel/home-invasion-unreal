@@ -34,8 +34,8 @@ VIEWS = [
 ]
 
 
-def capture(prefix):
-    for name, x, y, yaw, pitch, floor in VIEWS:
+def capture(prefix, views):
+    for name, x, y, yaw, pitch, floor in views:
         shot = f"{prefix}_{name}" if prefix else name
         png = os.path.join(SHOTDIR, f"{shot}.png")
         if os.path.exists(png):
@@ -54,10 +54,10 @@ def capture(prefix):
             print(f"  {shot}.png")
 
 
-def assemble(prefix, cell, out):
+def assemble(prefix, cell, out, views):
     from PIL import Image, ImageDraw, ImageFont
     frames = []
-    for name, *_ in VIEWS:
+    for name, *_ in views:
         shot = f"{prefix}_{name}" if prefix else name
         p = os.path.join(SHOTDIR, f"{shot}.png")
         if os.path.exists(p):
@@ -95,12 +95,23 @@ def main():
     ap.add_argument("--prefix", default="grid")
     ap.add_argument("--cell", default="512x288")
     ap.add_argument("--out", default="/data/projects/HIUnreal/shots/grid.png")
+    # --only recaptures a subset, matched as a substring of the view name ("living"), so an
+    # iteration that changed one room does not pay ten engine launches to look at it.
+    ap.add_argument("--only", default="", help="comma-separated view-name substrings")
     args = ap.parse_args()
     w, h = (int(v) for v in args.cell.split("x"))
-    print(f"capturing {len(VIEWS)} views ...")
-    capture(args.prefix)
+    views = VIEWS
+    if args.only:
+        keys = [k.strip() for k in args.only.split(",") if k.strip()]
+        views = [v for v in VIEWS if any(k in v[0] for k in keys)]
+        if not views:
+            print(f"--only {args.only!r} matched no view in {[v[0] for v in VIEWS]}",
+                  file=sys.stderr)
+            sys.exit(2)
+    print(f"capturing {len(views)} views ...")
+    capture(args.prefix, views)
     print("assembling ...")
-    sys.exit(assemble(args.prefix, (w, h), args.out))
+    sys.exit(assemble(args.prefix, (w, h), args.out, views))
 
 
 if __name__ == "__main__":
