@@ -13,7 +13,7 @@
 # "someone must open Unreal and import it".
 set -eu
 
-UE=/home/richard/UnrealEngine/Engine/Binaries/Linux/UnrealEditor-Cmd
+UE=/data/UnrealEngine/Engine/Binaries/Linux/UnrealEditor-Cmd
 PROJ=/data/projects/HIUnreal/HIUnreal.uproject
 HERE=$(cd "$(dirname "$0")" && pwd)
 LOG=/tmp/hi_import_assets.log

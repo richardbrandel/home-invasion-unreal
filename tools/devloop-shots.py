@@ -51,11 +51,11 @@ import subprocess
 import sys
 import time
 
-# THE ENGINE IS ADDRESSED AS /data/UnrealEngine, NOT /home/richard/UnrealEngine, AND THE TWO
+# THE ENGINE IS ADDRESSED AS /data/UnrealEngine, NOT /data/UnrealEngine, AND THE TWO
 # ARE THE SAME FILES. `/dev/sdb1` is mounted at both paths and `stat` gives the identical
 # device:inode (2065:56885249), so the game is bit-identical either way -- but a BUILD is not.
 #
-# Measured 2026-10-24, and it cost an hour: building through `/home/richard/UnrealEngine`
+# Measured 2026-10-24, and it cost an hour: building through `/data/UnrealEngine`
 # fails inside translation units that include engine Core headers, with
 #   `redefinition of 'CSameAsHelper' / 'CDecaysTo' / 'TAreTypesEqual_V'`
 # and `-Wshadow` errors on engine enumerators -- headers nobody had edited. The engine's

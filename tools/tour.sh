@@ -21,7 +21,7 @@
 # person's eyes.
 set -u
 
-UE=/home/richard/UnrealEngine/Engine/Binaries/Linux/UnrealEditor
+UE=/data/UnrealEngine/Engine/Binaries/Linux/UnrealEditor
 PROJ=/data/projects/HIUnreal/HIUnreal.uproject
 SHOTS=/data/projects/HIUnreal/Saved/Screenshots/LinuxEditor
 THIEVES=${THIEVES:-3}

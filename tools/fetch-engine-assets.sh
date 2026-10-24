@@ -16,10 +16,10 @@
 # paths below are therefore dictated by `strings <asset> | grep '^/Game/'` and not chosen.
 #
 # Usage:  tools/fetch-engine-assets.sh [ENGINE_ROOT]
-# Default ENGINE_ROOT is /home/richard/UnrealEngine.
+# Default ENGINE_ROOT is /data/UnrealEngine.
 set -euo pipefail
 
-ENGINE="${1:-/home/richard/UnrealEngine}"
+ENGINE="${1:-/data/UnrealEngine}"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DEST="$HERE/Content"
 

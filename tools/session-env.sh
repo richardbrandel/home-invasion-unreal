@@ -23,7 +23,7 @@
 # Provides: hi_require_editor, hi_require_gpu, hi_kill_stale_editor.
 
 hi_require_editor() {
-	UE=/home/richard/UnrealEngine/Engine/Binaries/Linux/UnrealEditor
+	UE=/data/UnrealEngine/Engine/Binaries/Linux/UnrealEditor
 	PROJ=/data/projects/HIUnreal/HIUnreal.uproject
 	PROJDIR=/data/projects/HIUnreal
 	# Where FScreenshotRequest lands: the PROJECT's Saved, not the engine's, because -game runs

@@ -34,7 +34,7 @@ is `/data/projects/HIUnreal`:
 
 | | |
 |---|---|
-| Engine | UE 5.8.3 at `/data/UnrealEngine`, bind-mounted as `/home/richard/UnrealEngine` |
+| Engine | UE 5.8.3 at `/data/UnrealEngine`, bind-mounted as `/data/UnrealEngine` |
 | Project (build tree) | `ubuntu-dev:/data/projects/HIUnreal` |
 | Project (source of record) | this directory |
 | Compiler | clang 20.1.8 (Epic's pinned toolchain) |
@@ -103,7 +103,7 @@ Current output: `M_HIGlass`, translucent, on the windows and the van's glazing.
 
 ```sh
 # Build (incremental is ~25 s; a -Clean rebuild recompiles the shared PCH, many minutes)
-ssh ubuntu-dev '/home/richard/UnrealEngine/Engine/Build/BatchFiles/Linux/Build.sh \
+ssh ubuntu-dev '/data/UnrealEngine/Engine/Build/BatchFiles/Linux/Build.sh \
   HIUnrealEditor Linux Development -project=/data/projects/HIUnreal/HIUnreal.uproject'
 
 # Test. Exits 0 only when tests ran AND all passed -- zero tests is a failure by design,
@@ -124,7 +124,7 @@ LOOKED at.
 ```sh
 # One captured frame, from a chosen spot, after N seconds of round
 ssh ubuntu-dev 'cd /data/projects/HIUnreal && \
-  /home/richard/UnrealEngine/Engine/Binaries/Linux/UnrealEditor \
+  /data/UnrealEngine/Engine/Binaries/Linux/UnrealEditor \
     /data/projects/HIUnreal/HIUnreal.uproject -game -RenderOffscreen \
     -ResX=1280 -ResY=720 -unattended -nopause -nosplash -log -abslog=/tmp/hi.log \
     -HIShot=NAME -HIShotAfter=4 -HIShotPos=0,-10.6 -HIShotYaw=0 -HIShotPitch=2 -HIThieves=1'
@@ -258,7 +258,7 @@ Unreal arguments pass through, so `-HIThieves=1` gives a round with one intruder
 | At the Linux box | double-click the **Home Invasion** icon on the desktop, or find it in Activities. It runs `launch-game.sh`, not `play.sh` -- see below |
 | At the Linux box | or, in a terminal: `/data/projects/HIUnreal/tools/play.sh` |
 
-The Mac copy used to FAIL with *"play: no editor at /home/richard/UnrealEngine/..."* -- true, and
+The Mac copy used to FAIL with *"play: no editor at /data/UnrealEngine/..."* -- true, and
 useless, because it never said the game lives on the other machine. Now it says so and forwards.
 The `.command` holds its Terminal window open afterwards, because the first desktop launcher
 opened a terminal, printed, and closed before anyone could read it.
@@ -412,7 +412,7 @@ answers are almost always already written in the other repository.
   binary was missing, not the code. Build it once:
 
   ```sh
-  ssh ubuntu-dev '/home/richard/UnrealEngine/Engine/Build/BatchFiles/Linux/Build.sh \
+  ssh ubuntu-dev '/data/UnrealEngine/Engine/Build/BatchFiles/Linux/Build.sh \
     ShaderCompileWorker Linux Development'   # ~8 minutes, 196 actions
   ```
 

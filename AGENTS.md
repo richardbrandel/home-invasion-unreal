@@ -7,23 +7,24 @@ divergences are recorded in the code + changelog, not re-litigated against Godot
 
 ## Build, test, soak (this machine)
 
-Project at `/data/projects/HIUnreal`. The engine is the same files under two paths --
-`/dev/sdb1` is mounted at both `/data/UnrealEngine` and `/home/richard/UnrealEngine`, and
-`stat` gives the identical device:inode (`2065:56885249`). **Building is not indifferent to
-which spelling is used; running is.**
+Project at `/data/projects/HIUnreal`; engine at **`/data/UnrealEngine`**, and that is the only
+path. There was a second one -- `/dev/sdb1` was also bind-mounted at
+`/home/richard/UnrealEngine`, the same device:inode, and `nofail`-mounted from `/etc/fstab`.
+**Building is not indifferent to which spelling is used:** the shared PCH records absolute
+paths, so a build through the alias failed inside any translation unit that includes engine
+Core headers (`redefinition of 'CSameAsHelper' / 'CDecaysTo'`, -Wshadow errors on engine
+enumerators nobody edited, measured 2026-10-24). A fully-cached no-op through the alias still
+"succeeded", which is what made it look intermittent -- it only bit when something compiled.
+
+**The alias is gone (2026-10-24):** unmounted, the `fstab` line commented out, the empty
+directory removed, and every tool in `tools/` plus this file and the README rewritten to
+`/data/UnrealEngine`. If you find `/home/richard/UnrealEngine` in anything, it is stale --
+fix it rather than recreating the mount.
 
 ```sh
 # build (~25-60 s). ALWAYS check "Result: Succeeded" -- a FAILED build silently runs the OLD binary.
-# USE /data/UnrealEngine FOR BUILDS. Same files, different spelling from /home, and the engine's
-# shared PCH was regenerated under `/data` by the 2026-10-23 full rebuild: building through
-# `/home` fails inside any translation unit that includes engine Core headers, with
-# `redefinition of 'CSameAsHelper' / 'CDecaysTo' / 'TAreTypesEqual_V'` and -Wshadow errors on
-# engine enumerators nobody edited (measured 2026-10-24, three times). `#pragma once` does not
-# dedupe a header that arrives once from the PCH under one spelling and again under the other.
-# A fully-cached no-op build still "succeeds" through /home, which is what makes it look
-# intermittent -- it only bites when something actually compiles. To move back to /home the
-# engine's `SharedPCH.*.h.gch` files must be deleted and the engine rebuilt under that spelling
-# (hours on 4 cores), so it is a scheduled job, not a loop step.
+# Use /data/UnrealEngine. A cached no-op build proves nothing about the path: it "succeeds"
+# even when a real compile would fail (see the alias note above).
 /data/UnrealEngine/Engine/Build/BatchFiles/Linux/Build.sh HIUnrealEditor Linux Development -project=/data/projects/HIUnreal/HIUnreal.uproject
 
 # test. Exit 0 only when tests RAN and passed. The runner MASKS crashes -- after it, confirm
@@ -34,8 +35,8 @@ which spelling is used; running is.**
 
 # soak (one headless round, or rounds). Switches: -HISoak=SEC -HIThieves=N -HINoAuto -HIAuto -HINoThiefDamage.
 # "HISOAK RESULT=" prints per round; "HISOAK THIEF" lines print only at round END.
-# RUNNING works through either spelling; the project's own scripts use /home/richard/UnrealEngine.
-/home/richard/UnrealEngine/Engine/Binaries/Linux/UnrealEditor /data/projects/HIUnreal/HIUnreal.uproject -game -RenderOffscreen -ResX=1280 -ResY=720 -unattended -nopause -nosplash -log -abslog=/tmp/hi.log <switches>
+# RUNNING works through either spelling; the project's own scripts use /data/UnrealEngine.
+/data/UnrealEngine/Engine/Binaries/Linux/UnrealEditor /data/projects/HIUnreal/HIUnreal.uproject -game -RenderOffscreen -ResX=1280 -ResY=720 -unattended -nopause -nosplash -log -abslog=/tmp/hi.log <switches>
 ```
 
 **Two sessions run on this machine and they SHARE the build tree, the engine and the GPU.**

@@ -12,7 +12,7 @@
 # engine art that tools/fetch-engine-assets.sh copies in, and Content/ is gitignored for both.
 set -eu
 
-UE=/home/richard/UnrealEngine/Engine/Binaries/Linux/UnrealEditor-Cmd
+UE=/data/UnrealEngine/Engine/Binaries/Linux/UnrealEditor-Cmd
 PROJ=/data/projects/HIUnreal/HIUnreal.uproject
 HERE=$(cd "$(dirname "$0")" && pwd)
 LOG=/tmp/hi_make_assets.log

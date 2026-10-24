@@ -54,7 +54,7 @@ run_box() {
 	fi
 }
 
-BUILD='/home/richard/UnrealEngine/Engine/Build/BatchFiles/Linux/Build.sh HIUnrealEditor Linux Development -project=/data/projects/HIUnreal/HIUnreal.uproject'
+BUILD='/data/UnrealEngine/Engine/Build/BatchFiles/Linux/Build.sh HIUnrealEditor Linux Development -project=/data/projects/HIUnreal/HIUnreal.uproject'
 
 echo "iterate: building"
 if ! run_box "$BUILD" >/tmp/hi_iterate_build.log 2>&1; then

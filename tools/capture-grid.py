@@ -14,7 +14,7 @@ import os
 import subprocess
 import sys
 
-BIN = "/home/richard/UnrealEngine/Engine/Binaries/Linux/UnrealEditor"
+BIN = "/data/UnrealEngine/Engine/Binaries/Linux/UnrealEditor"
 PROJ = "/data/projects/HIUnreal/HIUnreal.uproject"
 SHOTDIR = "/data/projects/HIUnreal/Saved/Screenshots/LinuxEditor"
 
