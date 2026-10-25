@@ -165,7 +165,9 @@ def capture(view):
     secs = time.time() - t0
     ok = r.returncode == 0 and os.path.exists(dst) and os.path.getmtime(dst) > before
     if ok:
-        devlog(f"ACTION: capture {view} -- 1280x720, {secs:.0f}s, READY")
+        stale, why = module_is_stale()
+        warn = f" WARNING: STALE BINARY -- {why} (this frame is the previous build)" if stale else ""
+        devlog(f"ACTION: capture {view} -- 1280x720, {secs:.0f}s, READY{warn}")
     else:
         devlog(f"ACTION: capture {view} -- FAILED rc={r.returncode} after {secs:.0f}s")
         runlog((r.stdout or "")[-300:] + (r.stderr or "")[-300:])
@@ -197,6 +199,36 @@ def _line_of(path, n):
     if n < 1 or n > len(lines):
         return None, lines
     return lines[n - 1], lines
+
+
+def module_is_stale():
+    """True when Source/ is newer than the built game module -- i.e. a frame would be of the
+    OLD binary. Returns (stale, why).
+
+    This exists because a capture does not build (the FIX path builds; ACTION is capture only),
+    so a change committed or edited by the other side is INVISIBLE until someone builds. A
+    frame of the old binary analysed as if it were the new one is the same stale-artifact trap
+    that has already cost this project several rounds -- the runner must say so in the log
+    rather than hand over a misleading picture.
+    """
+    so = os.path.join(PROJECT, "Binaries", "Linux", "libUnrealEditor-HIUnreal.so")
+    if not os.path.exists(so):
+        return True, "no game module has been built"
+    so_t = os.path.getmtime(so)
+    newest_t, newest_p = 0.0, ""
+    for root, _dirs, files in os.walk(os.path.join(PROJECT, "Source")):
+        for f in files:
+            if f.endswith((".cpp", ".h")):
+                p = os.path.join(root, f)
+                try:
+                    t = os.path.getmtime(p)
+                except OSError:
+                    continue
+                if t > newest_t:
+                    newest_t, newest_p = t, p
+    if newest_t > so_t + 1.0:          # 1 s of slack for filesystem timestamp granularity
+        return True, f"{os.path.relpath(newest_p, PROJECT)} is newer than the built module"
+    return False, ""
 
 
 def apply_verified(text):
