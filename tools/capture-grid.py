@@ -18,6 +18,11 @@ BIN = "/data/UnrealEngine/Engine/Binaries/Linux/UnrealEditor"
 PROJ = "/data/projects/HIUnreal/HIUnreal.uproject"
 SHOTDIR = "/data/projects/HIUnreal/Saved/Screenshots/LinuxEditor"
 
+# Seconds before the shutter fires. 3 was too early: the player's textures are still streaming
+# at that point and she photographs as a grey mannequin, which was twice reported as a game
+# defect. Same build and camera at 12 s renders her correctly (measured 2026-10-24).
+SHUTTER_SECONDS = 12
+
 # name, x, y, yaw, pitch, floor. North is +Y (the street); the house spans
 # x -6.35..6.35, y -17.39..-7.75. Front door faces +Y.
 VIEWS = [
@@ -44,7 +49,7 @@ def capture(prefix, views):
                "-unattended", "-nopause", "-nosplash", "-log",
                f"-abslog=/tmp/hi_grid_{name}.log",
                "-HIThieves=1", "-HINoThiefDamage", "-HIShotNoUI",
-               f"-HIShot={shot}", "-HIShotAfter=3",
+               f"-HIShot={shot}", f"-HIShotAfter={SHUTTER_SECONDS}",
                f"-HIShotPos={x},{y}", f"-HIShotYaw={yaw}", f"-HIShotPitch={pitch}",
                f"-HIShotFloor={floor}"]
         r = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

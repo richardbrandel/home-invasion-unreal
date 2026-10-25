@@ -92,6 +92,19 @@ VIEWS = {
 }
 DEFAULT_VIEWS = ["front", "neighbors", "kitchen", "living", "dining", "basement"]
 
+# SECONDS BEFORE THE SHUTTER FIRES, and 3 was too early -- measured, not cautious.
+#
+# At `-HIShotAfter=3` the player body is photographed BEFORE its textures finish streaming, and
+# she renders as a featureless grey mannequin -- no navy shirt, no brown hair. That frame was
+# twice reported as a game defect ("the character is white / untextured"), and it is not: the
+# same build, same camera, same pose at `-HIShotAfter=12` renders her correctly. Verified
+# 2026-10-24 by capturing the kitchen both ways and comparing the two frames.
+#
+# This is the stale-artifact trap in its purest form: nothing in the game is wrong, the
+# screenshot is simply too early, and the cost of not knowing that is an entire debugging
+# round spent on a texture pipeline that works. 12 s costs nine extra seconds per view.
+SHUTTER_SECONDS = 12
+
 
 def fail(msg):
     print(f"devloop: {msg}", file=sys.stderr)
@@ -153,7 +166,7 @@ def capture(name, pose, timeout):
         "-unattended", "-nopause", "-nosplash", "-log",
         f"-abslog=/tmp/hi_devloop_{name}.log",
         "-HIThieves=1", "-HINoThiefDamage", "-HIShotNoUI",
-        f"-HIShot=devloop_{name}", "-HIShotAfter=3",
+        f"-HIShot=devloop_{name}", f"-HIShotAfter={SHUTTER_SECONDS}",
         f"-HIShotPos={x},{y}", f"-HIShotYaw={yaw}", f"-HIShotPitch={pitch}",
         f"-HIShotFloor={floor}",
     ]
