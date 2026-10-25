@@ -54,7 +54,7 @@ RESULT = os.path.join(SHOTS, "RunnerToDev.txt")     # us -> Master (overwrite pe
 DIARY = os.path.join(SHOTS, "AgentLog.txt")         # our audit trail
 MASTERLOG = os.path.join(SHOTS, "DevLog.txt")       # Master's diary: prune only, never write
 RUNLOG = os.path.join(SHOTS, "runner.log")          # operator log
-SEEN = os.path.join(SHOTS, ".runner_seen.json")
+LASTCMD = os.path.join(SHOTS, ".runner_lastcmd")   # key of the last command generation
 LOCK = "/tmp/hi_runner.lock"
 
 PROJECT = "/data/projects/HIUnreal"
@@ -135,15 +135,16 @@ def prune(path):
     return dropped
 
 
-def seen_load():
+def lastcmd_load():
+    """Key of the last command generation already handled (survives a restart)."""
     try:
-        return set(json.load(open(SEEN)))
+        return json.load(open(LASTCMD)).get("key", "")
     except Exception:
-        return set()
+        return ""
 
 
-def seen_save(seen):
-    json.dump(sorted(seen)[-200:], open(SEEN, "w"))
+def lastcmd_save(key):
+    json.dump({"key": key, "at": now()}, open(LASTCMD, "w"))
 
 
 def module_is_stale():
@@ -319,25 +320,35 @@ def main():
         diary("WARNING: another slave (vl-loop) is running -- two runners will kill each "
               "other's captures; stop one")
 
-    seen = seen_load()
+    last_key = lastcmd_load()
     while True:
         prune(MASTERLOG)
         prune(DIARY)
 
+        # THE COMMAND FILE IS A SINGLE SLOT, AND ITS CONTENT IS ALLOWED TO REPEAT.
+        #
+        # Deduping on the command TEXT was wrong and would have hung the loop on its most
+        # common step: after a fix the Master re-requests the SAME view, and the rewritten
+        # file is byte-identical to the previous one. Measured 2026-10-25 -- two identical
+        # `ACTION: take_screenshot bogusview` writes produced ONE result, because the second
+        # was silently deduped; the Master would then poll RunnerToDev.txt for a change that
+        # never comes.
+        #
+        # The write is the signal, not the text. Key on the file's content AND its mtime, so a
+        # rewrite counts as a new command while an idle poll does not. Persisted, so a restart
+        # does not re-run the last command either.
         try:
-            text = open(CMD).read()
+            content = open(CMD, "rb").read()
+            key = hashlib.sha256(content + str(os.stat(CMD).st_mtime_ns).encode()).hexdigest()
         except FileNotFoundError:
-            text = ""
-        if text.strip():
-            for line in text.splitlines():
+            content, key = b"", ""
+        if key != last_key:
+            last_key = key
+            lastcmd_save(key)
+            for line in content.decode(errors="replace").splitlines():
                 line = line.strip()
                 if not line or line.startswith("#"):
                     continue
-                digest = hashlib.sha256(line.encode()).hexdigest()
-                if digest in seen:
-                    continue
-                seen.add(digest)
-                seen_save(seen)
                 runlog(f"command: {line[:120]}")
                 if not handle_command(line):
                     lock.close()
