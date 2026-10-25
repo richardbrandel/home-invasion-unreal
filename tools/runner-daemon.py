@@ -1,54 +1,41 @@
 #!/usr/bin/env python3
-"""Runner daemon on the DevLog / AgentLog protocol.
+"""Runner ("slave") on the Master's channel mapping.
 
-WHO WRITES WHAT
-    /home/richard/shots/DevLog.txt     WE write. Every action we take, and every request we
-                                       make of the Master, as an `===Timestamp: ...===` block.
-    /home/richard/shots/AgentLog.txt   THE MASTER writes. Its blocks are addressed
-                                       `===To: Dev===` and carry a DIAGNOSIS and/or a FIX.
-    /home/richard/shots/runner.log     operator log for a human (not part of the protocol).
+CHANNELS -- as specified by the Master session and implemented by tools/vl-loop.py
+    /home/richard/shots/DevToRunner.txt   the Master writes COMMANDS here. We only read.
+    /home/richard/shots/RunnerToDev.txt    we write the RESULT of the last command.
+    /home/richard/shots/AgentLog.txt       the SLAVE'S diary (audit only). We append to it.
+    /home/richard/shots/DevLog.txt         the MASTER'S diary. We never write it; we only
+                                           prune it.
 
-GRAMMAR
-    Every entry is one block, opening with an exact timestamp line:
+    NOTE: an earlier instruction had these two diaries the other way round (DevLog = slave's
+    actions, AgentLog = master's replies). That is inverted with respect to the Master and to
+    vl-loop.py, and since the Master is the live peer, THIS mapping wins. The result channel is
+    a single file overwritten per command, so "what happened last" is never ambiguous.
 
-        ===Timestamp: 2026-10-24 21:40:00===
-        ACTION: capture kitchen -- 1280x720, 67s, READY
+TIMESTAMPS ARE UTC, and that is a fix rather than a preference. Measured 2026-10-25: vl-loop.py
+writes UTC while this daemon wrote local time, so one log held both bases and the entries at
+"07:50:38" (local) and "11:50:34" (UTC) were THE SAME MOMENT four hours apart in the file.
+A shared log whose rows are not on one clock cannot be ordered, and a 7-day prune compares
+timestamps. UTC on every line, matching the peer.
 
-    A request to the Master adds a direction line and then the ask:
+COMMANDS
+    ACTION: take_screenshot <view>     views: front neighbors kitchen living dining basement
+    FIX: <patch>                       applied only if it verifies (see below)
+    STATUS: ✅                          stop the runner
+    (bare `analyze <view>.png` is accepted too, as the Master's wording)
 
-        ===Timestamp: 2026-10-24 21:40:00===
-        ===To: Agent===
-        ACTION: analyze kitchen.png
+WHY A FIX IS GATED
+    An unattended loop that applies another process's patches verbatim destroys a working tree
+    the first time that process is wrong, and it was wrong on 2026-10-24: `1452s/Wood/DarkSteel/`
+    pointed at a line that had moved, "hedges at y=-12.5" is INSIDE the house, and
+    `778,807d; r .../nicehouse.patch` would have deleted 30 lines of PlaceSketchfabModel and the
+    patch file did not exist. So: a line-targeted edit must find its text; range deletes, file
+    includes and missing paths are refused; a failed build reverts the edit. Blocks are processed
+    once, keyed by a persisted hash, so a restart cannot re-apply yesterday's patch.
 
-    Inbound, we only consider blocks whose body contains `===To: Dev===`:
-
-        ===Timestamp: 2026-10-24 21:41:00===
-        ===To: Dev===
-        DIAGNOSIS: the counter top reads as wood
-        FIX: { sed -i '1401s/DarkSteel/DarkSteel/' HIHouse.cpp }
-
-PRUNING
-    Both logs are pruned at the START OF EVERY ITERATION: blocks whose timestamp is older than
-    PRUNE_DAYS (7) are dropped. A block with no parseable timestamp is KEPT — deleting text we
-    cannot date is how a log quietly loses history.
-
-WHY THE FIX HALF IS GATED (carried over from the mailbox version, still the point)
-    A FIX is applied only if it can be VERIFIED against the file it names, and every applied
-    fix is reverted if the build does not say "Result: Succeeded". Measured 2026-10-24, the
-    instructions actually received were stale or destructive:
-
-      * `sed -i '1452s/Wood/DarkSteel/'` -- line 1452 had moved; it is now an opacity setting.
-      * "hedges to y = -12.5, height 1.83" -- y=-12.5 is INSIDE the house.
-      * `sed -i '778,807d; r .../nicehouse.patch'` -- deletes 30 lines of PlaceSketchfabModel,
-        and the patch file does not exist.
-
-    So: line-targeted edits must find their text; range deletes, file includes and missing
-    paths are refused; a failed build reverts the edit and reports it. A runner that says
-    "I did not do that, and here is why" is worth more than one reporting success after
-    corrupting a file.
-
-    A block is processed ONCE, keyed by a hash persisted in `.runner_seen.json`, so a restart
-    cannot re-apply yesterday's patch.
+A CAPTURE NEVER BUILDS. It warns when Source/ is newer than the built game module, because
+otherwise the Master would analyse a frame of the PREVIOUS build and conclude the fix did nothing.
 """
 
 import fcntl
@@ -59,12 +46,14 @@ import re
 import subprocess
 import sys
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 SHOTS = "/home/richard/shots"
-DEVLOG = os.path.join(SHOTS, "DevLog.txt")
-AGENTLOG = os.path.join(SHOTS, "AgentLog.txt")
-RUNLOG = os.path.join(SHOTS, "runner.log")
+CMD = os.path.join(SHOTS, "DevToRunner.txt")        # Master -> us (read only)
+RESULT = os.path.join(SHOTS, "RunnerToDev.txt")     # us -> Master (overwrite per command)
+DIARY = os.path.join(SHOTS, "AgentLog.txt")         # our audit trail
+MASTERLOG = os.path.join(SHOTS, "DevLog.txt")       # Master's diary: prune only, never write
+RUNLOG = os.path.join(SHOTS, "runner.log")          # operator log
 SEEN = os.path.join(SHOTS, ".runner_seen.json")
 LOCK = "/tmp/hi_runner.lock"
 
@@ -80,7 +69,8 @@ VIEWS = {"front", "neighbors", "kitchen", "living", "dining", "basement"}
 
 
 def now():
-    return datetime.now().strftime(TS_FMT)
+    """UTC, matching tools/vl-loop.py -- see the timestamp note in the module docstring."""
+    return datetime.now(timezone.utc).strftime(TS_FMT)
 
 
 def runlog(msg):
@@ -90,15 +80,21 @@ def runlog(msg):
         f.write(line + "\n")
 
 
-def devlog(body):
-    """Append one timestamped block to DevLog.txt."""
-    with open(DEVLOG, "a") as f:
+def diary(body):
+    """Append one timestamped audit block to AgentLog.txt (the slave's diary)."""
+    with open(DIARY, "a") as f:
         f.write(f"===Timestamp: {now()}===\n{body.rstrip()}\n\n")
-    runlog("devlog: " + body.replace("\n", " | ")[:160])
+    runlog("diary: " + body.replace("\n", " | ")[:160])
+
+
+def result(text):
+    """Overwrite RunnerToDev.txt: the answer to the command just handled."""
+    with open(RESULT, "w") as f:
+        f.write(text.rstrip() + "\n")
+    runlog("result: " + text.replace("\n", " | ")[:160])
 
 
 def split_blocks(text):
-    """[(timestamp or None, body), ...] -- the preamble comes back with timestamp None."""
     parts = TS_RE.split(text)
     blocks = []
     if parts[0].strip():
@@ -115,14 +111,14 @@ def prune(path):
     text = open(path).read()
     if not text.strip():
         return 0
-    cutoff = datetime.now() - timedelta(days=PRUNE_DAYS)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=PRUNE_DAYS)
     keep, dropped = [], 0
     for ts, body in split_blocks(text):
         if ts is None:
             keep.append((ts, body))
             continue
         try:
-            when = datetime.strptime(ts, TS_FMT)
+            when = datetime.strptime(ts, TS_FMT).replace(tzinfo=timezone.utc)
         except ValueError:
             keep.append((ts, body))       # undatable: keep rather than lose history
             continue
@@ -134,7 +130,7 @@ def prune(path):
         with open(path, "w") as f:
             for ts, body in keep:
                 f.write(body if ts is None else f"===Timestamp: {ts}===\n{body}")
-        runlog(f"pruned {dropped} block(s) older than {PRUNE_DAYS} days from "
+        runlog(f"pruned {dropped} block(s) older than {PRUNE_DAYS} d from "
                f"{os.path.basename(path)}")
     return dropped
 
@@ -147,12 +143,32 @@ def seen_load():
 
 
 def seen_save(seen):
-    # Bounded: only the recent past matters, and this file is not the record.
     json.dump(sorted(seen)[-200:], open(SEEN, "w"))
 
 
+def module_is_stale():
+    """(stale, why) -- Source/ newer than the built game module means a frame of the OLD build."""
+    so = os.path.join(PROJECT, "Binaries", "Linux", "libUnrealEditor-HIUnreal.so")
+    if not os.path.exists(so):
+        return True, "no game module has been built"
+    so_t = os.path.getmtime(so)
+    newest_t, newest_p = 0.0, ""
+    for root, _dirs, files in os.walk(os.path.join(PROJECT, "Source")):
+        for f in files:
+            if f.endswith((".cpp", ".h")):
+                p = os.path.join(root, f)
+                try:
+                    t = os.path.getmtime(p)
+                except OSError:
+                    continue
+                if t > newest_t:
+                    newest_t, newest_p = t, p
+    if newest_t > so_t + 1.0:
+        return True, f"{os.path.relpath(newest_p, PROJECT)} is newer than the built module"
+    return False, ""
+
+
 def capture(view):
-    """Capture one view via the project's own harness. Returns True on success."""
     dst = os.path.join(SHOTS, f"{view}.png")
     before = os.path.getmtime(dst) if os.path.exists(dst) else 0
     t0 = time.time()
@@ -160,16 +176,19 @@ def capture(view):
         r = subprocess.run([sys.executable, DEVS, "--no-build", "--views", view],
                            cwd=PROJECT, capture_output=True, text=True, timeout=600)
     except subprocess.TimeoutExpired:
-        devlog(f"ACTION: capture {view} -- TIMEOUT after 600s")
+        diary(f"ACTION: capture {view} -- TIMEOUT after 600s")
+        result(f"FAILED: capture {view} timed out")
         return False
     secs = time.time() - t0
     ok = r.returncode == 0 and os.path.exists(dst) and os.path.getmtime(dst) > before
     if ok:
         stale, why = module_is_stale()
-        warn = f" WARNING: STALE BINARY -- {why} (this frame is the previous build)" if stale else ""
-        devlog(f"ACTION: capture {view} -- 1280x720, {secs:.0f}s, READY{warn}")
+        warn = f" WARNING: STALE BINARY -- {why}" if stale else ""
+        diary(f"ACTION: capture {view} -- 1280x720, {secs:.0f}s, READY{warn}")
+        result(f"READY: {view}.png" + (f"\nWARNING: STALE BINARY -- {why}" if stale else ""))
     else:
-        devlog(f"ACTION: capture {view} -- FAILED rc={r.returncode} after {secs:.0f}s")
+        diary(f"ACTION: capture {view} -- FAILED rc={r.returncode} after {secs:.0f}s")
+        result(f"FAILED: could not capture {view}")
         runlog((r.stdout or "")[-300:] + (r.stderr or "")[-300:])
     return ok
 
@@ -189,7 +208,7 @@ def rebuild():
     with open("/tmp/hi_runner_build.log", "w") as f:
         f.write(out)
     ok = "Result: Succeeded" in out
-    devlog(f"ACTION: build -- {'Succeeded' if ok else 'FAILED'} in {time.time() - t0:.0f}s")
+    diary(f"ACTION: build -- {'Succeeded' if ok else 'FAILED'} in {time.time() - t0:.0f}s")
     return ok
 
 
@@ -201,38 +220,8 @@ def _line_of(path, n):
     return lines[n - 1], lines
 
 
-def module_is_stale():
-    """True when Source/ is newer than the built game module -- i.e. a frame would be of the
-    OLD binary. Returns (stale, why).
-
-    This exists because a capture does not build (the FIX path builds; ACTION is capture only),
-    so a change committed or edited by the other side is INVISIBLE until someone builds. A
-    frame of the old binary analysed as if it were the new one is the same stale-artifact trap
-    that has already cost this project several rounds -- the runner must say so in the log
-    rather than hand over a misleading picture.
-    """
-    so = os.path.join(PROJECT, "Binaries", "Linux", "libUnrealEditor-HIUnreal.so")
-    if not os.path.exists(so):
-        return True, "no game module has been built"
-    so_t = os.path.getmtime(so)
-    newest_t, newest_p = 0.0, ""
-    for root, _dirs, files in os.walk(os.path.join(PROJECT, "Source")):
-        for f in files:
-            if f.endswith((".cpp", ".h")):
-                p = os.path.join(root, f)
-                try:
-                    t = os.path.getmtime(p)
-                except OSError:
-                    continue
-                if t > newest_t:
-                    newest_t, newest_p = t, p
-    if newest_t > so_t + 1.0:          # 1 s of slack for filesystem timestamp granularity
-        return True, f"{os.path.relpath(newest_p, PROJECT)} is newer than the built module"
-    return False, ""
-
-
 def apply_verified(text):
-    """Apply a FIX block only if it verifies. Returns (status, detail)."""
+    """Apply a FIX only if it verifies. Returns (status, detail)."""
     if re.search(r"\b\d+\s*,\s*\d+\s*d\b", text):
         return "blocked", ("line-range delete is not verifiable; refusing rather than "
                            "trusting a line number")
@@ -250,6 +239,8 @@ def apply_verified(text):
     if not edits:
         return "blocked", ("no verifiable edit found (expected `sed -i 'Ns/A/B/'` or "
                            "'file, line N: A -> B')")
+    if not edits[0][2].strip() and not edits[0][3].strip():
+        return "blocked", "empty FIX (no old/new text); nothing to apply"
 
     changed = []
     for target, n, old, new in edits:
@@ -267,7 +258,7 @@ def apply_verified(text):
         with open(path, "w") as f:
             f.writelines(lines)
         changed.append(os.path.relpath(path, PROJECT))
-        devlog(f"ACTION: edit {os.path.relpath(path, PROJECT)}:{n} -- {old!r} -> {new!r}")
+        diary(f"ACTION: edit {os.path.relpath(path, PROJECT)}:{n} -- {old!r} -> {new!r}")
 
     if not rebuild():
         for rel in changed:
@@ -276,35 +267,39 @@ def apply_verified(text):
     return "fixed", f"applied to {', '.join(changed)}; build succeeded"
 
 
-def handle_block(ts, body):
-    """Act on one inbound block. Returns False to stop the runner."""
-    if "===To: Dev===" not in body:
-        return True                                  # a note for somebody else
-    if re.search(r"STATUS:\s*✅", body):
-        devlog("ACTION: stop -- STATUS done received from the Master")
+def handle_command(text):
+    """Handle one command from DevToRunner.txt. Returns False to stop the runner."""
+    if re.search(r"STATUS:\s*✅", text):
+        diary("ACTION: stop -- STATUS done received")
+        result("DONE: runner stopped")
         return False
 
-    m = re.search(r"ACTION:\s*take_screenshot\s+(\S+)", body)
+    m = re.search(r"(?:ACTION:\s*take_screenshot|analyze)\s+(\S+)", text)
     if m:
-        view = m.group(1).strip()
+        view = m.group(1).strip().removesuffix(".png")
         if view not in VIEWS:
-            devlog(f"ACTION: capture {view} -- UNKNOWN VIEW (known: {sorted(VIEWS)})")
+            diary(f"ACTION: capture {view} -- UNKNOWN VIEW (known: {sorted(VIEWS)})")
+            result(f"FAILED: unknown view {view}")
             return True
-        if capture(view):
-            devlog(f"===To: Agent===\nACTION: analyze {view}.png")
+        capture(view)
         return True
 
-    if re.search(r"^\s*FIX:", body, re.M):
-        status, detail = apply_verified(body)
-        devlog(f"ACTION: fix -- {'FIXED: ' if status == 'fixed' else 'BLOCKED: '}{detail}")
-        if status == "fixed":
-            devlog("===To: Agent===\nACTION: analyze the rebuilt game")
+    if re.search(r"^\s*FIX:", text, re.M):
+        status, detail = apply_verified(text)
+        diary(f"ACTION: fix -- {'FIXED: ' if status == 'fixed' else 'BLOCKED: '}{detail}")
+        result(("FIXED: " if status == "fixed" else "BLOCKED: ") + detail)
         return True
 
-    diag = re.search(r"DIAGNOSIS:\s*(.+)", body)
-    if diag:
-        devlog(f"ACTION: diagnosis noted -- {diag.group(1).strip()[:200]}")
     return True
+
+
+def competing_slave():
+    """Is another runner (e.g. vl-loop.py) alive? Two slaves fight over the GPU and the editor."""
+    try:
+        out = subprocess.run(["pgrep", "-af", "vl-loop"], capture_output=True, text=True).stdout
+    except Exception:
+        return False
+    return any("vl-loop" in ln and "pgrep" not in ln for ln in out.splitlines())
 
 
 def main():
@@ -316,34 +311,37 @@ def main():
         return 1
 
     os.makedirs(SHOTS, exist_ok=True)
-    for p in (DEVLOG, AGENTLOG, RUNLOG):
+    for p in (CMD, RESULT, DIARY, MASTERLOG, RUNLOG):
         open(p, "a").close()
-    runlog(f"runner started (pid {os.getpid()}); devlog={DEVLOG} agentlog={AGENTLOG}")
-    devlog(f"ACTION: runner online -- polling AgentLog.txt every {POLL:.0f}s, "
-           f"pruning blocks older than {PRUNE_DAYS} days")
+    runlog(f"runner started (pid {os.getpid()}); cmd={CMD} result={RESULT} diary={DIARY}")
+    diary(f"ACTION: runner online -- polling DevToRunner.txt every {POLL:.0f}s (UTC timestamps)")
+    if competing_slave():
+        diary("WARNING: another slave (vl-loop) is running -- two runners will kill each "
+              "other's captures; stop one")
 
     seen = seen_load()
     while True:
-        # Prune at the start of every iteration, as specified.
-        prune(DEVLOG)
-        prune(AGENTLOG)
+        prune(MASTERLOG)
+        prune(DIARY)
 
         try:
-            text = open(AGENTLOG).read()
+            text = open(CMD).read()
         except FileNotFoundError:
             text = ""
-
-        for ts, body in split_blocks(text):
-            if ts is None:
-                continue
-            digest = hashlib.sha256((ts + body).encode()).hexdigest()
-            if digest in seen:
-                continue
-            seen.add(digest)
-            seen_save(seen)
-            if not handle_block(ts, body):
-                lock.close()
-                return 0
+        if text.strip():
+            for line in text.splitlines():
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                digest = hashlib.sha256(line.encode()).hexdigest()
+                if digest in seen:
+                    continue
+                seen.add(digest)
+                seen_save(seen)
+                runlog(f"command: {line[:120]}")
+                if not handle_command(line):
+                    lock.close()
+                    return 0
         time.sleep(POLL)
 
 
