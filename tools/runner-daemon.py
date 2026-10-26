@@ -58,6 +58,8 @@ CMD = os.path.join(SHOTS, "DevToRunner.txt")        # Master -> us (read only)
 RESULT = os.path.join(SHOTS, "RunnerToDev.txt")     # us -> Master (overwrite per command)
 DIARY = os.path.join(SHOTS, "AgentLog.txt")         # our audit trail
 MASTERLOG = os.path.join(SHOTS, "DevLog.txt")       # Master's diary: prune only, never write
+STAMP = os.path.join(SHOTS, "RunnerToDev.stamp")    # sidecar timestamp for the last result
+STATUS_FILE = os.path.join(SHOTS, "runner.status")  # live heartbeat: idle/busy, last cmd/result
 RUNLOG = os.path.join(SHOTS, "runner.log")          # operator log
 LASTCMD = os.path.join(SHOTS, ".runner_lastcmd")   # key of the last command generation
 LOCK = "/tmp/hi_runner.lock"
@@ -110,6 +112,28 @@ def diary(body):
     runlog("diary: " + body.replace("\n", " | ")[:160])
 
 
+# WHAT THE SLAVE IS DOING RIGHT NOW, written to runner.status on every poll. This exists because
+# Richard had to ask "are you running or stuck?" three times: a process that is alive but idle is
+# indistinguishable from a hung one unless it says so. `cat /home/richard/shots/runner.status`.
+STATE = {
+    "pid": os.getpid(),
+    "state": "starting",
+    "last_command": "",
+    "last_command_at": "",
+    "last_result": "",
+    "last_result_at": "",
+}
+
+
+def write_status():
+    with open(STATUS_FILE, "w") as f:
+        f.write(f"state: {STATE['state']}\n")
+        f.write(f"pid: {STATE['pid']}\n")
+        f.write(f"heartbeat: {now()} UTC\n")
+        f.write(f"last_command: {STATE['last_command']}  @ {STATE['last_command_at']}\n")
+        f.write(f"last_result: {STATE['last_result']}  @ {STATE['last_result_at']}\n")
+
+
 def result(text):
     """Overwrite RunnerToDev.txt: the answer to the command just handled.
 
@@ -122,8 +146,24 @@ def result(text):
     the PREVIOUS round's answer, and neither side could tell from the content. The comment is
     written with a `#` so it reads as a note, and it is the time the answer was produced.
     """
+    #
+    # REVERTED TO A SINGLE LINE (2026-10-26, later the same day). Richard asked for a timestamp
+    # and it was written into this file as a `# <UTC> UTC` second line. Evidence that it cost a
+    # round: the Master sent its kitchen command at 07:06:38, the slave answered at 07:07:45, and
+    # the Master then logged "TIMEOUT waiting for READY" at 11:25:54 -- four hours and eighteen
+    # minutes after the answer was on disk, on the first round that ever carried the extra line.
+    # A two-line file is a real risk for a parser that reads this file as one value, and the
+    # timestamp does not need to live in the parsed file to be useful.
+    #
+    # So: the result file is one line again, exactly as the Master expects, and the time goes to
+    # RunnerToDev.stamp (and to runner.status) where nothing's parser can trip on it.
     with open(RESULT, "w") as f:
-        f.write(f"{text.rstrip()}\n# {now()} UTC\n")
+        f.write(text.rstrip() + "\n")
+    with open(STAMP, "w") as f:
+        f.write(f"{now()} UTC  {text.splitlines()[0][:80]}\n")
+    STATE["last_result"] = text.splitlines()[0][:80]
+    STATE["last_result_at"] = now()
+    write_status()
     runlog("result: " + text.replace("\n", " | ")[:160])
 
 
@@ -361,6 +401,8 @@ def main():
         open(p, "a").close()
     runlog(f"runner started (pid {os.getpid()}); cmd={CMD} result={RESULT} diary={DIARY}")
     diary(f"ACTION: runner online -- polling DevToRunner.txt every {POLL:.0f}s (UTC timestamps)")
+    STATE["state"] = "idle"
+    write_status()
     # ONE SLAVE. The flock above already guarantees a single copy of THIS runner; the only
     # other process that could act as one is the old tools/vl-loop.py, which nothing starts.
     # (An earlier version of this file warned about it as a "competing slave", which was the
@@ -403,9 +445,15 @@ def main():
                 if not line or line.startswith("#"):
                     continue
                 runlog(f"command: {line[:120]}")
+                STATE["state"] = "busy"
+                STATE["last_command"] = line[:120]
+                STATE["last_command_at"] = now()
+                write_status()
                 if not handle_command(line):
                     lock.close()
                     return 0
+        STATE["state"] = "idle"
+        write_status()          # heartbeat: proves the loop is alive, not merely present
         time.sleep(POLL)
 
 
