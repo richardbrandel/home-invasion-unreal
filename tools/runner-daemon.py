@@ -111,9 +111,19 @@ def diary(body):
 
 
 def result(text):
-    """Overwrite RunnerToDev.txt: the answer to the command just handled."""
+    """Overwrite RunnerToDev.txt: the answer to the command just handled.
+
+    Line 1 is the bare answer (`READY: kitchen.png`) and is left EXACTLY as before, so a parser
+    that reads the first line, or matches a substring, cannot be surprised.
+
+    Line 2 is a timestamp comment added on Richard's instruction (2026-10-26), because without it
+    a stale result is indistinguishable from a fresh one when the same view is shot twice: the
+    Master asked "RunnerToDev.txt still does not contain READY: kitchen.png" while the file held
+    the PREVIOUS round's answer, and neither side could tell from the content. The comment is
+    written with a `#` so it reads as a note, and it is the time the answer was produced.
+    """
     with open(RESULT, "w") as f:
-        f.write(text.rstrip() + "\n")
+        f.write(f"{text.rstrip()}\n# {now()} UTC\n")
     runlog("result: " + text.replace("\n", " | ")[:160])
 
 
@@ -298,7 +308,16 @@ def handle_command(text):
         result("DONE: runner stopped")
         return False
 
-    m = re.search(r"(?:ACTION:\s*take_screenshot|analyze)\s+(\S+)", text)
+    # `ACTION: analyze <view>.png` is NOT a capture request -- it is addressed to the Master's
+    # vision proxy (tools in ~/.dsh/tools/vl-proxy.py), which watches this same file, calls Qwen
+    # VL and writes a `FIX:` back. Treating "analyze" as "capture" made the slave re-shoot the
+    # frame instead of letting it be analysed, and once the slave asks for analysis after each
+    # capture that becomes an infinite capture loop. Only take_screenshot captures.
+    if re.search(r"ACTION:\s*analyze\b", text):
+        diary(f"ACTION: analysis request seen -- addressed to the vision proxy: {text.strip()[:90]}")
+        return True
+
+    m = re.search(r"ACTION:\s*take_screenshot\s+(\S+)", text)
     if m:
         view = normalise_view(m.group(1))
         if view not in VIEWS:
@@ -360,6 +379,13 @@ def main():
         if key != last_key:
             last_key = key
             lastcmd_save(key)
+            # Log EVERY new generation, including an EMPTY one. The channel is a single slot, so
+            # a command that appears and is truncated again inside one 5 s poll would otherwise
+            # leave no trace at all -- and the Master would be waiting for a reply to a command
+            # this runner never saw. One line here makes that race visible instead of invisible.
+            nlines = len([l for l in content.decode(errors="replace").splitlines()
+                          if l.strip() and not l.startswith("#")])
+            runlog(f"cmd generation changed -> {nlines} line(s), {len(content)} bytes")
             for line in content.decode(errors="replace").splitlines():
                 line = line.strip()
                 if not line or line.startswith("#"):
