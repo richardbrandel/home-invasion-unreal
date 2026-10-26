@@ -317,6 +317,18 @@ def handle_command(text):
         diary(f"ACTION: analysis request seen -- addressed to the vision proxy: {text.strip()[:90]}")
         return True
 
+    # `ACTION: build` -- rebuild and report the verdict, WITHOUT a patch.
+    #
+    # Needed because a capture does not build: the Master edits Source/ by hand, asks for a
+    # screenshot, and the frame is of the PREVIOUS binary (the slave warns, but a warning still
+    # costs a round). This lets it say "rebuild, then shoot" explicitly. Serialised against every
+    # other builder by the same flock.
+    if re.search(r"ACTION:\s*(build|rebuild)\b", text):
+        ok = rebuild()
+        result("BUILD: Succeeded" if ok else
+               "BUILD: FAILED -- see /tmp/hi_runner_build.log")
+        return True
+
     m = re.search(r"ACTION:\s*take_screenshot\s+(\S+)", text)
     if m:
         view = normalise_view(m.group(1))
