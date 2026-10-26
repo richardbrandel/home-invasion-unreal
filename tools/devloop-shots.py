@@ -89,6 +89,18 @@ VIEWS = {
     "dining":    (2.6, -10.0, 180.0, 0.0, 0),
     # Basement: cinderblock, washer/dryer, workbench.
     "basement":  (0.0, -14.0, 90.0, 0.0, -1),
+    # ---- the four the Master could ask for that this script did not originally shoot. The
+    # project's grid harness (tools/capture-grid.py) already defines all ten poses, so a Slave
+    # that can only answer six of them is a Slave that replies "unknown view" to a fair
+    # request. Same numbers as the grid, so a frame from either is the same camera.
+    # Back yard, looking at the rear elevation.
+    "back":      (0.0, -21.0, 90.0, 0.0, 0),
+    # Ground-floor master bedroom and its bathroom door.
+    "master":    (-4.0, -15.5, 90.0, 0.0, 0),
+    # Second floor (floor 1): bedroom 2.
+    "bedroom2":  (-4.0, -11.5, 90.0, 0.0, 1),
+    # Second floor: office, over the desk.
+    "office":    (4.0, -10.0, 180.0, 0.0, 1),
 }
 DEFAULT_VIEWS = ["front", "neighbors", "kitchen", "living", "dining", "basement"]
 

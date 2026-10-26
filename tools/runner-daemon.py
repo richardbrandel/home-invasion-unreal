@@ -70,7 +70,25 @@ POLL = 5.0
 PRUNE_DAYS = 7
 TS_FMT = "%Y-%m-%d %H:%M:%S"
 TS_RE = re.compile(r"===Timestamp:\s*(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\s*===")
-VIEWS = {"front", "neighbors", "kitchen", "living", "dining", "basement"}
+VIEWS = {"front", "neighbors", "kitchen", "living", "dining", "basement",
+         "back", "master", "bedroom2", "office"}
+
+# The Master names frames by what it sees, not by this script's names. `street` is the same
+# camera as `neighbors`, and grid-style names ("2_street", "front.png") arrive with a prefix or
+# suffix. Normalising means a fair request is answered instead of rejected as unknown.
+ALIASES = {
+    "street": "neighbors",
+    "neighbours": "neighbors",
+    "bedroom": "bedroom2",
+    "bed2": "bedroom2",
+    "study": "office",
+}
+
+
+def normalise_view(raw):
+    v = raw.strip().lower().removesuffix(".png")
+    v = re.sub(r"^\d+_", "", v)          # "2_street" -> "street"
+    return ALIASES.get(v, v)
 
 
 def now():
@@ -282,7 +300,7 @@ def handle_command(text):
 
     m = re.search(r"(?:ACTION:\s*take_screenshot|analyze)\s+(\S+)", text)
     if m:
-        view = m.group(1).strip().removesuffix(".png")
+        view = normalise_view(m.group(1))
         if view not in VIEWS:
             diary(f"ACTION: capture {view} -- UNKNOWN VIEW (known: {sorted(VIEWS)})")
             result(f"FAILED: unknown view {view}")
