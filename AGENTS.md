@@ -136,3 +136,33 @@ Config/` immediately before any commit.
   (`-HISoak=15 -unattended -RenderOffscreen -log -abslog=...`) must print `HISOAK RESULT=` and
   `grep -c 'Failed to find object'` must be **0**. That single check is what caught the cook
   shipping no content while the build reported success.
+
+## The dev loop: one slave, one Master
+
+Richard runs two sessions against this box: **the Master** ("Development") and **the Slave**
+("Game Runner Agent DeepSeek Flash"), which is the session that builds, captures and applies
+patches. They talk through files in `/home/richard/shots/` -- never through Richard.
+
+| file | who writes it | what it is |
+|---|---|---|
+| `DevToRunner.txt` | Master | commands: `ACTION: take_screenshot <view>`, `FIX: <patch>`, `STATUS: ✅` |
+| `RunnerToDev.txt` | Slave | the result of the last command, one line per command |
+| `AgentLog.txt` | Slave | the diary: actions **and** the decisions/sessions behind them |
+| `DevLog.txt` | Master | Master's diary; the Slave prunes it and never writes it |
+
+- **There is exactly ONE slave**: `tools/runner-daemon.py`. Do not start
+  `tools/vl-loop.py.disabled` -- it is an older script that also watches `DevToRunner.txt` and
+  also captures, and two runners kill each other's `UnrealEditor` by process name.
+- **All timestamps are UTC.** The Master's tooling writes UTC; two clock bases in one log made
+  `07:50` and `11:50` the same moment four hours apart.
+- **A repeated identical command is a NEW command.** The command file is a single slot and its
+  text is meant to repeat (re-shoot the same view after a fix), so the runner keys on the file's
+  content **plus mtime**, not on the text. Text-hash dedupe hangs the loop on its commonest step.
+- **A capture does not build.** It warns when `Source/` is newer than the built module, because
+  otherwise the Master analyses a frame of the previous build and concludes the fix did nothing.
+- **Log the session, not just the actions** (Richard, 2026-10-26):
+  `python3 tools/diary.py "…"` or a heredoc, which stamps UTC and appends to `AgentLog.txt`.
+  A diary that records only `ACTION:` lines cannot answer "why is it like this".
+- Patches are gated: a line-targeted edit must find its text on that line; range deletes, file
+  includes and missing paths are refused; a failed build reverts the edit. See the header of
+  `tools/runner-daemon.py` for the three instructions that made this necessary.
