@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
-"""Runner ("slave") on the Master's channel mapping.
+"""The Game Runner Agent (DeepSeek Flash) -- THE SLAVE. There is exactly one, and it is this.
 
-CHANNELS -- as specified by the Master session and implemented by tools/vl-loop.py
+    Session: "Game Runner Agent DeepSeek Flash". One slave, one role.
+
+CHANNELS -- fixed by the Master session
     /home/richard/shots/DevToRunner.txt   the Master writes COMMANDS here. We only read.
     /home/richard/shots/RunnerToDev.txt    we write the RESULT of the last command.
     /home/richard/shots/AgentLog.txt       the SLAVE'S diary (audit only). We append to it.
@@ -9,9 +11,12 @@ CHANNELS -- as specified by the Master session and implemented by tools/vl-loop.
                                            prune it.
 
     NOTE: an earlier instruction had these two diaries the other way round (DevLog = slave's
-    actions, AgentLog = master's replies). That is inverted with respect to the Master and to
-    vl-loop.py, and since the Master is the live peer, THIS mapping wins. The result channel is
-    a single file overwritten per command, so "what happened last" is never ambiguous.
+    actions, AgentLog = master's replies). The Master's mapping is the one in force. The result
+    channel is a single file overwritten per command, so "what happened last" is never ambiguous.
+
+    Do not start `tools/vl-loop.py`. It is an older script that ALSO watches DevToRunner.txt and
+    ALSO captures, so running it alongside this one gives two processes fighting over the same
+    GPU and killing each other's UnrealEditor by name. It is not the slave; this is.
 
 TIMESTAMPS ARE UTC, and that is a fix rather than a preference. Measured 2026-10-25: vl-loop.py
 writes UTC while this daemon wrote local time, so one log held both bases and the entries at
@@ -294,15 +299,6 @@ def handle_command(text):
     return True
 
 
-def competing_slave():
-    """Is another runner (e.g. vl-loop.py) alive? Two slaves fight over the GPU and the editor."""
-    try:
-        out = subprocess.run(["pgrep", "-af", "vl-loop"], capture_output=True, text=True).stdout
-    except Exception:
-        return False
-    return any("vl-loop" in ln and "pgrep" not in ln for ln in out.splitlines())
-
-
 def main():
     lock = open(LOCK, "w")
     try:
@@ -316,9 +312,10 @@ def main():
         open(p, "a").close()
     runlog(f"runner started (pid {os.getpid()}); cmd={CMD} result={RESULT} diary={DIARY}")
     diary(f"ACTION: runner online -- polling DevToRunner.txt every {POLL:.0f}s (UTC timestamps)")
-    if competing_slave():
-        diary("WARNING: another slave (vl-loop) is running -- two runners will kill each "
-              "other's captures; stop one")
+    # ONE SLAVE. The flock above already guarantees a single copy of THIS runner; the only
+    # other process that could act as one is the old tools/vl-loop.py, which nothing starts.
+    # (An earlier version of this file warned about it as a "competing slave", which was the
+    # wrong model: there is one slave -- this session -- and vl-loop.py is a leftover script.)
 
     last_key = lastcmd_load()
     while True:
