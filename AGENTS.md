@@ -137,32 +137,45 @@ Config/` immediately before any commit.
   `grep -c 'Failed to find object'` must be **0**. That single check is what caught the cook
   shipping no content while the build reported success.
 
-## The dev loop: one slave, one Master
+## The dev loop: Brain, Hands, Eyes
 
-Richard runs two sessions against this box: **the Master** ("Development") and **the Slave**
-("Game Runner Agent DeepSeek Flash"), which is the session that builds, captures and applies
-patches. They talk through files in `/home/richard/shots/` -- never through Richard.
+Richard runs **two sessions** against this box. They talk through files in `/home/richard/shots/`
+-- never through Richard. Three jobs, and keeping them separate is the design:
+
+| role | who | does | never does |
+|---|---|---|---|
+| **Brain** | the Development session | reads the diagnosis + the C++, decides the change, writes one exact edit | looks at images, edits files directly |
+| **Hands** | the runner (`tools/runner-daemon.py`) | builds, captures, applies-or-refuses the edit, calls the eyes | decides what is wrong |
+| **Eyes** | `tools/vl-ask.py` (a TOOL, not a session) | looks at a PNG, returns prose about what looks wrong | writes code |
 
 | file | who writes it | what it is |
 |---|---|---|
-| `DevToRunner.txt` | Master | commands: `ACTION: take_screenshot <view>`, `FIX: <patch>`, `STATUS: ✅` |
-| `RunnerToDev.txt` | Slave | the result of the last command, one line per command |
-| `AgentLog.txt` | Slave | the diary: actions **and** the decisions/sessions behind them |
-| `DevLog.txt` | Master | Master's diary; the Slave prunes it and never writes it |
+| `DevToRunner.txt` | Brain | `ACTION: take_screenshot <view>`, `ACTION: build`, `FIX: …`, `STATUS: clear`, `STATUS: ✅` |
+| `RunnerToDev.txt` | Hands | the result of the last command, ONE line |
+| `Diagnosis.txt` | Hands (from the eyes) | the eyes' read-out for the last frame: `VIEW:` / `WHEN:` / prose |
+| `AgentLog.txt` | Hands | the diary: actions **and** the decisions behind them |
+| `DevLog.txt` | Brain | Brain's diary; Hands prunes it and never writes it |
+| `runner.status` | Hands | heartbeat every 5 s, so "running or stuck?" is answerable by `cat` |
 
-- **There is exactly ONE slave**: `tools/runner-daemon.py`. Do not start
-  `tools/vl-loop.py.disabled` -- it is an older script that also watches `DevToRunner.txt` and
-  also captures, and two runners kill each other's `UnrealEditor` by process name.
-- **All timestamps are UTC.** The Master's tooling writes UTC; two clock bases in one log made
+The Brain's brief is `/home/richard/shots/BRAIN-BRIEF.md`.
+
+- **THE BRAIN MUST NOT EDIT `Source/` DIRECTLY** (measured 2026-10-27). Left to edit files, it
+  appended the same comment fragment twenty times to two lines and de-indented a statement --
+  **no value changed at all**, and the round was wasted. Edits go through `FIX:` so the runner
+  replaces verified text in one place. A `FIX` whose old text is not on the named line is refused.
+- **There is exactly ONE Hands**: `tools/runner-daemon.py`. Never start
+  `tools/vl-loop.py.disabled` or `~/.dsh/tools/vl-proxy.py` -- both watch the same command file,
+  and two runners kill each other's `UnrealEditor` by process name.
+- **All timestamps are UTC**, because a peer tool writes UTC and two clock bases in one log made
   `07:50` and `11:50` the same moment four hours apart.
-- **A repeated identical command is a NEW command.** The command file is a single slot and its
-  text is meant to repeat (re-shoot the same view after a fix), so the runner keys on the file's
-  content **plus mtime**, not on the text. Text-hash dedupe hangs the loop on its commonest step.
-- **A capture does not build.** It warns when `Source/` is newer than the built module, because
-  otherwise the Master analyses a frame of the previous build and concludes the fix did nothing.
-- **Log the session, not just the actions** (Richard, 2026-10-26):
-  `python3 tools/diary.py "…"` or a heredoc, which stamps UTC and appends to `AgentLog.txt`.
-  A diary that records only `ACTION:` lines cannot answer "why is it like this".
-- Patches are gated: a line-targeted edit must find its text on that line; range deletes, file
-  includes and missing paths are refused; a failed build reverts the edit. See the header of
-  `tools/runner-daemon.py` for the three instructions that made this necessary.
+- **A repeated identical command is a NEW command.** The command file is a single slot whose text
+  repeats by design (re-shoot the same view after a fix), so the runner keys on content **plus
+  mtime**, not text. Text-hash dedupe hangs the loop on its commonest step.
+- **A capture does not build.** It warns when `Source/` is newer than the built module, and
+  `ACTION: build` exists so hand-edited source is never photographed stale.
+- **The round cap lives in Hands** (20, persisted in `.runner_rounds`, `STATUS: clear` resets it).
+  A limit an agent enforces on itself is the one that gets forgotten.
+- **Log the session, not just the actions**: `python3 tools/diary.py "…"` stamps UTC into
+  `AgentLog.txt`.
+- **The eyes are a detector, not a patch generator.** Asked for patches they invented four files
+  that do not exist, including Blueprints (this project has none).
