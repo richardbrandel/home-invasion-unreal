@@ -59,6 +59,9 @@ RESULT = os.path.join(SHOTS, "RunnerToDev.txt")     # us -> Master (overwrite pe
 DIARY = os.path.join(SHOTS, "AgentLog.txt")         # our audit trail
 MASTERLOG = os.path.join(SHOTS, "DevLog.txt")       # Master's diary: prune only, never write
 STAMP = os.path.join(SHOTS, "RunnerToDev.stamp")    # sidecar timestamp for the last result
+DIAG = os.path.join(SHOTS, "Diagnosis.txt")          # the EYES' read-out for the last frame
+ROUNDS_FILE = os.path.join(SHOTS, ".runner_rounds")  # persisted so a restart cannot reset the cap
+MAX_ROUNDS = 20
 STATUS_FILE = os.path.join(SHOTS, "runner.status")  # live heartbeat: idle/busy, last cmd/result
 RUNLOG = os.path.join(SHOTS, "runner.log")          # operator log
 LASTCMD = os.path.join(SHOTS, ".runner_lastcmd")   # key of the last command generation
@@ -67,6 +70,7 @@ LOCK = "/tmp/hi_runner.lock"
 PROJECT = "/data/projects/HIUnreal"
 DEVS = os.path.join(PROJECT, "tools", "devloop-shots.py")
 BUILD = "/data/UnrealEngine/Engine/Build/BatchFiles/Linux/Build.sh"
+VL_ASK = os.path.join(PROJECT, "tools", "vl-ask.py")   # the EYES: a tool, not an agent
 
 POLL = 5.0
 PRUNE_DAYS = 7
@@ -260,11 +264,52 @@ def capture(view):
         warn = f" WARNING: STALE BINARY -- {why}" if stale else ""
         diary(f"ACTION: capture {view} -- 1280x720, {secs:.0f}s, READY{warn}")
         result(f"READY: {view}.png" + (f"\nWARNING: STALE BINARY -- {why}" if stale else ""))
+        diagnose(view)          # then hand the frame to the eyes; text lands in Diagnosis.txt
     else:
         diary(f"ACTION: capture {view} -- FAILED rc={r.returncode} after {secs:.0f}s")
         result(f"FAILED: could not capture {view}")
         runlog((r.stdout or "")[-300:] + (r.stderr or "")[-300:])
     return ok
+
+
+def rounds_load():
+    try:
+        return int(open(ROUNDS_FILE).read().strip())
+    except Exception:
+        return 0
+
+
+def rounds_save(n):
+    with open(ROUNDS_FILE, "w") as f:
+        f.write(str(n))
+
+
+def diagnose(view):
+    """Run the EYES on the frame just captured and write Diagnosis.txt for the Brain.
+
+    This is plumbing, not judgement: the runner does not decide whether a flaw is real, it runs
+    the tool and passes the text along. Without this step nothing calls the eyes at all -- the old
+    vl-proxy did, and it was stopped because it spoke a FIX dialect (JSON) the runner cannot
+    verify and competed for the same command file.
+    """
+    png = os.path.join(SHOTS, f"{view}.png")
+    prompt = ("You are reviewing one screenshot from a realistic home-defence game. "
+              "Name at most three concrete visual flaws. For each: where it is on screen, what "
+              "is wrong, and what real life would look like instead. No code, no file names, "
+              "no patches -- description only.")
+    t0 = time.time()
+    try:
+        r = subprocess.run([sys.executable, VL_ASK, png, prompt, "--max-tokens", "700"],
+                           capture_output=True, text=True, timeout=300)
+        text = r.stdout.strip() if r.returncode == 0 else (
+            f"(the eyes failed: rc={r.returncode}) " + (r.stderr.strip()[:400]))
+    except subprocess.TimeoutExpired:
+        text = "(the eyes timed out after 300 s)"
+    except Exception as e:
+        text = f"(the eyes could not run: {type(e).__name__}: {e})"
+    with open(DIAG, "w") as f:
+        f.write(f"VIEW: {view}.png\nWHEN: {now()} UTC\n\n{text}\n")
+    diary(f"ACTION: eyes on {view} -- {len(text)} chars in {time.time() - t0:.0f}s -> Diagnosis.txt")
 
 
 def rebuild():
@@ -343,6 +388,12 @@ def apply_verified(text):
 
 def handle_command(text):
     """Handle one command from DevToRunner.txt. Returns False to stop the runner."""
+    if re.search(r"STATUS:\s*clear", text, re.I):
+        rounds_save(0)
+        diary("ACTION: round counter cleared")
+        result("CLEARED: round counter reset to 0")
+        return True
+
     if re.search(r"STATUS:\s*✅", text):
         diary("ACTION: stop -- STATUS done received")
         result("DONE: runner stopped")
@@ -445,6 +496,19 @@ def main():
                 if not line or line.startswith("#"):
                     continue
                 runlog(f"command: {line[:120]}")
+                # THE CAP LIVES IN THE RUNNER, not in the agent that asks. A limit an agent
+                # enforces on itself is the one that gets forgotten, and this loop can spend
+                # real money per round (one vision call) as well as GPU time.
+                actionable = bool(re.search(
+                    r"ACTION:\s*(take_screenshot|build|rebuild)|^\s*FIX:", line))
+                if actionable and not re.search(r"STATUS:\s*clear", line, re.I):
+                    done = rounds_load()
+                    if done >= MAX_ROUNDS:
+                        result(f"STOPPED: round cap {MAX_ROUNDS} reached "
+                               f"({done} rounds done). Send 'STATUS: clear' to reset.")
+                        diary(f"ACTION: refused -- round cap {MAX_ROUNDS} reached")
+                        continue
+                    rounds_save(done + 1)
                 STATE["state"] = "busy"
                 STATE["last_command"] = line[:120]
                 STATE["last_command_at"] = now()
