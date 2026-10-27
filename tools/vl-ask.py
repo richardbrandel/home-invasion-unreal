@@ -28,6 +28,7 @@ NOTES
 """
 
 import argparse
+import re
 import base64
 import io
 import json
@@ -83,6 +84,31 @@ def ask(prompt, images, max_tokens=800):
         return None
 
 
+def ask_json(prompt, images, max_tokens, attempts=3):
+    """Ask for a JSON object and return it parsed, retrying on non-JSON.
+
+    400 TOKENS IS NOT ENOUGH for a diagnosis plus several before/after fixes, which is why the
+    Master's proxy kept logging VL_ERROR while the model was answering fine: it asked for JSON in
+    400 tokens and then json.loads() on a truncated string. 1600 here, and a retry that says what
+    was wrong, rather than failing the turn.
+    """
+    q = prompt
+    for attempt in range(attempts):
+        answer = ask(q, images, max_tokens)
+        if answer is None:
+            return None
+        m = (re.search(r"```(?:json)?\s*(\{.*?\})\s*```", answer, re.S)
+             or re.search(r"(\{.*\})", answer, re.S))
+        if m:
+            try:
+                return json.loads(m.group(1))
+            except json.JSONDecodeError as e:
+                print(f"vl-ask: attempt {attempt+1}: invalid JSON ({e})", file=sys.stderr)
+        q = prompt + ("\n\nYour previous reply could not be parsed as JSON. "
+                      "Output ONLY the JSON object, no prose, no code fence.")
+    return None
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("image", nargs="?", help="screenshot to analyse")
@@ -90,6 +116,7 @@ def main():
     ap.add_argument("--prompt", default=None, help="the question, if you prefer a flag")
     ap.add_argument("--images", nargs="*", default=None, help="several images at once")
     ap.add_argument("--max-tokens", type=int, default=800)
+    ap.add_argument("--json", action="store_true", help="require a JSON object; retry if not")
     a = ap.parse_args()
 
     images = a.images or ([a.image] if a.image else [])
@@ -101,6 +128,12 @@ def main():
         if not pathlib.Path(img).exists():
             print(f"vl-ask: no such image {img}", file=sys.stderr)
             return 2
+    if a.json:
+        obj = ask_json(prompt, images, max(a.max_tokens, 1600))
+        if obj is None:
+            return 1
+        print(json.dumps(obj, indent=2))
+        return 0
     answer = ask(prompt, images, a.max_tokens)
     if answer is None:
         return 1
