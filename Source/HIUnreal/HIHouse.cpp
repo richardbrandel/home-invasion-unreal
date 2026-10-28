@@ -1290,8 +1290,34 @@ void AHIHouse::Build()
 				// drawn cannot disagree.
 				if (RailingInstances != nullptr)
 				{
-					RailingInstances->AddInstance(
-						BoxTransform(S.Rect, S.Span.MinZ, S.Span.MaxZ), /*bWorldSpace=*/false);
+					// A RAILING, NOT A PARAPET SLAB (2026-10-28). This was one solid box in Trim
+					// white, and in the office frame the stair screen's top metre read as a blank
+					// white wall -- the largest object in the picture and the least legible. The
+					// SIM still carries the box (the span rules are unchanged); only the drawing
+					// changes to what a stair railing is: a wood cap, a bottom rail, and balusters
+					// at 15 cm centres.
+					const FBox2D& R = S.Rect;
+					const FVector2D Size = R.GetSize();
+					const bool bAlongX = Size.X >= Size.Y;
+					const float Len = bAlongX ? Size.X : Size.Y;
+					const float H = S.Span.MaxZ - S.Span.MinZ;
+					const float CapT = 0.05f;
+					const float BotT = 0.04f;
+					const float CX = (R.Min.X + R.Max.X) * 0.5f;
+					const float CY = (R.Min.Y + R.Max.Y) * 0.5f;
+					AddBox(StairInstances, FVector(CX, CY, S.Span.MaxZ - CapT * 0.5f),
+						FVector(Size.X + 0.05f, Size.Y + 0.05f, CapT));
+					AddBox(RailingInstances, FVector(CX, CY, S.Span.MinZ + BotT * 0.5f),
+						FVector(Size.X + 0.02f, Size.Y + 0.02f, BotT));
+					const int32 N = FMath::Max(2, FMath::RoundToInt(Len / 0.15f));
+					for (int32 i = 0; i <= N; ++i)
+					{
+						const float T = static_cast<float>(i) / static_cast<float>(N);
+						const float X = bAlongX ? FMath::Lerp(R.Min.X, R.Max.X, T) : CX;
+						const float Y = bAlongX ? CY : FMath::Lerp(R.Min.Y, R.Max.Y, T);
+						AddBox(RailingInstances, FVector(X, Y, (S.Span.MinZ + S.Span.MaxZ) * 0.5f),
+							FVector(0.03f, 0.03f, H - CapT - BotT));
+					}
 				}
 			}
 			else if (WallInstances != nullptr)
