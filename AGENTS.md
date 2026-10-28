@@ -137,27 +137,35 @@ Config/` immediately before any commit.
   `grep -c 'Failed to find object'` must be **0**. That single check is what caught the cook
   shipping no content while the build reported success.
 
-## The dev loop: Brain, Hands, Eyes
+## The dev loop: one agent, plus mechanical gates
 
-Richard runs **two sessions** against this box. They talk through files in `/home/richard/shots/`
--- never through Richard. Three jobs, and keeping them separate is the design:
+Richard runs **two sessions** against this box, but only **one of them is needed for the loop**.
+Measured 2026-10-28, over a full day:
 
-| role | who | does | never does |
-|---|---|---|---|
-| **Brain** | the Development session | reads the diagnosis + the C++, decides the change, writes one exact edit | looks at images, edits files directly |
-| **Hands** | the runner (`tools/runner-daemon.py`) | builds, captures, applies-or-refuses the edit, calls the eyes | decides what is wrong |
-| **Eyes** | `tools/vl-ask.py` (a TOOL, not a session) | looks at a PNG, returns prose about what looks wrong | writes code |
+- **Brain (the Development session) contributed nothing to the loop.** It never wrote a single
+  command to `DevToRunner.txt` (its diary's last entry was reading a test line), and the one time
+  it edited `Source/` directly it appended the same comment twenty times to two lines and
+  **changed no value** -- a wasted round, cleaned up by hand.
+- **Hands (this session) did the whole job**: found the defects by looking at the frames, wrote
+  the fixes, built, re-shot, verified. Two verified rounds in twenty minutes (ceiling fitting,
+  framed picture).
+- **The Eyes are the same model as Hands** (`qwen3-vl-plus`, per the session log), so
+  `tools/vl-ask.py` is a second opinion, not a separate capability.
 
-| file | who writes it | what it is |
+So the working shape is **one agent + gates in code**:
+
+| part | does | why it is not an agent |
 |---|---|---|
-| `DevToRunner.txt` | Brain | `ACTION: take_screenshot <view>`, `ACTION: build`, `FIX: …`, `STATUS: clear`, `STATUS: ✅` |
-| `RunnerToDev.txt` | Hands | the result of the last command, ONE line |
-| `Diagnosis.txt` | Hands (from the eyes) | the eyes' read-out for the last frame: `VIEW:` / `WHEN:` / prose |
-| `AgentLog.txt` | Hands | the diary: actions **and** the decisions behind them |
-| `DevLog.txt` | Brain | Brain's diary; Hands prunes it and never writes it |
-| `runner.status` | Hands | heartbeat every 5 s, so "running or stuck?" is answerable by `cat` |
+| **the agent** (Hands) | looks at the frame, decides, writes the fix, builds, re-verifies | it is the only part that needs judgement |
+| **the gates** (in `runner-daemon.py`) | patch must match the named line; build must print `Result: Succeeded` or the edit is reverted; 20-round cap; timestamps UTC | these are checks, not decisions -- and a check an agent enforces on itself is the one that gets forgotten |
+| **the keys** (`tools/vl-ask.py`) | optional second opinion on a frame | same model, so same blind spots; useful for a fresh read, not for authority |
 
-The Brain's brief is `/home/richard/shots/BRAIN-BRIEF.md`.
+**Brain earns a slot only if it does something the agent structurally cannot.** The one candidate
+is an independent review of the *patch* (a different model reading the diff), not of the picture.
+Until that exists, a third participant is a third thing that can stall, and it stalled for a day.
+
+`/home/richard/shots/BRAIN-BRIEF.md` is kept as the record of the Brain role that was tried
+and is not currently part of the loop.
 
 - **THE BRAIN MUST NOT EDIT `Source/` DIRECTLY** (measured 2026-10-27). Left to edit files, it
   appended the same comment fragment twenty times to two lines and de-indented a statement --
