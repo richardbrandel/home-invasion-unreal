@@ -78,9 +78,14 @@ DEFAULT_OUT = "/home/richard/shots"
 # name, x, y, yaw_deg, pitch_deg, floor
 VIEWS = {
     # Standing on the drive, looking at the house front: the frame the round opens on.
-    "front":     (0.0, -4.0, -90.0, 0.0, 0),
+    # FRONT IS THE ELEVATION, NOT THE FACADE SEEN EDGE-ON (2026-10-28). The old pose stood at
+    # y -4 facing WEST (yaw -90), i.e. down the front wall, and never showed the house to a
+    # camera -- which is how review after review "missed the front of the house". Stand in the
+    # street and face -Y (yaw 180) to see the elevation across the yard.
+    "front":     (0.0, 4.0, 180.0, -6.0, 0),   # in the yard, inside the trees and the van
     # The front lawn looking north across the street at the neighbours, the cars and the van.
-    "neighbors": (0.0, -1.0,  90.0, 0.0, 0),
+    # Across the street, facing +Y (yaw 0) -- the neighbour houses, not the road surface.
+    "neighbors": (12.0,  6.0,   3.0, -2.0, 0),   # east of the van, at the houses
     # Kitchen: counters, island, fridge.
     "kitchen":   (3.5, -14.5, 180.0, 0.0, 0),
     # Living room: sofa/armchair, the picture window wall.

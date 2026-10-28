@@ -565,16 +565,19 @@ void AHIGameMode::LookDelta(float MouseX, float MouseY, float& OutYawDelta, floa
 {
 	// Pure, so the signs can be asserted without a mouse -- see `HI.Unreal.LookMapping`.
 	//
-	// Straight transcription of `game.gd`'s `_input`, fixed branch:
+	// Yaw is `game.gd`'s line unchanged:
 	//
-	//     yaw   -= event.relative.x * AIM_SENS_X      # 0.0022
-	//     pitch  = clamp(pitch + event.relative.y * AIM_SENS_Y, ...)   # 0.0018
+	//     yaw -= event.relative.x * AIM_SENS_X      # 0.0022
 	//
-	// MINUS on yaw and PLUS on pitch, and the first version of this had both the wrong way
-	// round. The pitch sign reads backwards until you remember that Godot's mouse `relative.y`
-	// grows downwards and the sim's positive pitch is "looking down", so the two agree.
+	// PITCH IS NOT A TRANSCRIPTION ANY MORE (2026-10-28, reported from play: "the mouse, left
+	// and right are correct, but the up and down are inverted"). Godot fed `event.relative.y`,
+	// which grows DOWNWARD. Unreal feeds the `MouseY` AXIS VALUE, which grows UPWARD -- the
+	// axis is configured `bInvert=False` in DefaultInput.ini, so nothing flips it before here.
+	// Positive pitch in the sim means looking DOWN, so the sign has to be MINUS. The old
+	// version carried Godot's plus across from a different input convention and the
+	// call-site comment claimed the axis was "bound inverted", which the ini contradicts.
 	OutYawDelta = -MouseX * GodotYawRadiansPerPixel;
-	OutPitchDelta = MouseY * GodotPitchRadiansPerPixel;
+	OutPitchDelta = -MouseY * GodotPitchRadiansPerPixel;
 }
 
 void AHIGameMode::PlaytestTick(float DeltaSeconds)
@@ -926,8 +929,8 @@ void AHIGameMode::ApplyLook()
 	LookDelta(PixelsX, PixelsY, DeltaYaw, DeltaPitch);
 
 	Round.Player.Yaw += DeltaYaw;
-	// The look axis is bound inverted (see DefaultInput.ini), so pushing the mouse up
-	// raises the pitch rather than lowering it.
+	// MouseY is Unreal's axis value and grows UPWARD (bInvert=False), so LookDelta has already
+	// flipped it: pushing the mouse up now lowers the pitch, which is looking up.
 	Round.Player.Pitch = FMath::Clamp(
 		Round.Player.Pitch + DeltaPitch,
 		FHISim::PitchMin, FHISim::PitchMax);

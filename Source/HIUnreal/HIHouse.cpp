@@ -739,7 +739,7 @@ void AHIHouse::BuildDressing()
 
 void AHIHouse::PlaceSketchfabModel(const FString& Name, const FVector2D& Center,
 	float WidthM, float DepthM, float Base, float Height, const FRotator& Rot, bool bCollide,
-	bool bPerAxis, const TCHAR* OpaqueTexture)
+	bool bPerAxis, const TCHAR* OpaqueTexture, const FLinearColor& TintColour)
 {
 	// Every StaticMesh under /Game/HIImported/models/<Name>, placed at one shared transform
 	// (2026-10-19). The glTF importer bakes node transforms, so the sub-meshes -- a van's
@@ -815,6 +815,14 @@ void AHIHouse::PlaceSketchfabModel(const FString& Name, const FVector2D& Center,
 						UMaterialInstanceDynamic* Mid = UMaterialInstanceDynamic::Create(BaseMat, Comp);
 						Mid->SetTextureParameterValue(TEXT("BaseTexture"), Tex);
 						Mid->SetScalarParameterValue(TEXT("UVTiling"), 1.0f);
+						// A DYNAMIC INSTANCE INHERITS EVERY PARAMETER IT DOES NOT SET (2026-10-28).
+						// This override used to set the texture and nothing else, so the model took
+						// M_HITextured's DEFAULT Tint and TextureStrength -- and the trees rendered
+						// flat crimson while their own atlas measures olive (extracted from
+						// SourceAssets/models/tree1.glb: avg (91,84,59)). The fridge's red frame was
+						// the same defect. If a material input matters, the instance must state it.
+						Mid->SetVectorParameterValue(TEXT("Tint"), TintColour);
+						Mid->SetScalarParameterValue(TEXT("TextureStrength"), 1.0f);
 						Comp->SetMaterial(SM, Mid);
 					}
 				}
@@ -1508,7 +1516,11 @@ void AHIHouse::Build()
 	FHIMaterials::Tint(CountertopInstances, FHIMaterials::DarkSteel);
 	// The neighborhood scenery (2026-10-19): grey street/sidewalk/driveway, plaster neighbor
 	// shells, green tree canopies.
-	FHIMaterials::Tint(StreetInstances, FHIMaterials::Path);
+	// ASPHALT, NOT WHITE (2026-10-28). Street, kerbs, sidewalks and the driveway all share this
+	// one component, so the whole ground under the front camera came out the colour of paper --
+	// the driveway in particular read as a runway. Path (0.34) under this sun clips. 0.17 keeps
+	// it a road surface and takes the glare off the frame.
+	FHIMaterials::Tint(StreetInstances, FLinearColor(0.16f, 0.16f, 0.17f));
 	FHIMaterials::Tint(NeighborInstances, FHIMaterials::WallExterior);
 	FHIMaterials::Textured(NeighborInstances, TEXT("ceiling_plaster"), 20.0f,
 		0, FHIMaterials::WallExterior, 0.45f);
@@ -1520,6 +1532,17 @@ void AHIHouse::Build()
 	// block also would not compile once its `AddInstance` helper was removed, which is how
 	// this was found: the patch had never been built.)
 	FHIMaterials::Tint(TreeInstances, FHIMaterials::Grass);
+	// HEDGES READ AS BOXES BECAUSE THEY WERE FLAT GREEN (2026-10-28, from play: "the hedges are
+	// boxes, not hedges"). There is no hedge asset in the project and the models fetched so far
+	// are trees, so the cheap honest step is a sampled surface: the lawn scan at a fine tiling
+	// breaks the flat fill into leaf-scale noise, and the grass tint keeps it the right green.
+	// TreeInstances holds ONLY the hedges -- the trees are imported models -- so this cannot
+	// reach anything it should not.
+	if (FHIMaterials::Textured(TreeInstances, TEXT("lawn"), 6.0f,
+			0, FHIMaterials::Grass, 0.85f) == nullptr)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("HI: hedges stay flat -- no lawn texture"));
+	}
 	FHIMaterials::Tint(WheelInstances, FHIMaterials::Tyre);
 	FHIMaterials::Tint(WheelRimInstances, FHIMaterials::Trim);
 	// The decks: every deck in WorldSolids is drawn by SlabInstances now -- the ground
@@ -1646,14 +1669,24 @@ void AHIHouse::BuildNeighborhood()
 			AddBox(StreetInstances, FVector((X1 + X2) * 0.5f, (Y1 + Y2) * 0.5f, 0.03f),
 				FVector(X2 - X1, Y2 - Y1, SZ));
 		};
-		Strip(-45.0f, 45.0f, 6.6f, 11.2f);    // street
-		Strip(-45.0f, 45.0f, 5.4f, 6.6f);     // sidewalk
-		Strip(-1.6f, 1.6f, -7.75f, 6.6f);     // driveway
-		Strip(-45.0f, 45.0f, 6.6f, 6.74f);    // kerb
+		// FOUR CAR WIDTHS (2026-10-28, from play: "the road should be wider, it should be 4 car
+		// width, enough room for traffic and parking at the same time"). It was 4.6 m -- one
+		// lane, with the parked cars sitting IN it. 11.4 m is two 3.3 m traffic lanes plus a
+		// 2.4 m parking lane at each kerb. The neighbours had to move back with it (below),
+		// because their front doors were 0.8 m from the old far kerb.
+		const float StreetNear = 6.6f;
+		const float StreetFar = 18.0f;
+		Strip(-45.0f, 45.0f, StreetNear, StreetFar);  // street
+		Strip(-45.0f, 45.0f, 5.4f, 6.6f);             // our sidewalk
+		Strip(-45.0f, 45.0f, 18.0f, 19.2f);           // far sidewalk
+		Strip(-1.6f, 1.6f, -7.75f, 6.6f);             // driveway
+		Strip(-45.0f, 45.0f, 6.6f, 6.74f);            // our kerb
+		Strip(-45.0f, 45.0f, 17.86f, 18.0f);          // far kerb
 		Strip(-45.0f, 45.0f, 5.26f, 5.4f);
 		for (float X = -43.0f; X <= 43.0f; X += 3.0f)
 		{
-			AddBox(TrimInstances, FVector(X, 8.3f, 0.075f), FVector(1.5f, 0.10f, 0.02f));
+			AddBox(TrimInstances, FVector(X, (StreetNear + StreetFar) * 0.5f, 0.075f),
+				FVector(1.5f, 0.10f, 0.02f));           // centre line
 		}
 	}
 
@@ -1670,37 +1703,31 @@ void AHIHouse::BuildNeighborhood()
 	//       the only box helper here that does.
 	//
 	// Geometry is SECTIONS ALONG THE RUN (2 m long, 0.4 m through, 1.7 m tall), not 4 m deep
-	// pillars stepping 2 m sideways, which is what the old `HedgeScale` described. The
-	// driveway (x -1.6 .. 1.6) stays open: it is what the intro frame looks through.
+	// pillars stepping 2 m sideways, which is what the old `HedgeScale` described.
+	auto HedgeRun = [&](float X1, float Y1, float X2, float Y2, float Height)
 	{
-		auto HedgeRun = [&](float X1, float Y1, float X2, float Y2, float Height)
+		const float DX = X2 - X1;
+		const float DY = Y2 - Y1;
+		const float Along = FMath::Sqrt(DX * DX + DY * DY);
+		const int32 Sections = FMath::Max(1, FMath::RoundToInt(Along / 2.0f));
+		const float YawDeg = FMath::RadiansToDegrees(FMath::Atan2(DY, DX));
+		for (int32 i = 0; i < Sections; ++i)
 		{
-			const float DX = X2 - X1;
-			const float DY = Y2 - Y1;
-			const float Along = FMath::Sqrt(DX * DX + DY * DY);
-			const int32 Sections = FMath::Max(1, FMath::RoundToInt(Along / 2.0f));
-			const float YawDeg = FMath::RadiansToDegrees(FMath::Atan2(DY, DX));
-			for (int32 i = 0; i < Sections; ++i)
-			{
-				const float T = (i + 0.5f) / Sections;
-				AddBox(TreeInstances,
-					FVector(X1 + DX * T, Y1 + DY * T, Height * 0.5f),
-					FVector(Along / Sections + 0.06f, 0.40f, Height),
-					YawDeg);
-			}
-		};
-		// FRONT IS LOW (0.85 m) AND THE SIDES ARE TALL (1.70 m), measured rather than styled:
-		// at 1.70 m the front run hid the van, the cars and the street from the house --
-		// which is exactly what the intro frame looks at, and the first capture after this
-		// block was built showed a green wall where the street should be (2026-10-23,
-		// shots/r1_2_street.png). A front-yard hedge in a suburban street is knee-to-waist
-		// height; the tall privacy hedge goes down the property lines, where nothing looks
-		// through it.
-		HedgeRun(-8.0f, 4.6f, -2.2f, 4.6f, 0.85f);   // front, west of the driveway
-		HedgeRun( 2.2f, 4.6f,  8.0f, 4.6f, 0.85f);   // front, east of it
-		HedgeRun(-7.6f, 4.6f, -7.6f, -7.0f, 1.70f);  // west property side
-		HedgeRun( 7.6f, 4.6f,  7.6f, -7.0f, 1.70f);  // east property side
-	}
+			const float T = (i + 0.5f) / Sections;
+			AddBox(TreeInstances,
+				FVector(X1 + DX * T, Y1 + DY * T, Height * 0.5f),
+				FVector(Along / Sections + 0.06f, 0.40f, Height),
+				YawDeg);
+		}
+	};
+	// A U, OPEN TO THE STREET (2026-10-28, from play: "I want the hedges to form a U around the
+	// sides and back of the house, nothing in front"). The two low front runs are GONE. The
+	// sides now run the full depth of the plot to the back line and a back run closes the U, so
+	// the front elevation reads clear from the street -- which is also what lets the front
+	// camera finally see the house it is supposed to be photographing.
+	HedgeRun(-7.6f, 4.6f, -7.6f, -19.0f, 1.70f);   // west property line
+	HedgeRun( 7.6f, 4.6f,  7.6f, -19.0f, 1.70f);   // east property line
+	HedgeRun(-7.6f, -19.0f, 7.6f, -19.0f, 1.70f);  // back of the plot
 
 	// Nice neighbor houses with 2m hedges
 	auto NiceHouse = [&](float CX, float CY, float W, float D)
@@ -1712,8 +1739,23 @@ void AHIHouse::BuildNeighborhood()
 		const float Slope = FMath::Sqrt(HalfD * HalfD + Rise * Rise);
 		const float Pitch = FMath::RadiansToDegrees(FMath::Atan2(Rise, HalfD));
 
-		// Main body
-		AddBox(NeighborInstances, FVector(CX, CY, WallH * 0.5f), FVector(W, D, WallH));
+		// Main body -- SIDING, not plaster (2026-10-28, from play: "the neighbor houses look
+		// like crap"). They were flat grey boxes in a single warm tint, which is why a row of
+		// them read as warehouses. SidingInstances already carries the siding texture the main
+		// house uses, so the neighbours now have the same horizontal clapboard, and the shingle
+		// roof they always had finally has something to sit on.
+		AddBox(SidingInstances, FVector(CX, CY, WallH * 0.5f), FVector(W, D, WallH));
+		// Chimney, offset off the ridge so it reads as a stack rather than a roof box.
+		AddBox(NeighborInstances, FVector(CX - W * 0.28f, CY + D * 0.12f, WallH + Rise + 0.55f),
+			FVector(0.55f, 0.55f, 1.4f));
+		// Garage door: a pale panel with three horizontal reveals, on the street face.
+		AddBox(TrimInstances, FVector(CX + W * 0.22f, CY - D * 0.5f - 0.04f, 1.15f),
+			FVector(3.0f, 0.08f, 2.3f));
+		for (int32 R = 1; R <= 3; ++R)
+		{
+			AddBox(NeighborInstances, FVector(CX + W * 0.22f, CY - D * 0.5f - 0.09f, 0.58f * (float)R),
+				FVector(2.9f, 0.02f, 0.03f));
+		}
 		// Porch
 		AddBox(NeighborInstances, FVector(CX, CY - D * 0.5f - 1.0f, 0.15f), FVector(W, 1.0f, 0.3f));
 		// Roof
@@ -1738,22 +1780,22 @@ void AHIHouse::BuildNeighborhood()
 		// passed as centimetres (see the note on the main house's hedge block), and on a
 		// line that for CY=15.5 fell at y=4.5, i.e. in OUR front yard on this side of the
 		// street. Hedges are green and belong to TreeInstances, like the main house's.
+		// SAME U AS OUR OWN HOUSE (2026-10-28): nothing across the front, sides down the plot
+		// and a back run. The neighbour's front faces -Y (the street), so its U opens that way.
 		{
 			const float Front = CY - D * 0.5f - 2.0f;
-			const int32 Sections = FMath::Max(1, FMath::RoundToInt(W / 2.0f));
-			for (int32 i = 0; i < Sections; ++i)
-			{
-				AddBox(TreeInstances,
-					FVector(CX - HalfW + (i + 0.5f) * (W / Sections), Front, 0.85f),
-					FVector(W / Sections + 0.06f, 0.40f, 1.70f));
-			}
+			const float Back = CY + D * 0.5f + 2.0f;
+			const float SideX = HalfW + 2.0f;
+			HedgeRun(CX - SideX, Front, CX - SideX, Back, 1.70f);
+			HedgeRun(CX + SideX, Front, CX + SideX, Back, 1.70f);
+			HedgeRun(CX - SideX, Back, CX + SideX, Back, 1.70f);
 		}
 	};
-	NiceHouse(-13.0f, 15.5f, 9.0f, 7.0f);
-	NiceHouse(13.0f, 15.5f, 9.0f, 7.0f);
-	NiceHouse(0.0f, 21.0f, 10.0f, 7.0f);
-	NiceHouse(-26.0f, 16.0f, 8.0f, 6.0f);
-	NiceHouse(26.0f, 16.0f, 8.0f, 6.0f);
+	NiceHouse(-13.0f, 26.5f, 9.0f, 7.0f);
+	NiceHouse(13.0f, 26.5f, 9.0f, 7.0f);
+	NiceHouse(0.0f, 32.0f, 10.0f, 7.0f);
+	NiceHouse(-26.0f, 27.0f, 8.0f, 6.0f);
+	NiceHouse(26.0f, 27.0f, 8.0f, 6.0f);
 
 	// Cars and trees. The TREES pass an OpaqueTexture, and that is a fix rather than a choice:
 	// without it a tree wore its glb's own material, which has no base-colour texture bound in
@@ -1764,12 +1806,23 @@ void AHIHouse::BuildNeighborhood()
 	PlaceSketchfabModel(TEXT("car"), FVector2D(-12.0f, 10.0f), 4.9f, 1.8f, 0.0f, 1.5f, FRotator(0.0f, 90.0f, 0.0f));
 	PlaceSketchfabModel(TEXT("pickup"), FVector2D(12.0f, 10.0f), 4.9f, 1.8f, 0.0f, 1.5f, FRotator(0.0f, 90.0f, 0.0f));
 	PlaceSketchfabModel(TEXT("car"), FVector2D(24.0f, 10.0f), 4.9f, 1.8f, 0.0f, 1.5f, FRotator(0.0f, 90.0f, 0.0f));
+	// TINTED, because the atlas alone is olive (91,84,59) and a conifer in a lawn should read
+	// green. The tint multiplies the texture, so it darkens toward evergreen rather than
+	// painting over the needle detail.
+	const FLinearColor Evergreen(0.42f, 0.72f, 0.34f);
 	PlaceSketchfabModel(TEXT("tree2"), FVector2D(-4.5f, 3.5f), 5.0f, 5.0f, 0.0f, 5.0f, FRotator::ZeroRotator,
-		false, false, TEXT("tree2_texture_0"));
+		false, false, TEXT("tree2_texture_0"), Evergreen);
 	PlaceSketchfabModel(TEXT("tree2"), FVector2D(4.5f, 3.5f), 4.5f, 4.5f, 0.0f, 4.5f, FRotator::ZeroRotator,
-		false, false, TEXT("tree2_texture_0"));
-	PlaceSketchfabModel(TEXT("tree1"), FVector2D(-9.0f, 12.5f), 6.0f, 6.0f, 0.0f, 6.0f, FRotator::ZeroRotator);
-	PlaceSketchfabModel(TEXT("tree1"), FVector2D(9.0f, 12.5f), 6.0f, 6.0f, 0.0f, 6.0f, FRotator::ZeroRotator);
+		false, false, TEXT("tree2_texture_0"), Evergreen);
+	// tree1 NEEDED THE SAME OPAQUE OVERRIDE AS tree2 AND THE FRIDGE (2026-10-28). Only the two
+	// tree2 instances passed a texture, so both tree1s fell through to the glb's own material,
+	// which has no base-colour bound in this build and renders CRIMSON ("the red trees don't
+	// look right, they should be green" -- reported from play, and visible in every front
+	// frame since 2026-10-23).
+	PlaceSketchfabModel(TEXT("tree1"), FVector2D(-9.0f, 12.5f), 6.0f, 6.0f, 0.0f, 6.0f, FRotator::ZeroRotator,
+		false, false, TEXT("tree1_texture_0"), Evergreen);
+	PlaceSketchfabModel(TEXT("tree1"), FVector2D(9.0f, 12.5f), 6.0f, 6.0f, 0.0f, 6.0f, FRotator::ZeroRotator,
+		false, false, TEXT("tree1_texture_0"), Evergreen);
 
 	// Street light and mailbox
 	AddBox(VanDetailInstances, FVector(2.6f, 5.9f, 2.6f), FVector(0.14f, 0.14f, 5.2f));

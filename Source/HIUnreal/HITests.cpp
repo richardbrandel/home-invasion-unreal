@@ -1097,17 +1097,17 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHIUnrealLookMapping,
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
 /**
- * The mouse-to-view signs, against `game.gd`'s own two lines.
+ * The mouse-to-view signs. Yaw is against `game.gd`; PITCH IS AGAINST UNREAL, not Godot.
  *
- * Both axes were inverted in the first version, and nothing could have caught it: a still
- * frame cannot show which way a mouse turns, the autopilot never reads the mouse, and the
- * crash hunts were all in the logs. Reported from play as "the mouse doesn't aim and shoot
- * like in the Godot version", which is exactly what an inverted pair of axes feels like.
+ * Nothing here can be caught by a still frame, and both versions of this test passed while the
+ * pitch felt wrong, because the test encoded an assumption about the INPUT convention rather
+ * than the FEEL. Godot's `event.relative.y` grows downward; Unreal's `MouseY` axis value grows
+ * upward and is `bInvert=False` in DefaultInput.ini. Carrying Godot's `+` across produced a
+ * view whose vertical axis was inverted -- reported from play on 2026-10-28 as "the up and
+ * down are inverted".
  *
- * The original:
- *
- *     yaw   -= event.relative.x * AIM_SENS_X
- *     pitch  = clampf(pitch + event.relative.y * AIM_SENS_Y, PITCH_MIN, PITCH_MAX)
+ * The invariant this test protects is the FEEL: moving the mouse up must look up, which in
+ * this sim is a NEGATIVE pitch (positive pitch is looking down).
  */
 bool FHIUnrealLookMapping::RunTest(const FString& Parameters)
 {
@@ -1119,9 +1119,9 @@ bool FHIUnrealLookMapping::RunTest(const FString& Parameters)
 	TestTrue(*FString::Printf(TEXT("mouse right gives a NEGATIVE yaw delta (got %.4f)"), Yaw), Yaw < 0.0f);
 	TestTrue(TEXT("and does not touch the pitch"), FMath::IsNearlyZero(Pitch));
 
-	// Mouse DOWN (positive y in both engines) must look DOWN, which is positive pitch here.
+	// Mouse UP is POSITIVE y in Unreal's axis, and must look UP: negative pitch here.
 	AHIGameMode::LookDelta(0.0f, 100.0f, Yaw, Pitch);
-	TestTrue(*FString::Printf(TEXT("mouse down gives a POSITIVE pitch delta (got %.4f)"), Pitch), Pitch > 0.0f);
+	TestTrue(*FString::Printf(TEXT("mouse up gives a NEGATIVE pitch delta (got %.4f)"), Pitch), Pitch < 0.0f);
 	TestTrue(TEXT("and does not touch the yaw"), FMath::IsNearlyZero(Yaw));
 
 	// The magnitudes are the original's, and they are DIFFERENT per axis: 0.0022 and 0.0018.
@@ -1129,7 +1129,8 @@ bool FHIUnrealLookMapping::RunTest(const FString& Parameters)
 	AHIGameMode::LookDelta(1000.0f, 0.0f, Yaw, Pitch);
 	TestEqual(TEXT("1000 px of x is 2.2 rad, as in game.gd"), Yaw, -2.2f, 0.001f);
 	AHIGameMode::LookDelta(0.0f, 1000.0f, Yaw, Pitch);
-	TestEqual(TEXT("1000 px of y is 1.8 rad, as in game.gd"), Pitch, 1.8f, 0.001f);
+	// 1.8 rad of MAGNITUDE is game.gd's sensitivity; the sign is Unreal's axis, see above.
+	TestEqual(TEXT("1000 px of y is 1.8 rad in magnitude"), Pitch, -1.8f, 0.001f);
 
 	// A control that would pass if the function ignored its arguments entirely.
 	AHIGameMode::LookDelta(0.0f, 0.0f, Yaw, Pitch);
