@@ -170,6 +170,17 @@ struct HISIM_API FHISim
 	 * not infinite, so she may walk up to the street's south kerb but not across it. The
 	 * intruders keep the full Bounds -- the van sits ON the street at y 7..9.4. */
 	static constexpr float PlayerNorthLimit = 6.6f;
+	/** THE HEDGEROW IS A BOUNDARY TOO (Richard, 2026-10-28: "just like the player can't cross
+	 *  the street, there is a boundary there, make the hedges a boundary also"). The drawn U
+	 *  sits 5 m clear of the house on all three enclosed sides -- x +-11.35, back y -22.39 for
+	 *  a house spanning x -6.35..6.35, y -17.39..-7.75 -- and these are the same three limits,
+	 *  so the player stops where the hedge starts instead of walking through it. Keep these in
+	 *  step with `BuildNeighborhood`'s HedgeRun calls, which read THESE constants rather than
+	 *  repeating the numbers -- a duplicated boundary is one the player can see and walk
+	 *  through. */
+	static constexpr float PlayerWestLimit  = -11.35f;
+	static constexpr float PlayerEastLimit  =  11.35f;
+	static constexpr float PlayerSouthLimit = -22.39f;
 
 	static const FBox2D Van;
 	/** Godot Vector2(0, 4.5) -- the drop point at the van. */

@@ -997,6 +997,11 @@ void FHISim::FHIRound::Step(const FHIInput& Input, float Dt)
 		// she may reach the sidewalk south of the street but not cross into it. Intruders are
 		// NOT limited -- their van and Drop are on and past the street.
 		P.Y = FMath::Min(P.Y, PlayerNorthLimit - PlayerRadius);
+		// The hedge U closes the other three sides: west, east and the back run behind the
+		// plot. Same treatment as the street -- a clamp, not a wall, because the hedge is a
+		// boundary the player is not meant to pass rather than a thing to collide with.
+		P.X = FMath::Clamp(P.X, PlayerWestLimit + PlayerRadius, PlayerEastLimit - PlayerRadius);
+		P.Y = FMath::Max(P.Y, PlayerSouthLimit + PlayerRadius);
 		// A wall has to STOP him, not let momentum pile up against it.
 		const FVector2D Moved = P - Player.Pos;
 		if (Moved.Size() < V.Size() * Dt * 0.5f)

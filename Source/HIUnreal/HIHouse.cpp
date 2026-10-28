@@ -1705,14 +1705,14 @@ void AHIHouse::BuildNeighborhood()
 		// because their front doors were 0.8 m from the old far kerb.
 		const float StreetNear = 6.6f;
 		const float StreetFar = 18.0f;
-		Strip(-45.0f, 45.0f, StreetNear, StreetFar);  // street
-		Strip(-45.0f, 45.0f, 5.4f, 6.6f);             // our sidewalk
-		Strip(-45.0f, 45.0f, 18.0f, 19.2f);           // far sidewalk
+		Strip(-260.0f, 260.0f, StreetNear, StreetFar);  // street, to the horizon
+		Strip(-260.0f, 260.0f, 5.4f, 6.6f);             // our sidewalk
+		Strip(-260.0f, 260.0f, 18.0f, 19.2f);           // far sidewalk
 		Strip(-1.6f, 1.6f, -7.75f, 6.6f);             // driveway
-		Strip(-45.0f, 45.0f, 6.6f, 6.74f);            // our kerb
-		Strip(-45.0f, 45.0f, 17.86f, 18.0f);          // far kerb
-		Strip(-45.0f, 45.0f, 5.26f, 5.4f);
-		for (float X = -43.0f; X <= 43.0f; X += 3.0f)
+		Strip(-260.0f, 260.0f, 6.6f, 6.74f);            // our kerb
+		Strip(-260.0f, 260.0f, 17.86f, 18.0f);          // far kerb
+		Strip(-260.0f, 260.0f, 5.26f, 5.4f);
+		for (float X = -258.0f; X <= 258.0f; X += 4.0f)
 		{
 			AddBox(TrimInstances, FVector(X, (StreetNear + StreetFar) * 0.5f, 0.075f),
 				FVector(1.5f, 0.10f, 0.02f));           // centre line
@@ -1778,9 +1778,17 @@ void AHIHouse::BuildNeighborhood()
 	// sides now run the full depth of the plot to the back line and a back run closes the U, so
 	// the front elevation reads clear from the street -- which is also what lets the front
 	// camera finally see the house it is supposed to be photographing.
-	HedgeRun(-7.6f, 4.6f, -7.6f, -19.0f, 1.70f);   // west property line
-	HedgeRun( 7.6f, 4.6f,  7.6f, -19.0f, 1.70f);   // east property line
-	HedgeRun(-7.6f, -19.0f, 7.6f, -19.0f, 1.70f);  // back of the plot
+	// FIVE METRES CLEAR OF THE HOUSE (Richard, 2026-10-28). The house spans x -6.35..6.35 and
+	// y -17.39..-7.75, so the U is x +-11.35, back y -22.39. These are EXACTLY
+	// FHISim::PlayerWestLimit/PlayerEastLimit/PlayerSouthLimit -- the boundary the player is
+	// clamped to, so she stops at the hedge instead of walking through it.
+	// THE LIMITS COME FROM THE SIM, NOT FROM LITERALS HERE, so the boundary the player feels and
+	// the hedge they see cannot drift apart. A duplicated number is a boundary you can see and
+	// walk through.
+	HedgeRun(FHISim::PlayerWestLimit, 4.6f, FHISim::PlayerWestLimit, FHISim::PlayerSouthLimit, 1.70f);
+	HedgeRun(FHISim::PlayerEastLimit, 4.6f, FHISim::PlayerEastLimit, FHISim::PlayerSouthLimit, 1.70f);
+	HedgeRun(FHISim::PlayerWestLimit, FHISim::PlayerSouthLimit,
+		FHISim::PlayerEastLimit, FHISim::PlayerSouthLimit, 1.70f);
 
 	// Nice neighbor houses with 2m hedges
 	// KAYKIT BUILDINGS, NOT BOX SHELLS (2026-10-28). Imported CC0 from the Godot project's own
@@ -1797,9 +1805,9 @@ void AHIHouse::BuildNeighborhood()
 		// SAME U AS OUR OWN HOUSE: nothing across the front, sides down the plot and a back run.
 		// The neighbour's front faces -Y (the street), so its U opens that way.
 		{
-			const float Front = CY - D * 0.5f - 2.0f;
-			const float Back = CY + D * 0.5f + 2.0f;
-			const float SideX = HalfW + 2.0f;
+			const float Front = CY - D * 0.5f - 5.0f;   // 5 m clear, same as our own plot
+			const float Back = CY + D * 0.5f + 5.0f;
+			const float SideX = HalfW + 5.0f;
 			HedgeRun(CX - SideX, Front, CX - SideX, Back, 1.70f);
 			HedgeRun(CX + SideX, Front, CX + SideX, Back, 1.70f);
 			HedgeRun(CX - SideX, Back, CX + SideX, Back, 1.70f);
@@ -1817,9 +1825,9 @@ void AHIHouse::BuildNeighborhood()
 	// front view (2026-10-23), where the conifer in the front yard is bright red in two of
 	// them. It is the same failure the fridge had, fixed the same way: override every slot
 	// with the model's own atlas through M_HITextured, which is opaque.
-	PlaceSketchfabModel(TEXT("car"), FVector2D(-12.0f, 10.0f), 4.9f, 1.8f, 0.0f, 1.5f, FRotator(0.0f, 90.0f, 0.0f));
-	PlaceSketchfabModel(TEXT("pickup"), FVector2D(12.0f, 10.0f), 4.9f, 1.8f, 0.0f, 1.5f, FRotator(0.0f, 90.0f, 0.0f));
-	PlaceSketchfabModel(TEXT("car"), FVector2D(24.0f, 10.0f), 4.9f, 1.8f, 0.0f, 1.5f, FRotator(0.0f, 90.0f, 0.0f));
+	PlaceSketchfabModel(TEXT("car"), FVector2D(-12.0f, 7.8f), 4.9f, 1.8f, 0.0f, 1.5f, FRotator(0.0f, 90.0f, 0.0f));
+	PlaceSketchfabModel(TEXT("pickup"), FVector2D(12.0f, 7.8f), 4.9f, 1.8f, 0.0f, 1.5f, FRotator(0.0f, 90.0f, 0.0f));
+	PlaceSketchfabModel(TEXT("car"), FVector2D(24.0f, 7.8f), 4.9f, 1.8f, 0.0f, 1.5f, FRotator(0.0f, 90.0f, 0.0f));
 	// TINTED, because the atlas alone is olive (91,84,59) and a conifer in a lawn should read
 	// green. The tint multiplies the texture, so it darkens toward evergreen rather than
 	// painting over the needle detail.
@@ -1841,5 +1849,11 @@ void AHIHouse::BuildNeighborhood()
 	// Street light and mailbox
 	AddBox(VanDetailInstances, FVector(2.6f, 5.9f, 2.6f), FVector(0.14f, 0.14f, 5.2f));
 	AddBox(GlassInstances, FVector(2.6f, 5.9f, 5.2f), FVector(0.5f, 0.5f, 0.2f));
-	AddBox(VanInstances, FVector(1.7f, -6.9f, 0.5f), FVector(0.3f, 0.5f, 1.0f));
+	// THE GREEN BOX AT THE DOOR WAS THE MAILBOX (Richard, 2026-10-28: "there is a green
+	// rectangular box outside at the entrance... I suspect it's something else not rendered
+	// properly"). It was exactly that: one 0.3 x 0.5 x 1.0 m block in the van's green, standing
+	// on the driveway like a pillar. A mailbox is a post, a box and a flag.
+	AddBox(VanDetailInstances, FVector(1.70f, -6.90f, 0.55f), FVector(0.07f, 0.07f, 1.10f)); // post
+	AddBox(VanInstances, FVector(1.70f, -6.82f, 1.18f), FVector(0.26f, 0.46f, 0.24f));       // box
+	AddBox(TrimInstances, FVector(1.84f, -6.86f, 1.30f), FVector(0.02f, 0.10f, 0.16f));      // flag
 }
