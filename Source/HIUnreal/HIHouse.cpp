@@ -1565,8 +1565,10 @@ void AHIHouse::Build()
 	// breaks the flat fill into leaf-scale noise, and the grass tint keeps it the right green.
 	// TreeInstances holds ONLY the hedges -- the trees are imported models -- so this cannot
 	// reach anything it should not.
+	// 2026-10-28: the hedges read almost BLACK at Grass (0.16,0.30,0.12) with the scan at 0.85
+	// strength -- a clipped hedge in daylight is a mid green, lighter than the lawn it stands on.
 	if (FHIMaterials::Textured(TreeInstances, TEXT("lawn"), 6.0f,
-			0, FHIMaterials::Grass, 0.85f) == nullptr)
+			0, FLinearColor(0.34f, 0.56f, 0.24f), 0.90f) == nullptr)
 	{
 		UE_LOG(LogTemp, Warning, TEXT("HI: hedges stay flat -- no lawn texture"));
 	}
@@ -1748,29 +1750,19 @@ void AHIHouse::BuildNeighborhood()
 			const float Y = Y1 + DY * T;
 			// A cosine jitter in height and yaw: without it a hedgerow reads as one stamp
 			// repeated, which is the same complaint as "the hedges are boxes".
-			const float J = FMath::Cos((float)i * 1.7f);
-			if (BushHeightUU > 0.0f)
-			{
-				// THROUGH PlaceSketchfabModel, NOT A RAW ISM INSTANCE (2026-10-28). The instanced
-				// version reported 177 instances and drew zero pixels: an ISM places by the mesh's
-				// PIVOT, and a glTF pivot is not the bounds centre this project's other models
-				// assume. PlaceSketchfabModel already solves that -- it offsets by the bounds
-				// centre and grounds the model -- which is why the buildings sit correctly.
-				// THE KAYKIT "BUSH" IS A POTTED PLANT (2026-10-28): green foliage in a terracotta
-				// pot. Dropped 0.40 m so the pot is under the lawn, the foliage above it forms a
-				// continuous run at 1.2 m spacing, and the pot never shows. It still reads as a
-				// clipped hedge rather than the one leaf-card this pack has.
-				PlaceSketchfabModel(TEXT("bush"), FVector2D(X, Y),
-					2.30f * (1.0f + 0.08f * J), 2.30f, -0.95f, Height + 0.95f,
-					FRotator(0.0f, YawDeg + 24.0f * J, 0.0f));
-			}
-			else
-			{
-				AddBox(TreeInstances,
-					FVector(X, Y, Height * 0.5f),
-					FVector(Along / Sections + 0.06f, 0.40f, Height),
-					YawDeg);
-			}
+			// A CLIPPED HEDGE IS A BOX, AND THAT IS THE POINT (2026-10-28, second look). The
+			// KayKit "bush" is a POTTED PLANT -- green foliage in a terracotta pot -- so a run of
+			// them was a row of planters pretending to be a hedge. A clipped hedge really is a
+			// continuous rectangular mass with a flat-ish top, so it is drawn as one: overlapping
+			// boxes at 1.2 m centres, 0.55 m through, carrying the lawn scan at a fine tiling so
+			// the surface reads as leaves, with a 3 cm height wobble so the top line looks
+			// clipped rather than machined. TreeInstances holds only hedging and carries both the
+			// grass tint and that texture.
+			const float H = Height * (0.985f + 0.030f * FMath::Sin((float)i * 2.1f));
+			AddBox(TreeInstances,
+				FVector(X, Y, H * 0.5f),
+				FVector(Along / Sections + 0.14f, 0.55f, H),
+				YawDeg);
 		}
 	};
 	// A U, OPEN TO THE STREET (2026-10-28, from play: "I want the hedges to form a U around the
@@ -1805,9 +1797,22 @@ void AHIHouse::BuildNeighborhood()
 		// SAME U AS OUR OWN HOUSE: nothing across the front, sides down the plot and a back run.
 		// The neighbour's front faces -Y (the street), so its U opens that way.
 		{
-			const float Front = CY - D * 0.5f - 5.0f;   // 5 m clear, same as our own plot
-			const float Back = CY + D * 0.5f + 5.0f;
-			const float SideX = HalfW + 5.0f;
+			// 9 m clear of the building, BUT NEVER INTO THE ROADWAY (2026-10-28). With the 9 m
+			// offset a plot at CY 26.5 put its front run at y 14 -- inside the 6.6..18 street --
+			// and the side runs crossed the road as a hedge wall. The clamp pins the run to the
+			// plot's own side of the kerb: far-side plots start behind the far sidewalk, our-side
+			// plots stop behind our own back hedge.
+			float Front = CY - D * 0.5f - 9.0f;
+			float Back = CY + D * 0.5f + 9.0f;
+			if (CY > 0.0f)
+			{
+				Front = FMath::Max(Front, 19.6f);      // behind the far sidewalk
+			}
+			else
+			{
+				Back = FMath::Min(Back, -28.5f);       // behind our back hedge
+			}
+			const float SideX = HalfW + 9.0f;
 			HedgeRun(CX - SideX, Front, CX - SideX, Back, 1.70f);
 			HedgeRun(CX + SideX, Front, CX + SideX, Back, 1.70f);
 			HedgeRun(CX - SideX, Back, CX + SideX, Back, 1.70f);
@@ -1817,6 +1822,20 @@ void AHIHouse::BuildNeighborhood()
 	NiceHouse(13.0f, 26.5f, 9.0f, 7.0f, TEXT("building_B"));
 	NiceHouse(0.0f, 32.0f, 10.0f, 7.0f, TEXT("building_C"));
 	NiceHouse(-26.0f, 27.0f, 8.0f, 6.0f, TEXT("building_D"));
+	// THE STREET KEEPS GOING (2026-10-28, "scatter more KayKit buildings down the street"). The
+	// road runs 260 m each way and had nothing along it past the first five plots. These are the
+	// pack's other four shells, alternating between the far side and our own, 16 m apart.
+	{
+		static const TCHAR* const Extras[] = { TEXT("building_E"), TEXT("building_F"),
+			TEXT("building_G"), TEXT("building_H") };
+		for (int32 i = 0; i < 4; ++i)
+		{
+			NiceHouse(-42.0f - 16.0f * i, 26.5f, 10.0f, 8.0f, Extras[i]);
+			NiceHouse( 42.0f + 16.0f * i, 26.5f, 10.0f, 8.0f, Extras[(i + 2) % 4]);
+			NiceHouse(-42.0f - 16.0f * i, -30.0f, 10.0f, 8.0f, Extras[(i + 1) % 4]);
+			NiceHouse( 42.0f + 16.0f * i, -30.0f, 10.0f, 8.0f, Extras[(i + 3) % 4]);
+		}
+	}
 	NiceHouse(26.0f, 27.0f, 8.0f, 6.0f, TEXT("building_A"));
 
 	// Cars and trees. The TREES pass an OpaqueTexture, and that is a fix rather than a choice:
@@ -1841,9 +1860,9 @@ void AHIHouse::BuildNeighborhood()
 	// which has no base-colour bound in this build and renders CRIMSON ("the red trees don't
 	// look right, they should be green" -- reported from play, and visible in every front
 	// frame since 2026-10-23).
-	PlaceSketchfabModel(TEXT("tree1"), FVector2D(-9.0f, 12.5f), 6.0f, 6.0f, 0.0f, 6.0f, FRotator::ZeroRotator,
+	PlaceSketchfabModel(TEXT("tree1"), FVector2D(-15.0f, 22.0f), 6.0f, 6.0f, 0.0f, 6.0f, FRotator::ZeroRotator,
 		false, false, TEXT("tree1_texture_0"), Evergreen);
-	PlaceSketchfabModel(TEXT("tree1"), FVector2D(9.0f, 12.5f), 6.0f, 6.0f, 0.0f, 6.0f, FRotator::ZeroRotator,
+	PlaceSketchfabModel(TEXT("tree1"), FVector2D(15.0f, 22.0f), 6.0f, 6.0f, 0.0f, 6.0f, FRotator::ZeroRotator,
 		false, false, TEXT("tree1_texture_0"), Evergreen);
 
 	// Street light and mailbox
