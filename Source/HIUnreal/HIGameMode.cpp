@@ -514,10 +514,17 @@ void AHIGameMode::SetupLighting()
 				// Lumens, because that is what a lamp is specified in. Setting candelas and
 				// calling it "intensity" is how a room ends up either unlit or nuclear.
 				Bulb->SetIntensityUnits(ELightUnits::Lumens);
-				Bulb->SetIntensity(L.Intensity);
-				LampLitIntensity.Add(L.Intensity);
+				// SOFTEN THE CEILING HOT SPOT (2026-10-28). A point light 12 cm under the ceiling
+				// blows it out to (241,238,232) in every interior frame -- a white blob with a hard
+				// edge, and the ceiling is the largest surface in most of the shots. A real flush
+				// fitting has a diffuser and throws light DOWN. 0.72x intensity with a wider
+				// attenuation radius keeps a room lit while taking the top off the highlight.
+				// Gameplay is untouched: ThiefHitChance keys off bLightsOn, not the lumens.
+				const float Lumens = L.Intensity * 0.72f;
+				Bulb->SetIntensity(Lumens);
+				LampLitIntensity.Add(Lumens);
 				Bulb->SetLightColor(FHIMaterials::WarmLight);
-				Bulb->SetAttenuationRadius(9.0f * HI_METERS_TO_UU);
+				Bulb->SetAttenuationRadius(11.0f * HI_METERS_TO_UU);
 				// Shadow-casting point lights are the expensive kind (a cubemap each), and
 				// phase 2 went from 6 lamps to 14. The small rooms -- the two baths and the
 				// mechanical room, all at 600 lm -- drop their shadows: nothing a thief
