@@ -98,7 +98,11 @@ VIEWS = {
     # Ground-floor master bedroom and its bathroom door.
     "master":    (-4.0, -15.5, 90.0, 0.0, 0),
     # Second floor (floor 1): bedroom 2.
-    "bedroom2":  (-4.0, -11.5, 90.0, 0.0, 1),
+    # Second floor (floor 1): bedroom 2. RE-AIMED 2026-10-28, for a measured reason: Yaw is
+    # Godot's, AimDir = (sin yaw, cos yaw, -sin pitch), so yaw 180 faces -Y (SOUTH) and west is
+    # yaw -90; and NEGATIVE pitch looks UP. Two "the room is empty" reports were a camera aimed at
+    # a wall with the bed behind it -- the bed was at (-507,-1070,274) cm the whole time.
+    "bedroom2":  (-3.2, -10.7, -90.0, 8.0, 1),
     # Second floor: office, over the desk.
     "office":    (4.0, -10.0, 180.0, 0.0, 1),
 }
