@@ -684,10 +684,30 @@ void AHIHouse::BuildDressing()
 	// ---- fix-list items 10 and 11: the small things a house actually contains, on phase-2
 	// furniture. Every z is the counter's own row height plus half the prop, so the kettle's
 	// bottom lands ON the 0.92 counter top -- not inside it, not above it.
-	AddBox(PropInstances, FVector(2.90f, -16.82f, 1.05f), FVector(0.22f, 0.22f, 0.26f));  // kettle, north counter
-	AddBox(PropInstances, FVector(3.45f, -16.82f, 1.00f), FVector(0.28f, 0.18f, 0.16f));  // toaster
-	AddBox(PropInstances, FVector(4.05f, -16.82f, 0.98f), FVector(0.30f, 0.24f, 0.12f));  // bread bin
-	AddBox(PropInstances, FVector(3.70f, -14.95f, 0.98f), FVector(0.30f, 0.30f, 0.12f));  // fruit bowl, island
+	// SMALL APPLIANCES WITH A SILHOUETTE, NOT WHITE CUBES (2026-10-28). These were four plain
+	// boxes, and in the kitchen frame the kettle and toaster read as two featureless pale cubes on
+	// the counter -- the "white boxes" that were reported more than once. Each is now its body plus
+	// the one or two pieces that say what it is, all still sitting ON the 0.92 counter top.
+	{
+		// kettle: body, domed lid, spout toward -Y, and a handle on +Y
+		AddBox(PropInstances, FVector(2.90f, -16.82f, 1.04f), FVector(0.20f, 0.20f, 0.24f));
+		AddBox(PropInstances, FVector(2.90f, -16.82f, 1.17f), FVector(0.14f, 0.14f, 0.03f));
+		AddBox(PropInstances, FVector(2.90f, -16.94f, 1.10f), FVector(0.05f, 0.06f, 0.06f));
+		AddBox(VanDetailInstances, FVector(2.90f, -16.70f, 1.10f), FVector(0.03f, 0.03f, 0.13f));
+		// toaster: body with two dark slots in the top face
+		AddBox(PropInstances, FVector(3.45f, -16.82f, 1.00f), FVector(0.26f, 0.16f, 0.15f));
+		for (float DX : { -0.06f, 0.06f })
+		{
+			AddBox(VanDetailInstances, FVector(3.45f + DX, -16.82f, 1.075f),
+				FVector(0.07f, 0.10f, 0.01f));
+		}
+		// bread bin: body and a lid that overhangs
+		AddBox(PropInstances, FVector(4.05f, -16.82f, 0.97f), FVector(0.28f, 0.22f, 0.10f));
+		AddBox(PropInstances, FVector(4.05f, -16.82f, 1.025f), FVector(0.30f, 0.24f, 0.02f));
+		// fruit bowl: a shallow open dish, so a thin rim rather than a solid block
+		AddBox(PropInstances, FVector(3.70f, -14.95f, 0.955f), FVector(0.28f, 0.28f, 0.05f));
+		AddBox(VanDetailInstances, FVector(3.70f, -14.95f, 0.975f), FVector(0.20f, 0.20f, 0.02f));
+	}
 	// THE COAT IS ON THE WALL BESIDE THE DOOR, and it used to be IN the doorway -- `DoorGap`
 	// is x -1..1 and the slice's coat at -0.80 spanned the whole opening, a pale slab hanging
 	// in the one hole in the house. Measured on a capture. Phase 2 keeps the lesson and the
