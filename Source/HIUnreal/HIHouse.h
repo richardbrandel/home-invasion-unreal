@@ -123,6 +123,11 @@ public:
 	TObjectPtr<class UInstancedStaticMeshComponent> NeighborInstances;
 	UPROPERTY(VisibleAnywhere, Category = "Home Invasion")
 	TObjectPtr<class UInstancedStaticMeshComponent> TreeInstances;
+	/** The KayKit bush (CC0), instanced along every hedge run. Created as a cube and given its
+	 *  real mesh in Build(), because CreateDefaultSubobject only works from the constructor. */
+	TObjectPtr<class UInstancedStaticMeshComponent> BushInstances;
+	/** The bush mesh's own height in UU, so a run can be scaled to the height it was asked for. */
+	float BushHeightUU = 0.0f;
 	/** Round wheels (the engine Cylinder, not a cube) -- the van and the cars share them.
 	 *  One dark component so a wheel is a disc, never a block (2026-10-19). */
 	UPROPERTY(VisibleAnywhere, Category = "Home Invasion")

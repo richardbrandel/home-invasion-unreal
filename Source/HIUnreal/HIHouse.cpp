@@ -181,6 +181,7 @@ AHIHouse::AHIHouse()
 	StreetInstances = MakeDecor(TEXT("Street"), Cube, WallInstances);
 	NeighborInstances = MakeDecor(TEXT("Neighbors"), Cube, WallInstances);
 	TreeInstances = MakeDecor(TEXT("Trees"), Cube, WallInstances);
+	BushInstances = MakeDecor(TEXT("Bushes"), Cube, WallInstances);
 	// Round wheels: the engine Cylinder (not the cube), so a wheel is a disc, never a block.
 	{
 		UStaticMesh* Cylinder = nullptr;
@@ -1456,6 +1457,32 @@ void AHIHouse::Build()
 	// Build dressing + neighbourhood BEFORE the material pass: SetMaterial on an instanced
 	// component does not reach instances added afterwards, which left the props, windows and
 	// street as default grey instead of their tints.
+	// THE BUSH MESH (2026-10-28). The hedge runs were boxes with a leaf-scale texture, which was
+	// the honest stopgap when no hedge art existed. The Godot project's own CC0 asset pack has
+	// one, so the runs are instanced bushes now: one component, one draw call per run.
+	{
+		FAssetRegistryModule& AR2 = FModuleManager::LoadModuleChecked<FAssetRegistryModule>("AssetRegistry");
+		TArray<FAssetData> BushAssets;
+		AR2.Get().GetAssetsByPath(FName(TEXT("/Game/HIImported/models/bush")), BushAssets, true);
+		for (const FAssetData& A : BushAssets)
+		{
+			if (A.GetClass() != UStaticMesh::StaticClass())
+			{
+				continue;
+			}
+			if (UStaticMesh* M = Cast<UStaticMesh>(A.GetAsset()))
+			{
+				BushInstances->SetStaticMesh(M);
+				BushHeightUU = M->GetBounds().GetBox().GetSize().Z;
+				break;
+			}
+		}
+		if (BushHeightUU <= 0.0f)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("HI: no bush mesh -- hedges fall back to boxes"));
+		}
+	}
+
 	BuildDressing();
 	BuildNeighborhood();
 
@@ -1613,7 +1640,7 @@ void AHIHouse::Build()
 	// together cover the 48 non-flat rows. Every other component must simply be non-zero, or
 	// something in this function silently did not run.
 	UE_LOG(LogTemp, Display,
-		TEXT("HI: house built -- walls=%d basement_walls=%d furniture=%d furniture_soft=%d furniture_appliance=%d furniture_dark=%d furn_woodd=%d furn_softd=%d furn_appd=%d furn_darkd=%d ground=%d floor=%d basement_floor=%d roof=%d ceiling=%d trim=%d frames=%d glass=%d fittings=%d props=%d coat=%d door_head=%d van=%d van_detail=%d gto=%d slabs=%d stairs=%d railings=%d street=%d neighbor=%d trees=%d wheels=%d rims=%d"),
+		TEXT("HI: house built -- walls=%d basement_walls=%d furniture=%d furniture_soft=%d furniture_appliance=%d furniture_dark=%d furn_woodd=%d furn_softd=%d furn_appd=%d furn_darkd=%d ground=%d floor=%d basement_floor=%d roof=%d ceiling=%d trim=%d frames=%d glass=%d fittings=%d props=%d coat=%d door_head=%d van=%d van_detail=%d gto=%d slabs=%d stairs=%d railings=%d street=%d neighbor=%d trees=%d bushes=%d bushH=%.1f wheels=%d rims=%d"),
 		WallInstances->GetInstanceCount(),
 		WallBasementInstances->GetInstanceCount(),
 		FurnitureInstances->GetInstanceCount(),
@@ -1641,6 +1668,8 @@ void AHIHouse::Build()
 		StreetInstances->GetInstanceCount(),
 		NeighborInstances->GetInstanceCount(),
 		TreeInstances->GetInstanceCount(),
+		BushInstances != nullptr ? BushInstances->GetInstanceCount() : -1,
+		BushHeightUU,
 		WheelInstances->GetInstanceCount(),
 		WheelRimInstances->GetInstanceCount());
 	UE_LOG(LogTemp, Display, TEXT("HI: shape material %s"),
@@ -1709,15 +1738,39 @@ void AHIHouse::BuildNeighborhood()
 		const float DX = X2 - X1;
 		const float DY = Y2 - Y1;
 		const float Along = FMath::Sqrt(DX * DX + DY * DY);
-		const int32 Sections = FMath::Max(1, FMath::RoundToInt(Along / 2.0f));
+		const float Spacing = BushHeightUU > 0.0f ? 1.20f : 2.0f;
+		const int32 Sections = FMath::Max(1, FMath::RoundToInt(Along / Spacing));
 		const float YawDeg = FMath::RadiansToDegrees(FMath::Atan2(DY, DX));
 		for (int32 i = 0; i < Sections; ++i)
 		{
 			const float T = (i + 0.5f) / Sections;
-			AddBox(TreeInstances,
-				FVector(X1 + DX * T, Y1 + DY * T, Height * 0.5f),
-				FVector(Along / Sections + 0.06f, 0.40f, Height),
-				YawDeg);
+			const float X = X1 + DX * T;
+			const float Y = Y1 + DY * T;
+			// A cosine jitter in height and yaw: without it a hedgerow reads as one stamp
+			// repeated, which is the same complaint as "the hedges are boxes".
+			const float J = FMath::Cos((float)i * 1.7f);
+			if (BushHeightUU > 0.0f)
+			{
+				// THROUGH PlaceSketchfabModel, NOT A RAW ISM INSTANCE (2026-10-28). The instanced
+				// version reported 177 instances and drew zero pixels: an ISM places by the mesh's
+				// PIVOT, and a glTF pivot is not the bounds centre this project's other models
+				// assume. PlaceSketchfabModel already solves that -- it offsets by the bounds
+				// centre and grounds the model -- which is why the buildings sit correctly.
+				// THE KAYKIT "BUSH" IS A POTTED PLANT (2026-10-28): green foliage in a terracotta
+				// pot. Dropped 0.40 m so the pot is under the lawn, the foliage above it forms a
+				// continuous run at 1.2 m spacing, and the pot never shows. It still reads as a
+				// clipped hedge rather than the one leaf-card this pack has.
+				PlaceSketchfabModel(TEXT("bush"), FVector2D(X, Y),
+					2.30f * (1.0f + 0.08f * J), 2.30f, -0.95f, Height + 0.95f,
+					FRotator(0.0f, YawDeg + 24.0f * J, 0.0f));
+			}
+			else
+			{
+				AddBox(TreeInstances,
+					FVector(X, Y, Height * 0.5f),
+					FVector(Along / Sections + 0.06f, 0.40f, Height),
+					YawDeg);
+			}
 		}
 	};
 	// A U, OPEN TO THE STREET (2026-10-28, from play: "I want the hedges to form a U around the
@@ -1730,58 +1783,19 @@ void AHIHouse::BuildNeighborhood()
 	HedgeRun(-7.6f, -19.0f, 7.6f, -19.0f, 1.70f);  // back of the plot
 
 	// Nice neighbor houses with 2m hedges
-	auto NiceHouse = [&](float CX, float CY, float W, float D)
+	// KAYKIT BUILDINGS, NOT BOX SHELLS (2026-10-28). Imported CC0 from the Godot project's own
+	// asset pack (assets/kaykit/city in home-invasion-godot): building_A..D, one atlas,
+	// commercial use allowed. This is the "nice neighbor houses" the Godot version had -- the
+	// pack is the same one, so the neighbourhood finally matches the original instead of being
+	// grey boxes with a siding tint.
+	auto NiceHouse = [&](float CX, float CY, float W, float D, const TCHAR* Model)
 	{
-		const float WallH = 4.6f;
-		const float Rise = 1.6f;
 		const float HalfW = W * 0.5f;
-		const float HalfD = D * 0.5f;
-		const float Slope = FMath::Sqrt(HalfD * HalfD + Rise * Rise);
-		const float Pitch = FMath::RadiansToDegrees(FMath::Atan2(Rise, HalfD));
-
-		// Main body -- SIDING, not plaster (2026-10-28, from play: "the neighbor houses look
-		// like crap"). They were flat grey boxes in a single warm tint, which is why a row of
-		// them read as warehouses. SidingInstances already carries the siding texture the main
-		// house uses, so the neighbours now have the same horizontal clapboard, and the shingle
-		// roof they always had finally has something to sit on.
-		AddBox(SidingInstances, FVector(CX, CY, WallH * 0.5f), FVector(W, D, WallH));
-		// Chimney, offset off the ridge so it reads as a stack rather than a roof box.
-		AddBox(NeighborInstances, FVector(CX - W * 0.28f, CY + D * 0.12f, WallH + Rise + 0.55f),
-			FVector(0.55f, 0.55f, 1.4f));
-		// Garage door: a pale panel with three horizontal reveals, on the street face.
-		AddBox(TrimInstances, FVector(CX + W * 0.22f, CY - D * 0.5f - 0.04f, 1.15f),
-			FVector(3.0f, 0.08f, 2.3f));
-		for (int32 R = 1; R <= 3; ++R)
-		{
-			AddBox(NeighborInstances, FVector(CX + W * 0.22f, CY - D * 0.5f - 0.09f, 0.58f * (float)R),
-				FVector(2.9f, 0.02f, 0.03f));
-		}
-		// Porch
-		AddBox(NeighborInstances, FVector(CX, CY - D * 0.5f - 1.0f, 0.15f), FVector(W, 1.0f, 0.3f));
-		// Roof
-		for (float S : { -1.0f, 1.0f })
-		{
-			AddBoxR(RoofInstance, FVector(CX, CY + S * HalfD * 0.5f, WallH + Rise * 0.5f),
-				FVector(W + 0.4f, Slope, 0.12f), FRotator(0.0f, 0.0f, S * Pitch));
-		}
-		AddBox(RoofInstance, FVector(CX, CY, WallH + Rise + 0.05f), FVector(W + 0.5f, 0.3f, 0.1f));
-		// Door (dark)
-		AddBox(NeighborInstances, FVector(CX, CY - D * 0.5f - 0.03f, 1.05f), FVector(0.9f, 0.06f, 2.1f));
-		// (The old single `Tint(NeighborInstances, Door)` call lived here, inside the loop --
-		// it painted EVERY neighbour's walls as a front door and was overwritten by the
-		// material pass later anyway. A tint belongs to the whole component, never a house.)
-		// Windows
-		AddBox(GlassInstances, FVector(CX - W * 0.30f, CY - D * 0.5f - 0.03f, 1.55f), FVector(1.0f, 0.06f, 1.2f));
-		AddBox(GlassInstances, FVector(CX + W * 0.30f, CY - D * 0.5f - 0.03f, 1.55f), FVector(1.0f, 0.06f, 1.2f));
-		// A hedge across this house's own frontage, 2 m in front of it.
-		//
-		// 2026-10-23 FIX: these used to be added to NEIGHBORINSTANCES -- the plaster
-		// component -- so five houses' worth of "hedge" drew as grey wall blocks, in metres
-		// passed as centimetres (see the note on the main house's hedge block), and on a
-		// line that for CY=15.5 fell at y=4.5, i.e. in OUR front yard on this side of the
-		// street. Hedges are green and belong to TreeInstances, like the main house's.
-		// SAME U AS OUR OWN HOUSE (2026-10-28): nothing across the front, sides down the plot
-		// and a back run. The neighbour's front faces -Y (the street), so its U opens that way.
+		// bPerAxis fits the model to the row's footprint and a two-storey height.
+		PlaceSketchfabModel(Model, FVector2D(CX, CY), W, D, 0.0f, 7.2f,
+			FRotator(0.0f, 180.0f, 0.0f), /*bCollide=*/false, /*bPerAxis=*/true);
+		// SAME U AS OUR OWN HOUSE: nothing across the front, sides down the plot and a back run.
+		// The neighbour's front faces -Y (the street), so its U opens that way.
 		{
 			const float Front = CY - D * 0.5f - 2.0f;
 			const float Back = CY + D * 0.5f + 2.0f;
@@ -1791,11 +1805,11 @@ void AHIHouse::BuildNeighborhood()
 			HedgeRun(CX - SideX, Back, CX + SideX, Back, 1.70f);
 		}
 	};
-	NiceHouse(-13.0f, 26.5f, 9.0f, 7.0f);
-	NiceHouse(13.0f, 26.5f, 9.0f, 7.0f);
-	NiceHouse(0.0f, 32.0f, 10.0f, 7.0f);
-	NiceHouse(-26.0f, 27.0f, 8.0f, 6.0f);
-	NiceHouse(26.0f, 27.0f, 8.0f, 6.0f);
+	NiceHouse(-13.0f, 26.5f, 9.0f, 7.0f, TEXT("building_A"));
+	NiceHouse(13.0f, 26.5f, 9.0f, 7.0f, TEXT("building_B"));
+	NiceHouse(0.0f, 32.0f, 10.0f, 7.0f, TEXT("building_C"));
+	NiceHouse(-26.0f, 27.0f, 8.0f, 6.0f, TEXT("building_D"));
+	NiceHouse(26.0f, 27.0f, 8.0f, 6.0f, TEXT("building_A"));
 
 	// Cars and trees. The TREES pass an OpaqueTexture, and that is a fix rather than a choice:
 	// without it a tree wore its glb's own material, which has no base-colour texture bound in
