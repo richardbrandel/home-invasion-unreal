@@ -583,6 +583,14 @@ void AHIHouse::BuildDressing()
 		{
 			continue;
 		}
+		// NO SKIRTING BELOW GRADE (2026-10-28). The loop applied interior trim to every storey,
+		// so the basement's cinderblock runs each carried a bright white 12 cm board at floor
+		// level -- the brightest thing in a room meant to be bare block. Painted skirting is a
+		// finished-room detail; exposed block gets a concrete plinth or nothing.
+		if (Row.Floor < 0)
+		{
+			continue;
+		}
 		const FVector2D Size = Row.Rect.GetSize();
 		const float Base = Row.MinZ > 0.0f ? Row.MinZ : FHISim::FloorHeight(Row.Floor);
 		const float Girth = 0.035f;
