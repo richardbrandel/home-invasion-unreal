@@ -1096,6 +1096,46 @@ void AHIHouse::BuildFurniture(const FString& Label, const FBox2D& Rect, float Ba
 		Part(FurnitureInstances, C.X, C.Y, Base, Top, S.X, S.Y);           // wood base
 		Part(CountertopInstances, C.X, C.Y, Top - 0.05f, Top + 0.02f,
 			S.X + 0.10f, S.Y + 0.10f);
+		// CABINET DOORS AND A TOE KICK (2026-10-28). The base was one flat slab, and in the
+		// dining frame the island read as a beige box with a dark lid. Real kitchen cabinetry is
+		// a recessed plinth with door faces above it, so: a dark toe kick inset 4 cm off every
+		// side, then door panels standing 1 cm proud, split every ~60 cm along the LONG axis and
+		// drawn on BOTH long faces -- an island is seen from both sides, and a run against a wall
+		// hides its back one inside the wall anyway.
+		Part(FurnitureDarkDecorInstances, C.X, C.Y, Base, Base + 0.10f,
+			S.X - 0.08f, S.Y - 0.08f);                                     // toe kick
+		{
+			const bool bLongX = S.X >= S.Y;
+			const float LongLen = bLongX ? S.X : S.Y;
+			const int32 Panels = FMath::Max(1, FMath::RoundToInt(LongLen / 0.60f));
+			const float DoorZ0 = Base + 0.12f;
+			const float DoorZ1 = Top - 0.06f;
+			for (int32 i = 0; i < Panels; ++i)
+			{
+				const float T = (i + 0.5f) / static_cast<float>(Panels);
+				const float AlongLen = LongLen / Panels - 0.03f;
+				if (bLongX)
+				{
+					const float X = C.X - S.X * 0.5f + S.X * T;
+					for (float Side : { -1.0f, 1.0f })
+					{
+						Part(FurnitureWoodDecorInstances, X,
+							C.Y + Side * (S.Y * 0.5f + 0.012f), DoorZ0, DoorZ1,
+							AlongLen, 0.024f);
+					}
+				}
+				else
+				{
+					const float Y = C.Y - S.Y * 0.5f + S.Y * T;
+					for (float Side : { -1.0f, 1.0f })
+					{
+						Part(FurnitureWoodDecorInstances,
+							C.X + Side * (S.X * 0.5f + 0.012f), Y, DoorZ0, DoorZ1,
+							0.024f, AlongLen);
+					}
+				}
+			}
+		}
 	}
 	else if (Label == TEXT("fridge") || Label == TEXT("washer") || Label == TEXT("dryer"))
 	{
