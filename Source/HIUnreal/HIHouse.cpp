@@ -662,7 +662,15 @@ void AHIHouse::BuildDressing()
 	};
 	for (const FVector& R : Roses)
 	{
-		AddBox(FittingInstances, R, FVector(0.30f, 0.30f, 0.06f));
+		// A FIXTURE, NOT A PANEL (2026-10-27). This was one 0.30 m white slab, and in every
+		// interior frame it read as a bright rectangle stuck to the ceiling -- measured in the
+		// kitchen: (241,238,232) with a hard edge and nothing around it. A flush ceiling light
+		// is a housing with a diffuser inset in it, so: a dark plate against the ceiling, and a
+		// slightly smaller white diffuser hanging 3.5 cm below it. From underneath that shows a
+		// white panel with a dark rim, which is what the eye reads as a light fitting.
+		AddBox(VanDetailInstances, R, FVector(0.34f, 0.34f, 0.03f));      // housing, dark metal
+		AddBox(FittingInstances, FVector(R.X, R.Y, R.Z - 0.035f),
+			FVector(0.26f, 0.26f, 0.05f));                                 // diffuser, inset
 	}
 
 	// ---- fix-list items 10 and 11: the small things a house actually contains, on phase-2
@@ -681,7 +689,12 @@ void AHIHouse::BuildDressing()
 	AddBox(CoatInstances, FVector(-1.50f, -8.11f, 1.28f), FVector(0.44f, 0.22f, 0.86f));  // coat
 	AddBox(PropInstances, FVector(-4.70f, -10.70f, 0.44f), FVector(0.26f, 0.20f, 0.04f)); // keys on the coffee table
 	AddBox(PropInstances, FVector(-4.45f, -10.85f, 0.43f), FVector(0.09f, 0.16f, 0.02f)); // phone
-	AddBox(PropInstances, FVector(-6.075f, -10.40f, 1.60f), FVector(0.05f, 0.90f, 0.68f)); // a picture, living room
+	// A FRAMED PICTURE, NOT A SLAB (2026-10-27). This was one 0.05 m dark box on the wall and in
+	// the living-room frame it read as a grey panel hovering against the wall -- nothing about it
+	// said "picture". A white frame plate against the wall with the canvas standing a little
+	// proud of it gives the border the eye needs, for the cost of one instance.
+	AddBox(TrimInstances, FVector(-6.085f, -10.40f, 1.60f), FVector(0.04f, 1.00f, 0.78f)); // frame
+	AddBox(PropInstances, FVector(-6.055f, -10.40f, 1.60f), FVector(0.03f, 0.86f, 0.64f)); // canvas
 	AddBox(PropInstances, FVector(3.75f, -8.40f, 3.52f), FVector(0.50f, 0.36f, 0.06f));   // desk mat, office
 	AddBox(PropInstances, FVector(4.90f, -8.35f, 3.54f), FVector(0.09f, 0.09f, 0.10f));   // a mug-ish shape
 
