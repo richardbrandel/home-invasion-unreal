@@ -126,6 +126,9 @@ public:
 	/** The KayKit bush (CC0), instanced along every hedge run. Created as a cube and given its
 	 *  real mesh in Build(), because CreateDefaultSubobject only works from the constructor. */
 	TObjectPtr<class UInstancedStaticMeshComponent> BushInstances;
+	/** Alpha leaf cards scattered over every hedge run -- the thing that stops a hedge being a
+	 *  slab. Instanced: the card mesh is one plane and the count runs to several hundred. */
+	TObjectPtr<class UInstancedStaticMeshComponent> LeafInstances;
 	/** The bush mesh's own height in UU, so a run can be scaled to the height it was asked for. */
 	float BushHeightUU = 0.0f;
 	/** Round wheels (the engine Cylinder, not a cube) -- the van and the cars share them.

@@ -179,6 +179,67 @@ def make_mark():
 	return full
 
 
+def make_leaf():
+	"""A foliage card: leaf_cluster.png, MASKED and two-sided, so leaves cut out.
+
+	The hedges have been boxes since the port began, and the honest reason was that a convincing
+	hedge needs alpha leaf cards rather than a textured slab (2026-10-29). This is that material.
+
+	MASKED, not translucent: foliage is alpha-TESTED in every game that ships it, because
+	alpha blending sorts badly against itself and a hedgerow is hundreds of overlapping cards.
+	Masked writes depth and needs no sort. Two-sided because a card is seen from both sides.
+
+	LIT, unlike the glass and the bullet hole. A leaf that does not take the sun is a sticker;
+	these are opaque-masked so Lumen has no temporal translucent accumulation to get wrong.
+	"""
+	mat, full = _fresh("M_HILeaf")
+	if mat is None:
+		print("HI_ASSET: FAILED to create M_HILeaf")
+		return None
+
+	lib = unreal.MaterialEditingLibrary
+	tex = lib.create_material_expression(
+		mat, unreal.MaterialExpressionTextureSampleParameter2D, -600, 0)
+	tex.set_editor_property("parameter_name", "BaseTexture")
+	leaf = unreal.load_asset("/Game/HIImported/textures/leaf_cluster.leaf_cluster")
+	if leaf is not None:
+		tex.set_editor_property("texture", leaf)
+	else:
+		print("HI_ASSET: WARNING -- no leaf_cluster texture; cards will be blank")
+
+	tint = _param(mat, unreal.MaterialExpressionVectorParameter, "Tint",
+		unreal.LinearColor(0.42, 0.62, 0.30, 1.0), -300, 200)
+	rgb = lib.create_material_expression(mat, unreal.MaterialExpressionMultiply, -150, 100)
+	lib.connect_material_expressions(tex, "RGB", rgb, "A")
+	lib.connect_material_expressions(tint, "", rgb, "B")
+
+	lib.connect_material_property(rgb, "", unreal.MaterialProperty.MP_EMISSIVE_COLOR)
+	lib.connect_material_property(tex, "A", unreal.MaterialProperty.MP_OPACITY_MASK)
+
+	mat.set_editor_property("blend_mode", unreal.BlendMode.BLEND_MASKED)
+	mat.set_editor_property("two_sided", True)
+	# UNLIT, after two attempts measured on frames. TWOSIDED_FOLIAGE is not exposed in this
+	# engine build; SUBSUREACE rendered the cards WHITE (its base-colour path is not the default
+	# one); and DEFAULT_LIT gave green front faces with BLACK back faces, which read as holes in
+	# the hedge. Unlit makes every card the same tinted green from either side, which is what a
+	# stylised hedge wants and what the rest of this game's foliage does.
+	# UNLIT, after two attempts measured on frames. TWOSIDED_FOLIAGE is not exposed in this
+	# engine build; SUBSURFACE rendered the cards WHITE (its base-colour path is not the default
+	# one); and DEFAULT_LIT gave green front faces with BLACK back faces, which read as holes in
+	# the hedge. Unlit makes every card the same tinted green from either side, which is what a
+	# stylised hedge wants and what the rest of this game's foliage does.
+	mat.set_editor_property("shading_model", unreal.MaterialShadingModel.MSM_UNLIT)
+	try:
+		mat.set_editor_property("opacity_mask_clip_value", 0.30)
+	except Exception as err:
+		print("HI_ASSET:   clip value not settable (%s); default stands" % err)
+	_set_usage_flags(mat)
+	lib.recompile_material(mat)
+	unreal.EditorAssetLibrary.save_asset(full, only_if_is_dirty=False)
+	print("HI_ASSET: leaf -> %s" % full)
+	return full
+
+
 def make_textured():
 	"""A surface material that samples an IMPORTED texture, tiled.
 
@@ -265,6 +326,7 @@ def main():
 	print("HI_ASSET: generating materials from text")
 	glass = make_glass()
 	mark = make_mark()
+	leaf = make_leaf()
 	textured = make_textured()
 
 	# ---- verify rather than assume: a generated asset that did not save is a nullptr in the
