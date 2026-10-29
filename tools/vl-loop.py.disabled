@@ -1,0 +1,189 @@
+#!/usr/bin/env python3
+"""
+Slave agent for Master/Slave loop.
+- Reads commands from /home/richard/shots/DevToRunner.txt
+- Writes responses to /home/richard/shots/RunnerToDev.txt
+- Logs its own activity to /home/richard/shots/AgentLog.txt
+- Does NOT use AgentLog.txt for control — only audit
+
+Protocol:
+  DevToRunner.txt:
+    ACTION: take_screenshot <view>
+    FIX: {json}
+  RunnerToDev.txt:
+    READY: <view>.png
+    FIXED: ...
+    BLOCKED: ...
+
+Logs:
+  AgentLog.txt: Slave's internal diary (iterations, captures, fixes)
+  DevLog.txt: Master's diary (written by Master session, not this script)
+"""
+
+import argparse
+import base64
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+SHOTS_DIR = Path("/home/richard/shots")
+PROJECT = Path("/data/projects/HIUnreal")
+BUILD_CMD = ["/data/UnrealEngine/Engine/Build/BatchFiles/Linux/Build.sh",
+             "HIUnrealEditor", "Linux", "Development",
+             f"-project={PROJECT}/HIUnreal.uproject"]
+DEVTO_RUNNER = SHOTS_DIR / "DevToRunner.txt"
+RUNNER_TO_DEV = SHOTS_DIR / "RunnerToDev.txt"
+AGENTLOG = SHOTS_DIR / "AgentLog.txt"
+
+def log_agent(msg):
+    """Append to AgentLog.txt — Slave's audit"""
+    ts = time.strftime("%Y-%m-%d %H:%M:%S")
+    entry = f"===Timestamp: {ts}===\n{msg}\n"
+    with open(AGENTLOG, "a") as f:
+        f.write(entry)
+
+def read_devto_runner():
+    """Read latest non-empty line from DevToRunner.txt"""
+    if not DEVTO_RUNNER.exists():
+        return None
+    try:
+        with open(DEVTO_RUNNER) as f:
+            lines = [line.strip() for line in f if line.strip()]
+        return lines[-1] if lines else None
+    except Exception:
+        return None
+
+def write_runnertodev(msg):
+    """Write to RunnerToDev.txt (overwrite, not append)"""
+    with open(RUNNER_TO_DEV, "w") as f:
+        f.write(msg.strip() + "\n")
+
+def capture_view(view):
+    cmd = [
+        sys.executable, str(PROJECT / "tools" / "devloop-shots.py"),
+        "--no-build", "--take-over", "--views", view, "--out", str(SHOTS_DIR)
+    ]
+    log_agent(f"CAPTURE: {view}")
+    r = subprocess.run(cmd, cwd=PROJECT, capture_output=True, text=True, timeout=600)
+    if r.returncode != 0:
+        log_agent(f"CAPTURE_FAILED: {view} — {r.stderr[-300:]}")
+        return False
+    png = SHOTS_DIR / f"{view}.png"
+    if not png.exists():
+        log_agent(f"MISSING_FRAME: {png}")
+        return False
+    log_agent(f"CAPTURED: {png}, {png.stat().st_size} bytes")
+    return True
+
+def rebuild():
+    log_agent("REBUILD: starting")
+    r = subprocess.run(BUILD_CMD, capture_output=True, text=True, timeout=3600)
+    out = (r.stdout or "") + (r.stderr or "")
+    with open("/tmp/slave-build.log", "w") as f:
+        f.write(out)
+    ok = "Result: Succeeded" in out
+    log_agent(f"REBUILD: {'SUCCEEDED' if ok else 'FAILED'}")
+    return ok
+
+def apply_fix(fix):
+    fpath = fix.get("file")
+    if not fpath or not fpath.startswith("/"):
+        fpath = str(PROJECT / "Source" / "HIUnreal" / os.path.basename(fpath or "HIHouse.cpp"))
+    if not os.path.exists(fpath):
+        return "blocked", f"file {fpath} does not exist"
+    line_num = fix.get("line")
+    if not isinstance(line_num, int) or line_num < 1:
+        return "blocked", "line must be positive integer"
+    before = fix.get("before", "").strip()
+    after = fix.get("after", "").strip()
+    if not before:
+        return "blocked", "missing 'before'"
+    try:
+        with open(fpath) as f:
+            lines = f.readlines()
+        if line_num > len(lines):
+            return "blocked", f"line {line_num} out of range"
+        actual = lines[line_num-1]
+        if before not in actual:
+            return "blocked", f"line {line_num} does not contain {before!r}"
+        lines[line_num-1] = actual.replace(before, after, 1)
+        with open(fpath, "w") as f:
+            f.writelines(lines)
+        log_agent(f"APPLIED: {os.path.relpath(fpath, PROJECT)}:{line_num} {before!r} -> {after!r}")
+        return "fixed", "ok"
+    except Exception as e:
+        return "blocked", f"IO error: {e}"
+
+def main():
+    os.makedirs(SHOTS_DIR, exist_ok=True)
+    log_agent("SLAVE STARTED — polling DevToRunner.txt every 5s")
+
+    seen_hash = None
+    while True:
+        try:
+            content = read_devto_runner()
+            if not content:
+                time.sleep(5)
+                continue
+
+            # Use hash to avoid reprocessing same line
+            h = hash(content)
+            if h == seen_hash:
+                time.sleep(5)
+                continue
+            seen_hash = h
+
+            log_agent(f"READ_COMMAND: {content}")
+
+            if content.startswith("ACTION: take_screenshot "):
+                view = content.split(maxsplit=2)[2].strip()
+                if capture_view(view):
+                    write_runnertodev(f"READY: {view}.png")
+                    log_agent(f"REPLIED: READY: {view}.png")
+                else:
+                    write_runnertodev(f"FAILED: capture {view}")
+                    log_agent(f"REPLIED: FAILED: capture {view}")
+
+            elif content.startswith("FIX:"):
+                try:
+                    # Extract JSON after "FIX:"
+                    json_str = content[4:].strip()
+                    if json_str.startswith('```json'):
+                        json_str = re.search(r'```json\s*({.*?})\s*```', json_str, re.DOTALL)
+                        json_str = json_str.group(1) if json_str else json_str
+                    fixes = json.loads(json_str).get("fixes", [])
+                    all_fixed = True
+                    for i, fix in enumerate(fixes):
+                        status, detail = apply_fix(fix)
+                        if status != "fixed":
+                            write_runnertodev(f"BLOCKED: fix {i+1}: {detail}")
+                            log_agent(f"BLOCKED: fix {i+1}: {detail}")
+                            all_fixed = False
+                            break
+                    if all_fixed and rebuild():
+                        write_runnertodev("FIXED: all applied and built")
+                        log_agent("REPLIED: FIXED: all applied and built")
+                    else:
+                        write_runnertodev("BUILD_FAILED: reverted")
+                        log_agent("REPLIED: BUILD_FAILED: reverted")
+                except Exception as e:
+                    write_runnertodev(f"PARSE_ERROR: {e}")
+                    log_agent(f"PARSE_ERROR: {e}")
+
+            else:
+                write_runnertodev("UNKNOWN_COMMAND")
+                log_agent(f"UNKNOWN: {content}")
+
+        except KeyboardInterrupt:
+            log_agent("SLAVE STOPPED")
+            break
+        except Exception as e:
+            log_agent(f"ERROR: {e}")
+            time.sleep(5)
+
+if __name__ == "__main__":
+    main()

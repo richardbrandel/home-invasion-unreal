@@ -805,9 +805,20 @@ void AHIHouse::PlaceSketchfabModel(const FString& Name, const FVector2D& Center,
 		// sampled opaquely, when asked.
 		if (OpaqueTexture != nullptr)
 		{
+			// A MODEL'S TEXTURE IS NOT ALWAYS INSIDE ITS OWN FOLDER. Poly Haven's gltf references
+			// sibling jpgs, which the importer lands at /Game/HIImported/models/<image>, while the
+			// Sketchfab rips carry theirs under <model>/Textures. Try the model folder first, then
+			// the sibling path -- the difference is otherwise a silently untextured model.
 			const FString TexPath = FString::Printf(TEXT("/Game/HIImported/models/%s/Textures/%s.%s"),
 				*Name, OpaqueTexture, OpaqueTexture);
-			if (UTexture* Tex = LoadObject<UTexture>(nullptr, *TexPath))
+			UTexture* Tex = LoadObject<UTexture>(nullptr, *TexPath);
+			if (Tex == nullptr)
+			{
+				const FString Sibling = FString::Printf(TEXT("/Game/HIImported/models/%s.%s"),
+					OpaqueTexture, OpaqueTexture);
+				Tex = LoadObject<UTexture>(nullptr, *Sibling);
+			}
+			if (Tex != nullptr)
 			{
 				if (UMaterialInterface* BaseMat = FHIMaterials::Generated(TEXT("M_HITextured")))
 				{
@@ -1568,8 +1579,8 @@ void AHIHouse::Build()
 	// 2026-10-28: the hedges read almost BLACK at Grass (0.16,0.30,0.12) with the scan at 0.85
 	// strength -- a clipped hedge in daylight is a mid green, lighter than the lawn it stands on.
 	// Finer tiling: at 6 m the scan read as mown grass up close; 9 m is leaf-scale.
-	if (FHIMaterials::Textured(TreeInstances, TEXT("lawn"), 9.0f,
-			0, FLinearColor(0.34f, 0.56f, 0.24f), 0.90f) == nullptr)
+	if (FHIMaterials::Textured(TreeInstances, TEXT("lawn"), 13.0f,
+			0, FLinearColor(0.56f, 0.82f, 0.42f), 1.0f) == nullptr)
 	{
 		UE_LOG(LogTemp, Warning, TEXT("HI: hedges stay flat -- no lawn texture"));
 	}
@@ -1736,12 +1747,12 @@ void AHIHouse::BuildNeighborhood()
 	//
 	// Geometry is SECTIONS ALONG THE RUN (2 m long, 0.4 m through, 1.7 m tall), not 4 m deep
 	// pillars stepping 2 m sideways, which is what the old `HedgeScale` described.
-	auto HedgeRun = [&](float X1, float Y1, float X2, float Y2, float Height)
+	auto HedgeRun = [&](float X1, float Y1, float X2, float Y2, float Height, bool bOrganic = false)
 	{
 		const float DX = X2 - X1;
 		const float DY = Y2 - Y1;
 		const float Along = FMath::Sqrt(DX * DX + DY * DY);
-		const float Spacing = BushHeightUU > 0.0f ? 1.20f : 2.0f;
+		const float Spacing = bOrganic ? 2.15f : (BushHeightUU > 0.0f ? 1.20f : 2.0f);
 		const int32 Sections = FMath::Max(1, FMath::RoundToInt(Along / Spacing));
 		const float YawDeg = FMath::RadiansToDegrees(FMath::Atan2(DY, DX));
 		for (int32 i = 0; i < Sections; ++i)
@@ -1763,10 +1774,46 @@ void AHIHouse::BuildNeighborhood()
 			// reads as clipped foliage instead of a machined edge.
 			const float H = Height * (0.97f + 0.055f * FMath::Sin((float)i * 2.1f)
 				+ 0.020f * FMath::Sin((float)i * 7.3f));
+			// REAL FOLIAGE WHERE THE CAMERA ACTUALLY GOES (2026-10-29, "the hedges still look a
+			// little blocky"). A textured box has a box silhouette no matter what is mapped onto
+			// it, so the run around OUR OWN plot -- the one the player walks beside -- is built
+			// from a Poly Haven photogrammetry shrub (CC0, shrub_01, 156k tris) placed as
+			// overlapping clumps. The distant neighbour runs stay boxes: they are across a 11 m
+			// street and 156k triangles each is not worth spending there.
+			if (bOrganic)
+			{
+				// PER-AXIS, because this scan is 6.05 m WIDE and 1.70 m tall -- a spreading
+				// ground shrub. Uniform scaling keeps its proportions and gives a knee-high
+				// strip, so the footprint is forced to a hedge: 2.6 m along the run, 1.2 m
+				// through, 1.7 m tall. The stretch is invisible at hedge scale because the
+				// silhouette is what matters, not the individual leaves.
+				PlaceSketchfabModel(TEXT("shrub_02"), FVector2D(X, Y),
+					2.60f * (1.0f + 0.10f * FMath::Sin((float)i * 1.9f)), 1.25f,
+					-0.30f, Height + 0.30f, FRotator(0.0f, 41.0f * (float)i, 0.0f),
+					/*bCollide=*/false, /*bPerAxis=*/true, TEXT("shrub_02_diff_1k"));
+				continue;
+			}
+			// THE BLOCKINESS IS THE SILHOUETTE, NOT THE TEXTURE (2026-10-29). A hedge made of
+			// equal boxes has one flat face and one perfectly straight top; real clipped hedging
+			// wanders in and out by a few centimetres along its length. So each section gets its
+			// own through-depth (0.50..0.64 m), a small sideways nudge along the run's normal, and
+			// a height wobble -- three cheap variations that break the plane without adding
+			// geometry. (A photogrammetry shrub was tried first: Poly Haven's shrub_01/02 are
+			// prostrate and BARE -- shrub_02 rendered as dry twigs across the lawn -- so the run
+			// stays boxed and this is as far as the assets here can take it.)
+			// Overlap, yaw and depth all vary per section. Equal boxes butted end to end give a
+			// straight top, one flat face and a vertical seam every 1.2 m -- which is exactly what
+			// "blocky" means. Overlapping them by 0.35 m interleaves the faces, a 2.5 degree yaw
+			// means no two are coplanar, and the depth/nudge variation keeps the run wandering.
+			const float Depth = 0.57f + 0.07f * FMath::Sin((float)i * 3.7f);
+			const float Nudge = 0.05f * FMath::Sin((float)i * 5.1f);
+			const float YawJitter = 2.5f * FMath::Sin((float)i * 9.7f);
+			const float NX = -DY / FMath::Max(Along, KINDA_SMALL_NUMBER);
+			const float NY = DX / FMath::Max(Along, KINDA_SMALL_NUMBER);
 			AddBox(TreeInstances,
-				FVector(X, Y, H * 0.5f),
-				FVector(Along / Sections + 0.14f, 0.55f, H),
-				YawDeg);
+				FVector(X + NX * Nudge, Y + NY * Nudge, H * 0.5f),
+				FVector(Along / Sections + 0.35f, Depth, H),
+				YawDeg + YawJitter);
 		}
 	};
 	// A U, OPEN TO THE STREET (2026-10-28, from play: "I want the hedges to form a U around the
