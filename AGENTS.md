@@ -187,3 +187,10 @@ and is not currently part of the loop.
   `AgentLog.txt`.
 - **The eyes are a detector, not a patch generator.** Asked for patches they invented four files
   that do not exist, including Blueprints (this project has none).
+- **The repository is plain git, no LFS** (decided 2026-10-29, before the first push). Measured
+  then: `.git` 1.4 GB, working `Content/` 954 MB, largest single blob 26.4 MB -- under GitHub's
+  100 MB per-file limit. LFS was rejected rather than deferred: its free tier is 1 GB storage and
+  1 GB/month bandwidth, and the asset set alone is ~954 MB, so a single clone would exhaust the
+  month and the account would start paying. Revisit only if the repo outgrows ~2-3 GB, and note
+  that migrating a *published* history means a force-push. Windows release assets go on GitHub
+  Releases (v0.1, v0.2), never into the repo.
