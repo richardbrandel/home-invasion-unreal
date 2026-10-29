@@ -475,6 +475,17 @@ private:
 	 * cue written into it is lost on any frame where the accumulator does not reach a whole sim
 	 * step -- one frame in six, at the rates this box runs at.
 	 */
+	/** EDGE VERBS ARE LATCHED (2026-10-28). The sim runs on a fixed-timestep accumulator, so a
+	 *  frame with no sub-step throws its input struct away -- and R/F/Q/P are read with
+	 *  WasInputKeyJustPressed, which is true for ONE frame. A press that landed on a step-less
+	 *  frame was simply lost, which is why reloading took three or four presses. These hold the
+	 *  press until a frame that actually steps has delivered it. `PendingWeaponCue` already did
+	 *  this for weapon switches; these are the same idea for the rest. */
+	bool bReloadLatched = false;
+	bool bShoveLatched = false;
+	bool bShoutLatched = false;
+	bool bPoliceLatched = false;
+	FString SwitchLatched;
 	FString PendingWeaponCue;
 	/** Guards against reporting a soak twice, now that two paths can end one. */
 	bool bSoakReported = false;

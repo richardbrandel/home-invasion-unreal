@@ -58,6 +58,12 @@ public:
 
 	UPROPERTY(VisibleAnywhere, Category = "Home Invasion")
 	TObjectPtr<class UStaticMeshComponent> Quad;
+	/** The plane mesh for textured holes, and the cylinder the tracers are drawn with. */
+	TObjectPtr<class UStaticMesh> PlaneMesh;
+	TObjectPtr<class UStaticMesh> CylinderMesh;
+	/** M_HIMark instance while this slab is a bullet hole; null when it is a tracer rod. */
+	TObjectPtr<class UMaterialInstanceDynamic> DecalMat;
+	bool bUsingDecal = false;
 
 private:
 	/**

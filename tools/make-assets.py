@@ -125,6 +125,60 @@ def make_glass():
 	return full
 
 
+def make_mark():
+	"""A bullet hole: the Godot project's own bullet_hole.png, as an alpha decal.
+
+	The port drew impacts as a SOLID CYLINDER DISC in a flat colour -- "the bullet makes a
+	perfect circle, not realistic" (Richard, 2026-10-28). Godot stamped a textured quad
+	(`game.gd:2021`, `res://assets/textures/bullet_hole.png`, 0.16 m, alpha blend, no depth
+	test), and that texture was imported into this project long ago as
+	/Game/HIImported/textures/bullet_hole. Nothing sampled it because there was no material
+	to sample it with; this is that material.
+
+	UNLIT + TRANSLUCENT, for the same measured reason as the glass: a lit translucent surface
+	in a single offscreen frame resolves as a dithered checkerboard under Lumen, and a hole
+	in a wall needs no lighting of its own. Tint stays a parameter so blood can use the same
+	material in red.
+	"""
+	mat, full = _fresh("M_HIMark")
+	if mat is None:
+		print("HI_ASSET: FAILED to create M_HIMark")
+		return None
+
+	lib = unreal.MaterialEditingLibrary
+	tex = lib.create_material_expression(
+		mat, unreal.MaterialExpressionTextureSampleParameter2D, -600, 0)
+	tex.set_editor_property("parameter_name", "BaseTexture")
+	hole = unreal.load_asset("/Game/HIImported/textures/bullet_hole.bullet_hole")
+	if hole is not None:
+		tex.set_editor_property("texture", hole)
+	else:
+		print("HI_ASSET: WARNING -- no bullet_hole texture; the mark will be blank")
+
+	tint = _param(mat, unreal.MaterialExpressionVectorParameter, "Tint",
+		unreal.LinearColor(1.0, 1.0, 1.0, 1.0), -300, 200)
+	strength = _param(mat, unreal.MaterialExpressionScalarParameter, "Opacity", 1.0, -300, 360)
+
+	rgb = lib.create_material_expression(mat, unreal.MaterialExpressionMultiply, -150, 100)
+	lib.connect_material_expressions(tex, "RGB", rgb, "A")
+	lib.connect_material_expressions(tint, "", rgb, "B")
+	alpha = lib.create_material_expression(mat, unreal.MaterialExpressionMultiply, -150, 300)
+	lib.connect_material_expressions(tex, "A", alpha, "A")
+	lib.connect_material_expressions(strength, "", alpha, "B")
+
+	lib.connect_material_property(rgb, "", unreal.MaterialProperty.MP_EMISSIVE_COLOR)
+	lib.connect_material_property(alpha, "", unreal.MaterialProperty.MP_OPACITY)
+
+	mat.set_editor_property("blend_mode", unreal.BlendMode.BLEND_TRANSLUCENT)
+	mat.set_editor_property("two_sided", True)
+	mat.set_editor_property("shading_model", unreal.MaterialShadingModel.MSM_UNLIT)
+	_set_usage_flags(mat)
+	lib.recompile_material(mat)
+	unreal.EditorAssetLibrary.save_asset(full, only_if_is_dirty=False)
+	print("HI_ASSET: mark -> %s" % full)
+	return full
+
+
 def make_textured():
 	"""A surface material that samples an IMPORTED texture, tiled.
 
@@ -210,6 +264,7 @@ def make_textured():
 def main():
 	print("HI_ASSET: generating materials from text")
 	glass = make_glass()
+	mark = make_mark()
 	textured = make_textured()
 
 	# ---- verify rather than assume: a generated asset that did not save is a nullptr in the

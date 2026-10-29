@@ -1567,7 +1567,8 @@ void AHIHouse::Build()
 	// reach anything it should not.
 	// 2026-10-28: the hedges read almost BLACK at Grass (0.16,0.30,0.12) with the scan at 0.85
 	// strength -- a clipped hedge in daylight is a mid green, lighter than the lawn it stands on.
-	if (FHIMaterials::Textured(TreeInstances, TEXT("lawn"), 6.0f,
+	// Finer tiling: at 6 m the scan read as mown grass up close; 9 m is leaf-scale.
+	if (FHIMaterials::Textured(TreeInstances, TEXT("lawn"), 9.0f,
 			0, FLinearColor(0.34f, 0.56f, 0.24f), 0.90f) == nullptr)
 	{
 		UE_LOG(LogTemp, Warning, TEXT("HI: hedges stay flat -- no lawn texture"));
@@ -1758,7 +1759,10 @@ void AHIHouse::BuildNeighborhood()
 			// the surface reads as leaves, with a 3 cm height wobble so the top line looks
 			// clipped rather than machined. TreeInstances holds only hedging and carries both the
 			// grass tint and that texture.
-			const float H = Height * (0.985f + 0.030f * FMath::Sin((float)i * 2.1f));
+			// Two frequencies of wobble: a slow clump and a per-section step, so the top line
+			// reads as clipped foliage instead of a machined edge.
+			const float H = Height * (0.97f + 0.055f * FMath::Sin((float)i * 2.1f)
+				+ 0.020f * FMath::Sin((float)i * 7.3f));
 			AddBox(TreeInstances,
 				FVector(X, Y, H * 0.5f),
 				FVector(Along / Sections + 0.14f, 0.55f, H),

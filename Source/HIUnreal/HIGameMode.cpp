@@ -808,23 +808,30 @@ FHISim::FHIInput AHIGameMode::ReadInput()
 	// frame, and holding [F] must not spend a cooldown it does not have.
 	if (PC->WasInputKeyJustPressed(EKeys::R))
 	{
-		In.bReload = true;
+		bReloadLatched = true;
 	}
 	if (PC->WasInputKeyJustPressed(EKeys::F))
 	{
-		In.bShove = true;
+		bShoveLatched = true;
 	}
+	// A LATCHED PRESS IS DELIVERED ON THE NEXT FRAME THAT STEPS, and cleared by the step loop.
+	// Without this, R/F/Q/P/1/2 were lost on any frame whose accumulator produced no sub-step --
+	// on this box that is most frames, so a reload took three or four presses.
+	In.bReload = In.bReload || bReloadLatched;
+	In.bShove = In.bShove || bShoveLatched;
 	// Item 17's two non-lethal verbs. Both are EDGES like the others: holding [P] must not
 	// re-call the police every frame, and holding [Q] must not burn the cooldown it does not
 	// have.
 	if (PC->WasInputKeyJustPressed(EKeys::Q))
 	{
-		In.bShout = true;
+		bShoutLatched = true;
 	}
 	if (PC->WasInputKeyJustPressed(EKeys::P))
 	{
-		In.bCallPolice = true;
+		bPoliceLatched = true;
 	}
+	In.bShout = In.bShout || bShoutLatched;
+	In.bCallPolice = In.bCallPolice || bPoliceLatched;
 	// The light switch is NOT a sim verb either -- it changes what the game layer does with a
 	// shot, not what the round does -- so it is polled here rather than through FHIInput.
 	if (PC->WasInputKeyJustPressed(EKeys::L))
@@ -833,11 +840,15 @@ FHISim::FHIInput AHIGameMode::ReadInput()
 	}
 	if (PC->WasInputKeyJustPressed(EKeys::One))
 	{
-		In.SwitchWeapon = TEXT("pistol");
+		SwitchLatched = TEXT("pistol");
 	}
 	else if (PC->WasInputKeyJustPressed(EKeys::Two))
 	{
-		In.SwitchWeapon = TEXT("shotgun");
+		SwitchLatched = TEXT("shotgun");
+	}
+	if (In.SwitchWeapon.IsEmpty())
+	{
+		In.SwitchWeapon = SwitchLatched;
 	}
 
 	return In;
@@ -1687,6 +1698,18 @@ void AHIGameMode::Tick(float DeltaSeconds)
 		SimAccumulator -= SimFixedDt;
 		++StepsThisFrame;
 		++SimSteps;
+	}
+
+	// THE LATCHES ARE CLEARED ONLY AFTER A STEP HAS RUN. If this frame produced no sub-step, the
+	// press has NOT been delivered yet and must survive to the next frame -- clearing it here
+	// unconditionally would rebuild the original bug in a tidier form.
+	if (StepsThisFrame > 0)
+	{
+		bReloadLatched = false;
+		bShoveLatched = false;
+		bShoutLatched = false;
+		bPoliceLatched = false;
+		SwitchLatched.Empty();
 	}
 
 	// A REQUESTED SWITCH THAT DID NOT HAPPEN IS A FACT, NOT A NO-OP. `FHIRound::SwitchWeapon`
