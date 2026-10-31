@@ -1,6 +1,8 @@
 # Lobby and networked play — design and plan
 
-Status: **plan only, nothing built.** Written 2026-10-29, after inspecting what this project
+Status: **DEFERRED 2026-10-29.** Steam and Epic deployment are on hold at Richard's request, and
+this plan is for a networked lobby — **do not start any phase of it until that changes.** Nothing
+here has been built. Written 2026-10-29, after inspecting what this project
 and this engine build actually provide. Read this before writing a line of the network layer:
 the shape below is chosen to fit what is already here, and the first phase is deliberately
 testable without Steam, an App ID, or a second machine.

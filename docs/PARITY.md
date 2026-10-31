@@ -70,20 +70,32 @@ is left is the part a person actually sees.
 
 ## THE WORK LIST, in order of what a player notices
 
-### 1. Twelve of Godot's sixteen animation clips are not played
+### 1. Twelve of Godot's sixteen animation clips are not played — **CLOSED 2026-10-29, and the entry was stale**
 
-Godot's `actor.gd:16-34` defines `idle, walk, run, crouch_idle, crouch_walk, aim, shoot,
-reload, death, carry_walk, carry_idle, pickup, look_around, push, shove_react, hit_react`.
-The port loads one asset — `BS_Idle_Walk_Run` — in `AnimationSingleNode` mode, and there is
-exactly **one** `PlayOneShot` call site in the whole project (`HIIntruder.cpp:225`, the death).
+**Corrected against the code, not against memory.** This section claimed the port loads one blend
+space, plays a single one-shot, and that "a firefight in this port has no firing in it". Measured
+2026-10-29:
 
-So idle/walk/run are represented through a blend space, death is played, and **twelve clips
-have no equivalent**: no aiming stance, no firing animation, no reload, no crouch, no carry
-pose, no flinch, no shove. **A firefight in this port has no firing in it.**
+- The blend space is GONE — the cast era replaced it with per-character clip selection
+  (`FHICharAnim::DriveCharacter`, thresholds in cm/s), because the engine's blend space does not
+  bind to the Mixamo skeletons.
+- `FHICharAnim::PlayAction` and its latch (`ActionLatches`, a hold timer per mesh) exist, and four
+  call sites use them: `HIGameMode.cpp:1769/1785` play `shoot` for 0.95 s when either side fires,
+  `HIIntruder.cpp:354` plays `reload` for `FHISim::ThiefReload`, `HIPlayerCharacter.cpp:351` plays
+  `reload` for 1.60 s.
+- Nine of the ten clips in each character's folder are played: `pistol_idle`, `idle`, `walk`, `run`,
+  `crouch_idle`, `crouch_walk`, `shoot`, `reload`, `death`. The tenth, `aim`, is deliberately never
+  played and `DriveCharacter`'s comment explains why at length.
 
-Root cause is recorded and is the highest-value open item: an animation-only FBX imports to
-nothing without a target skeleton, so this needs an IK Retargeter. This is the single change
-that would most improve how the game reads.
+**What remains genuinely absent is not unplayed code, it is missing ASSETS.** Godot's `carry_walk`,
+`carry_idle`, `pickup`, `look_around`, `push`, `shove_react` and `hit_react` were never fetched for
+this port — `Content/HIImported/characters_<tag>/` holds ten clips, not sixteen. Playing any of
+them needs a Mixamo download per character, not a code change.
+
+The old "needs an IK Retargeter" conclusion was also wrong, and `tools/import-assets.py` already
+records the correction: the clips import fine when bound to their OWN character's skeleton, which
+is all this project needs.
+
 
 ### 2. Three intruders are three identical men — CLOSED 2026-10-15, by a different route
 
