@@ -15,6 +15,7 @@ Downloaded via `tools/fetch-sketchfab.py` (needs a Sketchfab account).
 | `SourceAssets/models/pickup.glb` | Low Poly Car — Chevrolet C10 Pickup 1963 | roh3d | CC BY |
 | `SourceAssets/models/tree1.glb` | oak trees | bumstrum | CC BY |
 | `SourceAssets/models/tree2.glb` | Pine Tree — Proto Series — Free | bitgem | CC BY |
+| `SourceAssets/models/tree3.glb` | POPLAR TREE - HIGHT TEXTURE LOW-POLY MODEL | evseevdaniil0011 | CC BY |
 
 Also downloaded (not yet wired into the scene):
 
@@ -29,3 +30,8 @@ Also downloaded (not yet wired into the scene):
 Model URLs are the Sketchfab pages reachable by searching the model name; the
 `.glb` files carry the exact download. To refresh or re-download, run
 `SKETCHFAB_TOKEN=… tools/fetch-sketchfab.py "<search>" <name> <max_faces>`.
+
+`tree3` replaced the crimson conifers on 2026-10-31. Model page:
+<https://sketchfab.com/3d-models/none-ec7c1d301bbc43dca5fe5f0650148d13> (the site slug is
+literally "none" — that is the URL the API returned, not a truncation). 5,762 faces, two meshes,
+3.0 x 3.4 x 11.9 m, and the two placements are the plots either side of the street.

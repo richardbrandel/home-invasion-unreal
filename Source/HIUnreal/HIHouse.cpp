@@ -1991,16 +1991,21 @@ void AHIHouse::BuildNeighborhood()
 	// which has no base-colour bound in this build and renders CRIMSON ("the red trees don't
 	// look right, they should be green" -- reported from play, and visible in every front
 	// frame since 2026-10-23).
-	// NO TEXTURE OVERRIDE (2026-10-31). The model ships its own bark1/leaf1 materials, and the
-	// override was a workaround for a bug that is now fixed: PlaceSketchfabModel iterated
-	// `Comp->GetNumMaterials()` (the component's override array, empty on a fresh component) so
-	// the loop never ran and the model kept a material with no base colour -- which is what
-	// rendered the conifers crimson. With the slot count taken from the mesh, the model's own
-	// materials can be trusted again.
-	PlaceSketchfabModel(TEXT("tree1"), FVector2D(-15.0f, 22.0f), 6.0f, 6.0f, 0.0f, 6.0f,
-		FRotator::ZeroRotator);
-	PlaceSketchfabModel(TEXT("tree1"), FVector2D(15.0f, 22.0f), 6.0f, 6.0f, 0.0f, 6.0f,
-		FRotator::ZeroRotator);
+	// THE CONIFERS ARE REPLACED BY A REAL TREE (2026-10-31). tree1 rendered crimson, then --
+	// after the material-slot bug was fixed and its own materials took over -- sparse and white,
+	// because its glb materials carry no usable base colour. Rather than keep guessing at its
+	// atlases, the pair is a downloaded model: POPLAR TREE by evseevdaniil0011, CC-BY, 5 762
+	// faces, 3.0 x 3.4 x 11.9 m, imported through tools/import-assets.sh. The override names its
+	// own atlas, which is dark green; the tint lifts it to daylight foliage. CC-BY means the
+	// author is credited in docs/CREDITS.md.
+	// The atlas is a dim scan (avg 35,41,29); a multiplier above 1 is what brings it up to daylight
+	const FLinearColor LeafGreen(1.45f, 1.95f, 1.05f);
+	PlaceSketchfabModel(TEXT("tree3"), FVector2D(-15.0f, 22.0f), 5.0f, 5.0f, 0.0f, 7.0f,
+		FRotator(0.0f, 35.0f, 0.0f), /*bCollide=*/false, /*bPerAxis=*/false,
+		TEXT("tree3_texture_0"), LeafGreen);
+	PlaceSketchfabModel(TEXT("tree3"), FVector2D(15.0f, 22.0f), 5.0f, 5.0f, 0.0f, 7.0f,
+		FRotator(0.0f, -110.0f, 0.0f), /*bCollide=*/false, /*bPerAxis=*/false,
+		TEXT("tree3_texture_0"), LeafGreen);
 
 	// Street light and mailbox
 	AddBox(VanDetailInstances, FVector(2.6f, 5.9f, 2.6f), FVector(0.14f, 0.14f, 5.2f));
