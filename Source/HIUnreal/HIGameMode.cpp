@@ -475,6 +475,20 @@ void AHIGameMode::BeginPlay()
 		AHIHouse::StaticClass(), FTransform::Identity, HouseParams))
 	{
 		House->Build();
+
+		// `-HIModels=a,b,c` puts imported skeletal models in the yard for an art check. They are
+		// scenery, not actors: no sim body, no collision, so a capture run behaves normally.
+		FString ModelList;
+		if (FParse::Value(FCommandLine::Get(), TEXT("HIModels="), ModelList))
+		{
+			TArray<FString> Names;
+			ModelList.ParseIntoArray(Names, TEXT(","), true);
+			for (int32 i = 0; i < Names.Num(); ++i)
+			{
+				House->PreviewSkeletalModel(Names[i].TrimStartAndEnd(),
+					FVector2D(-1.8f + 1.8f * i, 1.5f), 1.75f);
+			}
+		}
 	}
 
 	SetupLighting();

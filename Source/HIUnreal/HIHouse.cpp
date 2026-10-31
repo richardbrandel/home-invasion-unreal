@@ -1740,6 +1740,62 @@ void AHIHouse::Build()
 // - Neighbor houses replaced with NiceHouse() (porch, shingle roof, dark door, windows).
 // - Each neighbor gets 2.0f-meter hedges around its property.
 
+void AHIHouse::PreviewSkeletalModel(const FString& Name, const FVector2D& Where, float HeightM)
+{
+	FAssetRegistryModule& AR = FModuleManager::LoadModuleChecked<FAssetRegistryModule>("AssetRegistry");
+	IAssetRegistry& Reg = AR.Get();
+	Reg.SearchAllAssets(true);
+	TArray<FAssetData> Assets;
+	Reg.GetAssetsByPath(FName(*FString::Printf(TEXT("/Game/HIImported/models/%s"), *Name)), Assets, true);
+
+	USkeletalMesh* Mesh = nullptr;
+	UAnimationAsset* Anim = nullptr;
+	for (const FAssetData& A : Assets)
+	{
+		if (A.GetClass() == USkeletalMesh::StaticClass() && Mesh == nullptr)
+		{
+			Mesh = Cast<USkeletalMesh>(A.GetAsset());
+		}
+		else if (A.GetClass() == UAnimSequence::StaticClass() && Anim == nullptr)
+		{
+			Anim = Cast<UAnimationAsset>(A.GetAsset());
+		}
+	}
+	if (Mesh == nullptr)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("HI: preview -- no skeletal mesh under models/%s"), *Name);
+		return;
+	}
+
+	USkeletalMeshComponent* Comp = NewObject<USkeletalMeshComponent>(this);
+	Comp->SetupAttachment(RootComponent != nullptr ? RootComponent : WallInstances);
+	Comp->RegisterComponent();
+	Comp->SetSkeletalMeshAsset(Mesh);
+
+	// Scaled by HEIGHT, not by the longest axis: these are standing figures and the question is
+	// "how tall does she read next to a 2.5 m wall", not "does she fill the box".
+	const FBoxSphereBounds Bounds = Mesh->GetBounds();
+	const float NativeHeight = FMath::Max(1.0f, (float)Bounds.BoxExtent.Z * 2.0f);
+	const float Scale = HeightM * HI_METERS_TO_UU / NativeHeight;
+	Comp->SetWorldScale3D(FVector(Scale));
+	// Feet on the lawn: the mesh's own pivot is its bounds centre for these glb imports.
+	Comp->SetWorldLocation(FVector(Where.X * HI_METERS_TO_UU, Where.Y * HI_METERS_TO_UU,
+		Bounds.BoxExtent.Z * Scale));
+	// Facing the street (+Y), which is where the review camera stands.
+	Comp->SetWorldRotation(FRotator(0.0f, 90.0f, 0.0f));
+
+	if (Anim != nullptr)
+	{
+		Comp->SetAnimationMode(EAnimationMode::AnimationSingleNode);
+		Comp->SetAnimation(Anim);
+		Comp->Play(true);
+	}
+	UE_LOG(LogTemp, Display, TEXT("HI: preview %s -- assets=%d mesh=%s anim=%s nativeHeight=%.1f UU scale=%.4f at (%.0f,%.0f,%.0f)"),
+		*Name, Assets.Num(), *Mesh->GetName(), Anim != nullptr ? *Anim->GetName() : TEXT("none"),
+		NativeHeight, Scale, Comp->GetComponentLocation().X, Comp->GetComponentLocation().Y,
+		Comp->GetComponentLocation().Z);
+}
+
 void AHIHouse::BuildNeighborhood()
 {
 	// Realism item 2: the outside doesn't look like a neighborhood

@@ -32,6 +32,10 @@
 UCLASS()
 class HIUNREAL_API AHIHouse : public AActor
 {
+	// The game mode places the art-check previews (`-HIModels=`) after Build(); the preview helper
+	// is otherwise private because nothing else should be spawning skeletal meshes on the house.
+	friend class AHIGameMode;
+
 	GENERATED_BODY()
 
 public:
@@ -334,6 +338,15 @@ private:
 	/** Place every StaticMesh under /Game/HIImported/models/<Name> at one transform, scaled
 	 *  to fill the given footprint. Used for the Sketchfab models, whose glb splits into many
 	 *  sub-meshes (body, wheels, glass) that the importer leaves in the model's local space. */
+	/**
+	 * ART PREVIEW (2026-10-31): put an imported SKELETAL model in the yard so it can be
+	 * photographed. `PlaceSketchfabModel` handles static meshes; a character is a USkeletalMesh
+	 * and needs a skeletal component and its own animation, which is a different path. This
+	 * exists so "does this candidate look right at game scale" is answered by a frame rather
+	 * than by a description of a Sketchfab page.
+	 */
+	void PreviewSkeletalModel(const FString& Name, const FVector2D& Where, float HeightM);
+
 	void PlaceSketchfabModel(const FString& Name, const FVector2D& Center,
 		float WidthM, float DepthM, float Base, float Height, const FRotator& Rot,
 		bool bCollide = false, bool bPerAxis = false, const TCHAR* OpaqueTexture = nullptr,
