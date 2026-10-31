@@ -482,11 +482,28 @@ void AHIGameMode::BeginPlay()
 		if (FParse::Value(FCommandLine::Get(), TEXT("HIModels="), ModelList))
 		{
 			TArray<FString> Names;
-			ModelList.ParseIntoArray(Names, TEXT(","), true);
+			// SPLIT ON '+', NOT ',' (2026-10-31). `FParse::Value` treats a COMMA as a separator
+			// and returns only the text before it -- a trap this project already documents for
+			// -HIShotPos, and it silently reduced a ten-model line-up to one. Verified: the log
+			// showed exactly one preview for a ten-name list.
+			ModelList.ParseIntoArray(Names, TEXT("+"), true);
+			// A LINE-UP, five per row, in the front yard. Some candidates arrive as SKINNED
+			// characters and some as static bodies (a "base mesh" is not rigged at all), so each
+			// one goes down whichever path its own assets allow -- otherwise half a set silently
+			// fails to appear and the row reads as "those models were bad" rather than "those
+			// models are static".
 			for (int32 i = 0; i < Names.Num(); ++i)
 			{
-				House->PreviewSkeletalModel(Names[i].TrimStartAndEnd(),
-					FVector2D(-1.8f + 1.8f * i, 1.5f), 1.75f);
+				const int32 Col = i % 5;
+				const int32 Row = i / 5;
+				const FVector2D Where(-3.8f + 1.9f * Col, 1.2f - 2.4f * Row);
+				const FString Model = Names[i].TrimStartAndEnd();
+				if (!House->PreviewSkeletalModel(Model, Where, 1.75f))
+				{
+					House->PlaceSketchfabModel(Model, Where, 0.85f, 0.85f, 0.0f, 1.75f,
+						FRotator(0.0f, 90.0f, 0.0f), /*bCollide=*/false, /*bPerAxis=*/false,
+						nullptr, FLinearColor::White, /*bFitHeight=*/true);
+				}
 			}
 		}
 	}

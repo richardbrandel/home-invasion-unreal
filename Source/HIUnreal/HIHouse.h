@@ -345,12 +345,12 @@ private:
 	 * exists so "does this candidate look right at game scale" is answered by a frame rather
 	 * than by a description of a Sketchfab page.
 	 */
-	void PreviewSkeletalModel(const FString& Name, const FVector2D& Where, float HeightM);
+	bool PreviewSkeletalModel(const FString& Name, const FVector2D& Where, float HeightM);
 
 	void PlaceSketchfabModel(const FString& Name, const FVector2D& Center,
 		float WidthM, float DepthM, float Base, float Height, const FRotator& Rot,
 		bool bCollide = false, bool bPerAxis = false, const TCHAR* OpaqueTexture = nullptr,
-		const FLinearColor& TintColour = FLinearColor::White);
+		const FLinearColor& TintColour = FLinearColor::White, bool bFitHeight = false);
 
 	/**
 	 * One window in one wall. `Along` is the axis the wall runs down. `FloorZ` lifts the

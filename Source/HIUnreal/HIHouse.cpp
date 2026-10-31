@@ -755,7 +755,7 @@ void AHIHouse::BuildDressing()
 
 void AHIHouse::PlaceSketchfabModel(const FString& Name, const FVector2D& Center,
 	float WidthM, float DepthM, float Base, float Height, const FRotator& Rot, bool bCollide,
-	bool bPerAxis, const TCHAR* OpaqueTexture, const FLinearColor& TintColour)
+	bool bPerAxis, const TCHAR* OpaqueTexture, const FLinearColor& TintColour, bool bFitHeight)
 {
 	// Every StaticMesh under /Game/HIImported/models/<Name>, placed at one shared transform
 	// (2026-10-19). The glTF importer bakes node transforms, so the sub-meshes -- a van's
@@ -796,7 +796,12 @@ void AHIHouse::PlaceSketchfabModel(const FString& Name, const FVector2D& Center,
 	// are right); per-axis forces X/Y/Z onto WidthM/DepthM/Height (furniture, where the
 	// imports arrived with wildly non-uniform unit scales and need normalising to the sim's
 	// collision rect).
-	const FVector Scale = bPerAxis
+	// FIT BY HEIGHT (2026-10-31): a bare "base mesh" download can be authored at 0.19 units or
+	// 190, so a width-based uniform fit produces either a speck or a building. Fitting Z to the
+	// requested height normalises any of them into a figure you can judge.
+	const FVector Scale = bFitHeight
+		? FVector(Height * HI_METERS_TO_UU / FMath::Max(1.0f, (float)Full.Z))
+		: bPerAxis
 		? FVector(WidthM * HI_METERS_TO_UU / Full.X,
 			DepthM * HI_METERS_TO_UU / Full.Y,
 			Height * HI_METERS_TO_UU / Full.Z)
@@ -1751,12 +1756,12 @@ void AHIHouse::Build()
 // - Neighbor houses replaced with NiceHouse() (porch, shingle roof, dark door, windows).
 // - Each neighbor gets 2.0f-meter hedges around its property.
 
-void AHIHouse::PreviewSkeletalModel(const FString& Name, const FVector2D& Where, float HeightM)
+bool AHIHouse::PreviewSkeletalModel(const FString& Name, const FVector2D& Where, float HeightM)
 {
 	UWorld* World = GetWorld();
 	if (World == nullptr)
 	{
-		return;
+		return false;
 	}
 	FAssetRegistryModule& AR = FModuleManager::LoadModuleChecked<FAssetRegistryModule>("AssetRegistry");
 	IAssetRegistry& Reg = AR.Get();
@@ -1779,8 +1784,7 @@ void AHIHouse::PreviewSkeletalModel(const FString& Name, const FVector2D& Where,
 	}
 	if (Mesh == nullptr)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("HI: preview -- no skeletal mesh under models/%s"), *Name);
-		return;
+		return false;
 	}
 
 	// ITS OWN ACTOR, with the skeletal component as the ROOT (2026-10-31, second attempt). The
@@ -1801,8 +1805,7 @@ void AHIHouse::PreviewSkeletalModel(const FString& Name, const FVector2D& Where,
 			FVector(Scale)), Params);
 	if (Holder == nullptr)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("HI: preview -- could not spawn a holder for %s"), *Name);
-		return;
+		return false;
 	}
 
 	USkeletalMeshComponent* Comp = NewObject<USkeletalMeshComponent>(Holder);
@@ -1821,6 +1824,7 @@ void AHIHouse::PreviewSkeletalModel(const FString& Name, const FVector2D& Where,
 	UE_LOG(LogTemp, Display, TEXT("HI: preview %s -- assets=%d mesh=%s anim=%s native=%.1f scale=%.4f"),
 		*Name, Assets.Num(), *Mesh->GetName(),
 		Anim != nullptr ? *Anim->GetName() : TEXT("none"), NativeHeight, Scale);
+	return true;
 }
 
 void AHIHouse::BuildNeighborhood()
