@@ -33,6 +33,33 @@ public:
 	UPROPERTY(EditDefaultsOnly, Category = "Home Invasion")
 	int32 IntruderCount = 3;
 
+	/**
+	 * WHICH SCREEN THE PLAYER IS LOOKING AT (2026-10-29).
+	 *
+	 * The game had no front end: it dropped straight into a round, and the only way out was a
+	 * mouse-release toggle on `[ESC]`. A round size could only be changed on the command line.
+	 * This is the smallest state machine that gives it a front door, a pause and settings, all
+	 * drawn in canvas by AHIHUD so it needs no .uasset.
+	 *
+	 * CAPTURE MODE BYPASSES IT. Every automation path -- -HIShot, -HISoak, -HIAuto, -HITour --
+	 * must land in `Playing` on the first frame, or every frame this project has ever verified
+	 * would start photographing a menu. `bMenuAvailable` is that guard, set in BeginPlay.
+	 */
+	enum class EHIScreen : uint8
+	{
+		MainMenu,
+		Playing,
+		Paused,
+	};
+
+	EHIScreen GetScreen() const { return Screen; }
+	int32 GetMenuIndex() const { return MenuIndex; }
+	int32 GetMenuIntruders() const { return MenuIntruders; }
+	float GetMenuSensitivity() const { return MenuSensitivity; }
+	/** Menu rows, in draw order. Pure, so a test can assert them without a canvas. */
+	static TArray<FString> MenuRows(int32 Intruders, float Sensitivity);
+	static const TCHAR* SensitivityName(float Sensitivity);
+
 	/** The authoritative round state. Actors mirror this; they never own it. */
 	FHISim::FHIRound Round;
 
@@ -489,6 +516,26 @@ private:
 	FString PendingWeaponCue;
 	/** Guards against reporting a soak twice, now that two paths can end one. */
 	bool bSoakReported = false;
+
+	/** `-HIMenuShot=<name>`: photograph the front end itself. The normal capture flags force
+	 *  `Playing` precisely so no automation ever sees a menu, which leaves the menu unverifiable
+	 *  by the one mechanism this project trusts -- a frame. This draws the menu, waits for the
+	 *  HUD to have drawn it, screenshots and quits. */
+	FString MenuShotName;
+	int32 MenuShotFrames = 0;
+
+	// ---- front end state (see EHIScreen)
+	EHIScreen Screen = EHIScreen::MainMenu;
+	bool bMenuAvailable = true;
+	int32 MenuIndex = 0;
+	bool bMenuPawnHidden = false;
+	int32 MenuIntruders = 3;
+	float MenuSensitivity = 1.0f;
+
+	void LoadSettings();
+	void SaveSettings();
+	void PollMenu();
+	void StartFromMenu();
 	/** `-HIRounds=N`: play N rounds back to back. 0 or 1 means one. */
 	int32 RoundsToPlay = 1;
 	int32 RoundsPlayed = 0;

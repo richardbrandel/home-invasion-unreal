@@ -552,6 +552,49 @@ void AHIHUD::DrawHUD()
 		return;
 	}
 
+	// ---- THE FRONT END. Drawn instead of the round readout, not on top of it: a pause that
+	// still shows the HUD behind it is a pause the player is not sure took effect.
+	if (Mode->GetScreen() != AHIGameMode::EHIScreen::Playing)
+	{
+		const bool bMain = Mode->GetScreen() == AHIGameMode::EHIScreen::MainMenu;
+		UFont* Big = GEngine->GetLargeFont();
+		UFont* Small = GEngine->GetMediumFont();
+		const float CX = Canvas->ClipX * 0.5f;
+		const float Cy0 = Canvas->ClipY * 0.22f;
+
+		// A dark plate behind the text: white text over a bright exterior frame is unreadable,
+		// and the menu can sit over the lawn as easily as over a wall.
+		DrawRect(FLinearColor(0.03f, 0.04f, 0.05f, 0.82f),
+			CX - Canvas->ClipX * 0.22f, Cy0 - 40.0f,
+			Canvas->ClipX * 0.44f, Canvas->ClipY * 0.56f);
+
+		const FString Title = bMain ? TEXT("HOME INVASION") : TEXT("PAUSED");
+		DrawText(Title, FLinearColor(1.0f, 0.94f, 0.78f), CX - 150.0f, Cy0, Big, 1.6f);
+
+		const TArray<FString> Rows = AHIGameMode::MenuRows(
+			Mode->GetMenuIntruders(), Mode->GetMenuSensitivity());
+		for (int32 Idx = 0; Idx < Rows.Num(); ++Idx)
+		{
+			const bool bSel = Idx == Mode->GetMenuIndex();
+			const float Y = Cy0 + 90.0f + Idx * 54.0f;
+			if (bSel)
+			{
+				DrawRect(FLinearColor(0.15f, 0.30f, 0.18f, 0.85f),
+					CX - 230.0f, Y - 6.0f, 460.0f, 44.0f);
+			}
+			DrawText(Rows[Idx],
+				bSel ? FLinearColor(1.0f, 0.96f, 0.60f) : FLinearColor(0.86f, 0.86f, 0.82f),
+				CX - 205.0f, Y, Small, 1.25f);
+		}
+
+		const FString Hint = bMain
+			? TEXT("UP/DOWN select    LEFT/RIGHT change    ENTER play    (ESC in game pauses)")
+			: TEXT("ESC resumes    LEFT/RIGHT change a setting    ENTER resumes");
+		DrawText(Hint, FLinearColor(0.62f, 0.66f, 0.62f), CX - 330.0f,
+			Cy0 + 90.0f + Rows.Num() * 54.0f + 24.0f, Small, 1.0f);
+		return;
+	}
+
 	// The reticle first, so it is always under the rest rather than hidden by it.
 	{
 		const APlayerController* PC = World->GetFirstPlayerController();

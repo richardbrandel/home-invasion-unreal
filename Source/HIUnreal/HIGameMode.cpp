@@ -269,12 +269,193 @@ void AHIGameMode::HandleCommandLine()
 	}
 }
 
+TArray<FString> AHIGameMode::MenuRows(int32 Intruders, float Sensitivity)
+{
+	// Pure, so the menu's contents can be asserted without a canvas -- the same reason
+	// AHIHUD::RoundLines exists separated from its drawing.
+	return {
+		FString::Printf(TEXT("PLAY  (%d intruder%s)"), Intruders, Intruders == 1 ? TEXT("") : TEXT("s")),
+		FString::Printf(TEXT("< INTRUDERS: %d >"), Intruders),
+		FString::Printf(TEXT("< MOUSE: %s >"), SensitivityName(Sensitivity)),
+		TEXT("QUIT"),
+	};
+}
+
+const TCHAR* AHIGameMode::SensitivityName(float Sensitivity)
+{
+	// Four named steps rather than a raw multiplier: a player cannot judge "1.35x" from a menu,
+	// and the sim's own constant stays the single source of truth for the base speed.
+	if (Sensitivity < 0.75f) { return TEXT("low"); }
+	if (Sensitivity < 1.20f) { return TEXT("normal"); }
+	if (Sensitivity < 1.70f) { return TEXT("high"); }
+	return TEXT("very high");
+}
+
+void AHIGameMode::LoadSettings()
+{
+	// Persisted in Game.ini through GConfig, which is the only writable config a packaged build
+	// has. Written on change rather than on exit: a crash or a kill mid-round must not lose the
+	// setting the player just chose.
+	GConfig->GetInt(TEXT("HI.Settings"), TEXT("Intruders"), MenuIntruders, GGameIni);
+	GConfig->GetFloat(TEXT("HI.Settings"), TEXT("MouseSensitivity"), MenuSensitivity, GGameIni);
+	MenuIntruders = FMath::Clamp(MenuIntruders, 1, 3);
+	MenuSensitivity = FMath::Clamp(MenuSensitivity, 0.5f, 2.0f);
+}
+
+void AHIGameMode::SaveSettings()
+{
+	GConfig->SetInt(TEXT("HI.Settings"), TEXT("Intruders"), MenuIntruders, GGameIni);
+	GConfig->SetFloat(TEXT("HI.Settings"), TEXT("MouseSensitivity"), MenuSensitivity, GGameIni);
+	GConfig->Flush(false, GGameIni);
+}
+
+void AHIGameMode::StartFromMenu()
+{
+	IntruderCount = MenuIntruders;
+	RestartRound();
+	if (UWorld* W = GetWorld())
+	{
+		if (APlayerController* PC = W->GetFirstPlayerController())
+		{
+			if (APawn* Body = PC->GetPawn()) { Body->SetActorHiddenInGame(false); }
+		}
+	}
+	bMenuPawnHidden = false;
+	Screen = EHIScreen::Playing;
+	UE_LOG(LogTemp, Display, TEXT("HI: menu -> play, %d intruder(s), mouse %s"),
+		IntruderCount, SensitivityName(MenuSensitivity));
+}
+
+void AHIGameMode::PollMenu()
+{
+	if (!bMenuAvailable)
+	{
+		return;
+	}
+	UWorld* World = GetWorld();
+	APlayerController* PC = World != nullptr ? World->GetFirstPlayerController() : nullptr;
+	if (PC == nullptr)
+	{
+		return;
+	}
+
+	if (Screen == EHIScreen::MainMenu && !bMenuPawnHidden)
+	{
+		// The defender stands exactly where the camera is, so on the menu her own body fills the
+		// right of the frame. Hide her while the menu is up; StartFromMenu brings her back.
+		if (APawn* Body = PC->GetPawn()) { Body->SetActorHiddenInGame(true); }
+		bMenuPawnHidden = true;
+	}
+	if (Screen == EHIScreen::Playing)
+	{
+		// [ESC] pauses. It used to only release the mouse; a pause is the hatch that actually
+		// needs, and it releases the same way.
+		if (PC->WasInputKeyJustPressed(EKeys::Escape))
+		{
+			Screen = EHIScreen::Paused;
+			MenuIndex = 0;
+			PC->bShowMouseCursor = true;
+			PC->SetInputMode(FInputModeGameAndUI());
+			bMouseReleased = true;
+			UE_LOG(LogTemp, Display, TEXT("HI: paused"));
+		}
+		return;
+	}
+
+	const int32 Rows = 4;
+	if (PC->WasInputKeyJustPressed(EKeys::Down) || PC->WasInputKeyJustPressed(EKeys::S))
+	{
+		MenuIndex = (MenuIndex + 1) % Rows;
+	}
+	if (PC->WasInputKeyJustPressed(EKeys::Up) || PC->WasInputKeyJustPressed(EKeys::W))
+	{
+		MenuIndex = (MenuIndex + Rows - 1) % Rows;
+	}
+	const bool bLeft = PC->WasInputKeyJustPressed(EKeys::Left) || PC->WasInputKeyJustPressed(EKeys::A);
+	const bool bRight = PC->WasInputKeyJustPressed(EKeys::Right) || PC->WasInputKeyJustPressed(EKeys::D);
+
+	if (Screen == EHIScreen::Paused)
+	{
+		// A pause menu is a resume and a quit; the settings rows still work, which is what
+		// makes it a pause rather than a splash screen.
+		if (bLeft || bRight)
+		{
+			if (MenuIndex == 1)
+			{
+				MenuIntruders = FMath::Clamp(MenuIntruders + (bRight ? 1 : -1), 1, 3);
+				SaveSettings();
+			}
+			else if (MenuIndex == 2)
+			{
+				MenuSensitivity = FMath::Clamp(MenuSensitivity + (bRight ? 0.25f : -0.25f), 0.5f, 2.0f);
+				SaveSettings();
+			}
+		}
+		if (PC->WasInputKeyJustPressed(EKeys::Escape) || PC->WasInputKeyJustPressed(EKeys::Enter))
+		{
+			Screen = EHIScreen::Playing;
+			PC->bShowMouseCursor = false;
+			PC->SetInputMode(FInputModeGameOnly());
+			bMouseReleased = false;
+			bInputClaimed = true;
+			UE_LOG(LogTemp, Display, TEXT("HI: resumed"));
+		}
+		return;
+	}
+
+	// ---- MAIN MENU
+	if (bLeft || bRight)
+	{
+		if (MenuIndex == 1)
+		{
+			MenuIntruders = FMath::Clamp(MenuIntruders + (bRight ? 1 : -1), 1, 3);
+			SaveSettings();
+		}
+		else if (MenuIndex == 2)
+		{
+			MenuSensitivity = FMath::Clamp(MenuSensitivity + (bRight ? 0.25f : -0.25f), 0.5f, 2.0f);
+			SaveSettings();
+		}
+	}
+	if (PC->WasInputKeyJustPressed(EKeys::Enter) || PC->WasInputKeyJustPressed(EKeys::SpaceBar))
+	{
+		if (MenuIndex == 0 || MenuIndex == 1 || MenuIndex == 2)
+		{
+			StartFromMenu();
+			PC->bShowMouseCursor = false;
+			PC->SetInputMode(FInputModeGameOnly());
+			bMouseReleased = false;
+			bInputClaimed = true;
+		}
+		else
+		{
+			FPlatformMisc::RequestExit(false);
+		}
+	}
+}
+
 void AHIGameMode::BeginPlay()
 {
 	Super::BeginPlay();
 
 	// BEFORE the round exists: the command line can change how many intruders there are.
 	HandleCommandLine();
+	LoadSettings();
+
+	// AUTOMATION NEVER SEES THE MENU. Every capture, soak and tour this project has ever
+	// verified starts at the round; if a menu intercepted them, every frame would be a picture
+	// of a menu and the whole capture path would be broken in a way that looks like a bug in
+	// the camera.
+	FParse::Value(FCommandLine::Get(), TEXT("HIMenuShot="), MenuShotName);
+	bMenuAvailable = (!MenuShotName.IsEmpty())
+		|| (ShotName.IsEmpty() && SoakSeconds <= 0.0f && !bAuto && !bPlaytest
+			&& ShotSeries.Num() == 0);
+	Screen = bMenuAvailable ? EHIScreen::MainMenu : EHIScreen::Playing;
+	if (bMenuAvailable)
+	{
+		// The menu is navigated with the keyboard and the mouse must be free to be visible.
+		IntruderCount = MenuIntruders;
+	}
 
 	Round = FHISim::FHIRound::Start(IntruderCount);
 	ApplyStartWeapon();
@@ -938,6 +1119,11 @@ void AHIGameMode::ApplyLook()
 	float DeltaYaw = 0.0f;
 	float DeltaPitch = 0.0f;
 	LookDelta(PixelsX, PixelsY, DeltaYaw, DeltaPitch);
+
+	// The menu's sensitivity setting scales the same deltas the sim's own constants produce, so
+	// "normal" is exactly the tuned behaviour and the other steps are multiples of it.
+	DeltaYaw *= MenuSensitivity;
+	DeltaPitch *= MenuSensitivity;
 
 	Round.Player.Yaw += DeltaYaw;
 	// MouseY is Unreal's axis value and grows UPWARD (bInvert=False), so LookDelta has already
@@ -1611,6 +1797,30 @@ void AHIGameMode::Tick(float DeltaSeconds)
 
 	// Look first, then step: FHIRound moves the homeowner relative to Player.Yaw, so a view
 	// applied afterwards would steer him one frame behind where the player is looking.
+	// THE FRONT END COMES FIRST. PollMenu may start a round, pause, or resume; anything that is
+	// not `Playing` must not reach the sim, or a paused game keeps playing behind its own menu.
+	PollMenu();
+	if (Screen != EHIScreen::Playing)
+	{
+		// A UI CAPTURE, and it has to live here rather than in the round-capture path: that
+		// path photographs the world, and this photographs the screen that is up instead of it.
+		if (!MenuShotName.IsEmpty() && !bShotTaken)
+		{
+			if (++MenuShotFrames >= 8)
+			{
+				bShotTaken = true;
+				FScreenshotRequest::RequestScreenshot(MenuShotName,
+					/*bShowUI=*/true, /*bAddFilenameSuffix=*/false);
+				QuitCountdownFrames = 4;
+			}
+		}
+		else if (QuitCountdownFrames > 0 && --QuitCountdownFrames == 0)
+		{
+			FPlatformMisc::RequestExit(false);
+		}
+		return;
+	}
+
 	ApplyLook();
 	ClaimInput();
 	FHISim::FHIInput In = ReadInput();

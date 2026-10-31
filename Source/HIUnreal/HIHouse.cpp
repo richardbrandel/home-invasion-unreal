@@ -743,8 +743,13 @@ void AHIHouse::BuildDressing()
 	// width on Y and up on Z. It carries its own body, cab, glass and wheels.
 	{
 		const FBox2D& V = FHISim::Van;
+		// THE GETAWAY VAN IS THE CRIMSON THING by the kerb (2026-10-31). It is not a tree: the
+		// conifer at the plot corner was a red herring I chased for two rounds. Several of the
+		// van's own material slots import with no base colour and render red, exactly as the
+		// fridge and the trees did, so it takes the same opaque override.
 		PlaceSketchfabModel(TEXT("van"), V.GetCenter(), V.GetSize().X, V.GetSize().Y,
-			0.0f, 2.5f, FRotator::ZeroRotator);
+			0.0f, 2.5f, FRotator::ZeroRotator,
+			/*bCollide=*/false, /*bPerAxis=*/false, TEXT("van_texture_0"));
 	}
 }
 
@@ -832,7 +837,16 @@ void AHIHouse::PlaceSketchfabModel(const FString& Name, const FVector2D& Center,
 			{
 				if (UMaterialInterface* BaseMat = FHIMaterials::Generated(TEXT("M_HITextured")))
 				{
-					for (int32 SM = 0; SM < Comp->GetNumMaterials(); ++SM)
+					// SLOT COUNT COMES FROM THE MESH, NOT THE COMPONENT (2026-10-31). This loop
+					// used `Comp->GetNumMaterials()`, which is the COMPONENT's material override
+					// array -- empty for a freshly created component that has just had a mesh
+					// assigned. It therefore iterated ZERO times for such meshes, the override
+					// never ran, and the model kept its own glb material: that is why tree1 (198
+					// leaf meshes, materials `bark1`/`leaf1`) rendered CRIMSON while the same code
+					// appeared to work elsewhere. `GetStaticMaterials()` is the mesh's own list and
+					// cannot be empty for a loaded mesh.
+					const int32 Slots = FMath::Max(1, M->GetStaticMaterials().Num());
+					for (int32 SM = 0; SM < Slots; ++SM)
 					{
 						UMaterialInstanceDynamic* Mid = UMaterialInstanceDynamic::Create(BaseMat, Comp);
 						Mid->SetTextureParameterValue(TEXT("BaseTexture"), Tex);
@@ -1977,10 +1991,16 @@ void AHIHouse::BuildNeighborhood()
 	// which has no base-colour bound in this build and renders CRIMSON ("the red trees don't
 	// look right, they should be green" -- reported from play, and visible in every front
 	// frame since 2026-10-23).
-	PlaceSketchfabModel(TEXT("tree1"), FVector2D(-15.0f, 22.0f), 6.0f, 6.0f, 0.0f, 6.0f, FRotator::ZeroRotator,
-		false, false, TEXT("tree1_texture_0"), Evergreen);
-	PlaceSketchfabModel(TEXT("tree1"), FVector2D(15.0f, 22.0f), 6.0f, 6.0f, 0.0f, 6.0f, FRotator::ZeroRotator,
-		false, false, TEXT("tree1_texture_0"), Evergreen);
+	// NO TEXTURE OVERRIDE (2026-10-31). The model ships its own bark1/leaf1 materials, and the
+	// override was a workaround for a bug that is now fixed: PlaceSketchfabModel iterated
+	// `Comp->GetNumMaterials()` (the component's override array, empty on a fresh component) so
+	// the loop never ran and the model kept a material with no base colour -- which is what
+	// rendered the conifers crimson. With the slot count taken from the mesh, the model's own
+	// materials can be trusted again.
+	PlaceSketchfabModel(TEXT("tree1"), FVector2D(-15.0f, 22.0f), 6.0f, 6.0f, 0.0f, 6.0f,
+		FRotator::ZeroRotator);
+	PlaceSketchfabModel(TEXT("tree1"), FVector2D(15.0f, 22.0f), 6.0f, 6.0f, 0.0f, 6.0f,
+		FRotator::ZeroRotator);
 
 	// Street light and mailbox
 	AddBox(VanDetailInstances, FVector(2.6f, 5.9f, 2.6f), FVector(0.14f, 0.14f, 5.2f));
