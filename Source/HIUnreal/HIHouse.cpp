@@ -807,7 +807,18 @@ void AHIHouse::PlaceSketchfabModel(const FString& Name, const FVector2D& Center,
 			return FVector(S, S, S);
 		}();
 	const FVector C = Combined.GetCenter();
-	const FVector Target(Center.X, Center.Y, Base + Height * 0.5f);
+	// GROUND BY BOUNDS, NOT BY THE NOMINAL HEIGHT (2026-10-31). For a uniform-scaled model the
+	// height actually drawn is Extent.Z*2*Scale, which only equals the `Height` argument when the
+	// caller guessed that number right. The trees did not: a poplar scaled to a 5 m WIDTH comes
+	// out ~5 m tall, while the call passed Height=7, so the centre went to Base+3.5 and the model
+	// hung a metre in the air. Using the scaled extent puts the LOWEST point exactly on Base for
+	// every uniform model, whatever Height said.
+	// IN METRES: `Target` below is a metre-space vector that gets multiplied by HI_METERS_TO_UU,
+	// so the bounds offset must be converted too. Mixing the two put the trees 247 m in the air
+	// on the first attempt -- the same metres/centimetres trap this project has paid for before.
+	const float ScaledHalfZ = (float)Combined.GetExtent().Z * (float)Scale.Z / HI_METERS_TO_UU;
+	const float CentreZ = bPerAxis ? (Base + Height * 0.5f) : (Base + ScaledHalfZ);
+	const FVector Target(Center.X, Center.Y, CentreZ);
 	const FVector Loc = Target * HI_METERS_TO_UU - Rot.RotateVector(C * Scale);
 	UE_LOG(LogTemp, Log, TEXT("HI: SketchfabModel %s full=(%.1f,%.1f,%.1f)UU center=(%.1f,%.1f,%.1f) scale=(%.3f,%.3f,%.3f) Loc=(%.1f,%.1f,%.1f) meshes=%d"),
 		*Name, Full.X, Full.Y, Full.Z, C.X, C.Y, C.Z, Scale.X, Scale.Y, Scale.Z, Loc.X, Loc.Y, Loc.Z, Meshes.Num());
