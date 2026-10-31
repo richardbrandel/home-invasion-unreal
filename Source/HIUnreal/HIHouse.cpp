@@ -1742,6 +1742,11 @@ void AHIHouse::Build()
 
 void AHIHouse::PreviewSkeletalModel(const FString& Name, const FVector2D& Where, float HeightM)
 {
+	UWorld* World = GetWorld();
+	if (World == nullptr)
+	{
+		return;
+	}
 	FAssetRegistryModule& AR = FModuleManager::LoadModuleChecked<FAssetRegistryModule>("AssetRegistry");
 	IAssetRegistry& Reg = AR.Get();
 	Reg.SearchAllAssets(true);
@@ -1767,22 +1772,34 @@ void AHIHouse::PreviewSkeletalModel(const FString& Name, const FVector2D& Where,
 		return;
 	}
 
-	USkeletalMeshComponent* Comp = NewObject<USkeletalMeshComponent>(this);
-	Comp->SetupAttachment(RootComponent != nullptr ? RootComponent : WallInstances);
-	Comp->RegisterComponent();
-	Comp->SetSkeletalMeshAsset(Mesh);
-
-	// Scaled by HEIGHT, not by the longest axis: these are standing figures and the question is
-	// "how tall does she read next to a 2.5 m wall", not "does she fill the box".
+	// ITS OWN ACTOR, with the skeletal component as the ROOT (2026-10-31, second attempt). The
+	// first version created the component on the house and attached it to the static wall
+	// component: it registered, logged the right transform and drew nothing. A runtime-created
+	// component needs to be registered as part of a real actor hierarchy -- root first, then
+	// RegisterComponent -- and a Movable component under a Static parent is not that.
 	const FBoxSphereBounds Bounds = Mesh->GetBounds();
 	const float NativeHeight = FMath::Max(1.0f, (float)Bounds.BoxExtent.Z * 2.0f);
 	const float Scale = HeightM * HI_METERS_TO_UU / NativeHeight;
-	Comp->SetWorldScale3D(FVector(Scale));
-	// Feet on the lawn: the mesh's own pivot is its bounds centre for these glb imports.
-	Comp->SetWorldLocation(FVector(Where.X * HI_METERS_TO_UU, Where.Y * HI_METERS_TO_UU,
-		Bounds.BoxExtent.Z * Scale));
-	// Facing the street (+Y), which is where the review camera stands.
-	Comp->SetWorldRotation(FRotator(0.0f, 90.0f, 0.0f));
+
+	FActorSpawnParameters Params;
+	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	AActor* Holder = World->SpawnActor<AActor>(AActor::StaticClass(),
+		FTransform(FRotator(0.0f, 90.0f, 0.0f),
+			FVector(Where.X * HI_METERS_TO_UU, Where.Y * HI_METERS_TO_UU,
+				Bounds.BoxExtent.Z * Scale),
+			FVector(Scale)), Params);
+	if (Holder == nullptr)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("HI: preview -- could not spawn a holder for %s"), *Name);
+		return;
+	}
+
+	USkeletalMeshComponent* Comp = NewObject<USkeletalMeshComponent>(Holder);
+	Holder->SetRootComponent(Comp);
+	Comp->SetMobility(EComponentMobility::Movable);
+	Comp->SetSkeletalMeshAsset(Mesh);
+	Comp->RegisterComponent();
+	Comp->SetWorldTransform(Holder->GetActorTransform());
 
 	if (Anim != nullptr)
 	{
@@ -1790,10 +1807,9 @@ void AHIHouse::PreviewSkeletalModel(const FString& Name, const FVector2D& Where,
 		Comp->SetAnimation(Anim);
 		Comp->Play(true);
 	}
-	UE_LOG(LogTemp, Display, TEXT("HI: preview %s -- assets=%d mesh=%s anim=%s nativeHeight=%.1f UU scale=%.4f at (%.0f,%.0f,%.0f)"),
-		*Name, Assets.Num(), *Mesh->GetName(), Anim != nullptr ? *Anim->GetName() : TEXT("none"),
-		NativeHeight, Scale, Comp->GetComponentLocation().X, Comp->GetComponentLocation().Y,
-		Comp->GetComponentLocation().Z);
+	UE_LOG(LogTemp, Display, TEXT("HI: preview %s -- assets=%d mesh=%s anim=%s native=%.1f scale=%.4f"),
+		*Name, Assets.Num(), *Mesh->GetName(),
+		Anim != nullptr ? *Anim->GetName() : TEXT("none"), NativeHeight, Scale);
 }
 
 void AHIHouse::BuildNeighborhood()
@@ -2038,10 +2054,18 @@ void AHIHouse::BuildNeighborhood()
 	// green. The tint multiplies the texture, so it darkens toward evergreen rather than
 	// painting over the needle detail.
 	const FLinearColor Evergreen(0.42f, 0.72f, 0.34f);
-	PlaceSketchfabModel(TEXT("tree2"), FVector2D(-4.5f, 3.5f), 5.0f, 5.0f, 0.0f, 5.0f, FRotator::ZeroRotator,
-		false, false, TEXT("tree2_texture_0"), Evergreen);
-	PlaceSketchfabModel(TEXT("tree2"), FVector2D(4.5f, 3.5f), 4.5f, 4.5f, 0.0f, 4.5f, FRotator::ZeroRotator,
-		false, false, TEXT("tree2_texture_0"), Evergreen);
+	// The atlas is a dim scan (avg 35,41,29); a multiplier above 1 is what brings it up to daylight
+	const FLinearColor LeafGreen(1.45f, 1.95f, 1.05f);
+	// THE RED TREES IN THE YARD WERE RED BY DESIGN (2026-10-31). tree2's glb material is named
+	// `pine_tree_red_mat` -- it is a crimson ornamental pine, and no amount of tinting was ever
+	// going to make it green, which is why three previous "fixes" changed nothing visible. Both
+	// yard trees are the poplar now, like the two at the plots.
+	PlaceSketchfabModel(TEXT("tree3"), FVector2D(-4.5f, 3.5f), 5.0f, 5.0f, 0.0f, 6.5f,
+		FRotator(0.0f, 200.0f, 0.0f), /*bCollide=*/false, /*bPerAxis=*/false,
+		TEXT("tree3_texture_0"), LeafGreen);
+	PlaceSketchfabModel(TEXT("tree3"), FVector2D(4.5f, 3.5f), 4.5f, 4.5f, 0.0f, 6.0f,
+		FRotator(0.0f, 20.0f, 0.0f), /*bCollide=*/false, /*bPerAxis=*/false,
+		TEXT("tree3_texture_0"), LeafGreen);
 	// tree1 NEEDED THE SAME OPAQUE OVERRIDE AS tree2 AND THE FRIDGE (2026-10-28). Only the two
 	// tree2 instances passed a texture, so both tree1s fell through to the glb's own material,
 	// which has no base-colour bound in this build and renders CRIMSON ("the red trees don't
@@ -2054,8 +2078,6 @@ void AHIHouse::BuildNeighborhood()
 	// faces, 3.0 x 3.4 x 11.9 m, imported through tools/import-assets.sh. The override names its
 	// own atlas, which is dark green; the tint lifts it to daylight foliage. CC-BY means the
 	// author is credited in docs/CREDITS.md.
-	// The atlas is a dim scan (avg 35,41,29); a multiplier above 1 is what brings it up to daylight
-	const FLinearColor LeafGreen(1.45f, 1.95f, 1.05f);
 	PlaceSketchfabModel(TEXT("tree3"), FVector2D(-15.0f, 22.0f), 5.0f, 5.0f, 0.0f, 7.0f,
 		FRotator(0.0f, 35.0f, 0.0f), /*bCollide=*/false, /*bPerAxis=*/false,
 		TEXT("tree3_texture_0"), LeafGreen);
