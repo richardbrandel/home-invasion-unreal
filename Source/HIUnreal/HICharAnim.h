@@ -53,6 +53,10 @@ struct FHICharAnim
 	/** James, Brute, Martha, cycling with the thief Id so three men are three people. */
 	static const TCHAR* IntruderTagForId(int32 Id);
 
+	/** True when a character's mesh is imported, so a caller can fall back to another body
+	 *  instead of posing a T-posed stranger. See IntruderTagForId for why this exists. */
+	static bool CastAvailable(const TCHAR* Tag);
+
 	/** `/Game/HIImported/characters_<Tag>/` -- where a character's assets live. */
 	static FString CharacterDir(const TCHAR* Tag);
 	/** The skeletal mesh: the mesh-carrying export imports as `idle`. */

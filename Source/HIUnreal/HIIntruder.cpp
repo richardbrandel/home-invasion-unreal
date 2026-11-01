@@ -131,6 +131,12 @@ void AHIIntruder::BuildVisuals()
 	// met this by using a different mannequin from the homeowner's; the cast era gives each
 	// Id its own named person (cycling if a round runs more than three).
 	CastTag = FHICharAnim::IntruderTagForId(ThiefId);
+	if (CastTag == TEXT("dancer") && !FHICharAnim::CastAvailable(*CastTag))
+	{
+		// Her clips do not exist yet (see IntruderTagForId). Stand James in for her rather than
+		// posing an unrigged stranger; the swap is automatic once her FBXes are imported.
+		CastTag = TEXT("james");
+	}
 	const FString MeshPath = FHICharAnim::MeshPathFor(*CastTag);
 	if (USkeletalMesh* Mesh = LoadObject<USkeletalMesh>(nullptr, *MeshPath))
 	{

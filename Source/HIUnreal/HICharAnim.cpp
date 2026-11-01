@@ -20,8 +20,28 @@ const TCHAR* FHICharAnim::IntruderTagForId(int32 Id)
 	// Three named men, cycling: the default round is three intruders, so within a
 	// default round no two men share a face. A bigger --thieves count reuses faces,
 	// which is the honest failure mode -- inventing unnamed men would be worse.
-	static const TCHAR* Cast[] = { TEXT("james"), TEXT("brute"), TEXT("martha") };
+	// SLOT 0 IS THE DANCER GIRL, WITH JAMES AS HER STAND-IN (2026-11-01). Richard picked her to
+	// replace James, but her rig is `mixamorig:*` with numeric suffixes while ours is
+	// `mixamorig11:*` -- the clips cannot bind across that, so she is not playable until clips
+	// for HER skeleton exist (Mixamo round trip). Rather than ship a T-posed intruder or leave
+	// the cast unchanged, the slot asks for "dancer" and falls back to james until her assets
+	// are imported: drop the FBXes in `SourceAssets/characters/dancer/`, run
+	// tools/import-assets.sh, and the swap happens with no code change.
+	static const TCHAR* Cast[] = { TEXT("dancer"), TEXT("brute"), TEXT("martha") };
 	return Cast[((Id % 3) + 3) % 3];
+}
+
+bool FHICharAnim::CastAvailable(const TCHAR* Tag)
+{
+	if (Tag == nullptr)
+	{
+		return false;
+	}
+	// A character is usable only if its MESH loads. Clips are checked by the same import run;
+	// a mesh without clips would stand in the reference pose, which reads as a bug rather than
+	// as a missing asset, so the caller falls back instead.
+	const FString MeshPath = MeshPathFor(Tag);
+	return LoadObject<USkeletalMesh>(nullptr, *MeshPath) != nullptr;
 }
 
 FString FHICharAnim::CharacterDir(const TCHAR* Tag)
