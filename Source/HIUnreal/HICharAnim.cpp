@@ -27,7 +27,14 @@ const TCHAR* FHICharAnim::IntruderTagForId(int32 Id)
 	// the cast unchanged, the slot asks for "dancer" and falls back to james until her assets
 	// are imported: drop the FBXes in `SourceAssets/characters/dancer/`, run
 	// tools/import-assets.sh, and the swap happens with no code change.
-	static const TCHAR* Cast[] = { TEXT("dancer"), TEXT("brute"), TEXT("martha") };
+	// SLOT 0 IS JAMES AGAIN (2026-11-01). The Dancer Girl's assets are imported and she is wired,
+	// but the offline rig conversion is not sound: her bind pose faces 119.7 deg against the 90
+	// every Mixamo character in this project faces (HI.Unreal.Cast catches it), and in a capture
+	// she does not render as an animated intruder at all. Shipping that would be a broken
+	// intruder; the alternative -- the Mixamo round trip -- is one upload of the FBX that now
+	// exists at SourceAssets/characters/dancer/idle.fbx. Flip this line back to "dancer" once
+	// her clips come from Mixamo.
+	static const TCHAR* Cast[] = { TEXT("james"), TEXT("brute"), TEXT("martha") };
 	return Cast[((Id % 3) + 3) % 3];
 }
 
