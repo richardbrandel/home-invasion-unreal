@@ -47,3 +47,28 @@ games. Decide first: restyle the whole intruder cast as stylised, or find a real
 The in-engine art preview (`-HIModels=`, 2026-10-31) places and scales a candidate correctly but
 does not draw it yet — fix that before the next round of candidates, so each one costs one frame
 instead of one paragraph.
+
+## The retarget route, and exactly how far it got (2026-11-01)
+
+The engine's own retargeter is exposed to Python and is the right tool. Findings, all measured:
+
+- **`IKRetargetBatchOperation.duplicate_and_retarget` takes `FAssetData`, not objects.** Passing
+  `[clip]`, a tuple, or `unreal.Array(...)` all fail with "Failed to convert parameter
+  'assets_to_retarget'". `unreal.EditorAssetLibrary.find_asset_data(path)` works.
+- **It CONSUMES its inputs.** Pointed at a working character's clips it renames them out from
+  under that character: Martha lost all ten animations in one run (mesh and textures survived,
+  and `HI.Unreal.Cast` caught it immediately). Any future use MUST copy the clips to a scratch
+  folder first -- `tools/retarget-character.sh` now does.
+- **It binds the result to the SOURCE skeleton, not the target, when no retargeter asset is
+  given.** With `ik_retarget_asset=None` it effectively copies: the ten sequences came out
+  pointing at `characters_martha/idle_Skeleton`. Swapping the two mesh arguments does not change
+  that.
+- **Building a real IK Retargeter needs IK Rig assets**, and `unreal.IKRigFactory` is NOT exposed
+  in this build (`IKRetargetFactory` and `IKRetargeterController.auto_map_chains` are, but the rigs
+  they need are not creatable headlessly). That is the open problem, not the retarget call itself.
+
+So the blocker is now precisely: create an IK Retargeter with source=Mixamo rig, target=<new
+character rig>, chains auto-mapped. Everything downstream of that is written and working.
+
+`alina.glb` is staged in SourceAssets/models for that attempt. The Dancer Girl's mesh, skeleton and
+physics asset are imported and in place at `characters_dancer/`; only her clip binding is wrong.

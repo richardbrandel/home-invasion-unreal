@@ -21,6 +21,7 @@ The rename is deliberately conservative: only node names that look like `mixamor
 are touched, and a rename that would collide with an existing node is refused rather than merged.
 """
 import json
+import os
 import struct
 import sys
 
@@ -96,9 +97,21 @@ def main():
         # she never appears upright.
         import math
         half = math.radians(90.0) * 0.5
+        # YAW CORRECTION (2026-11-01): every Mixamo character in this project faces +Y once
+        # imported (MeshFacingYawDeg() == 90, measured per character). This one's bind pose faced
+        # 119.7 deg, which the Cast test caught, so the wrapper also carries a -29.7 deg turn
+        # about Z. Composed as qx * qz: the Z turn happens first in the model's own frame.
+        yaw = math.radians(float(os.environ.get("GLB_YAW_DEG", "0.0"))) * 0.5
+        qx = (math.sin(half), 0.0, 0.0, math.cos(half))
+        qz = (0.0, 0.0, math.sin(yaw), math.cos(yaw))
+        ax, ay, az, aw = qx; bx, by, bz, bw = qz
+        rot = (aw*bx + ax*bw + ay*bz - az*by,
+               aw*by - ax*bz + ay*bw + az*bx,
+               aw*bz + ax*by - ay*bx + az*bw,
+               aw*bw - ax*bx - ay*by - az*bz)
         doc.setdefault("nodes", []).append({
             "name": "ZUpRoot",
-            "rotation": [math.sin(half), 0.0, 0.0, math.cos(half)],
+            "rotation": [rot[0], rot[1], rot[2], rot[3]],
             "children": list(doc.get("scenes", [{}])[doc.get("scene", 0)].get("nodes", [])),
         })
         doc["nodes"][-1]["children"] = [i for i in doc["nodes"][-1]["children"]]

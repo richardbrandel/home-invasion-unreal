@@ -34,6 +34,10 @@ const TCHAR* FHICharAnim::IntruderTagForId(int32 Id)
 	// intruder; the alternative -- the Mixamo round trip -- is one upload of the FBX that now
 	// exists at SourceAssets/characters/dancer/idle.fbx. Flip this line back to "dancer" once
 	// her clips come from Mixamo.
+	// SLOT 0 IS JAMES. The Dancer Girl's mesh and skeleton are imported and her clips have been
+	// retargeted, but the retarget bound them to MARTHA's skeleton: IKRetargetBatchOperation with
+	// no retargeter asset simply copies, and building the retargeter needs IK Rig assets this
+	// engine build exposes no factory for. See docs/CHARACTERS.md for exactly how far that got.
 	static const TCHAR* Cast[] = { TEXT("james"), TEXT("brute"), TEXT("martha") };
 	return Cast[((Id % 3) + 3) % 3];
 }
