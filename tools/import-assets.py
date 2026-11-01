@@ -34,6 +34,12 @@ DEST = "/Game/HIImported"
 # other eight FBX in that folder are animation-only and each produced NOTHING, reported as
 # "FAILED (no objects)", which is exactly what an animation with nowhere to bind does.
 MESH_CARRYING = "idle.fbx"
+# ...and ANY `idle.<ext>` counts, not just the FBX (2026-11-01). A glTF character is imported as
+# `idle.glb` -- renamed in the glb itself so its bones match this project's Mixamo convention (see
+# tools/rename-glb-bones.py) -- and the ordering rule below must treat it as the rig-creating
+# export too, or every clip in that folder is imported before its skeleton exists and lands
+# nowhere.
+MESH_CARRYING_STEM = "idle"
 
 # THE CLIPS ARE NOT LEFT AS MIXAMO SHIPPED THEM. The raw exports carry root motion baked
 # into the Hips track -- measured from these same files by the Godot project's anim probe:
@@ -89,8 +95,23 @@ def _skeleton_for(rel_path):
 	the folder layout rather than from a list, so adding a character is a copy and no edit.
 	"""
 	parts = rel_path.replace(os.sep, "/").split("/")
-	if len(parts) == 3 and parts[0] == "characters" and parts[2].lower() != MESH_CARRYING:
-		return unreal.load_asset("%s/%s_%s/idle_Skeleton" % (DEST, parts[0], parts[1]))
+	if (len(parts) == 3 and parts[0] == "characters"
+			and os.path.splitext(parts[2])[0].lower() != MESH_CARRYING_STEM):
+		# TWO LAYOUTS (2026-11-01). An FBX mesh export puts its skeleton at
+		# characters_<tag>/idle_Skeleton; the glTF importer nests it at
+		# characters_<tag>/idle/SkeletalMeshes/idle_Skeleton. Ask the asset registry for whichever
+		# exists rather than hard-coding one, because getting it wrong makes every clip in the
+		# folder fail with "FAILED (no objects)" -- which reads like a broken clip, not a broken
+		# path.
+		root = "%s/%s_%s" % (DEST, parts[0], parts[1])
+		print("HI_IMPORT: skeleton lookup for %s under %s" % (rel_path, root))
+		for candidate in ("%s/idle_Skeleton" % root,
+				"%s/idle/SkeletalMeshes/idle_Skeleton" % root):
+			skel = unreal.load_asset(candidate)
+			print("HI_IMPORT:   tried %s -> %s" % (candidate, "FOUND" if skel else "missing"))
+			if skel is not None:
+				return skel
+		return None
 	return None
 
 
@@ -192,7 +213,8 @@ def main():
 		# Running the script a second time makes them all appear, which is the worst kind of
 		# fix: it would have been written down as "run it twice" instead of as an ordering bug
 		# that the script can simply not have.
-		for name in sorted(files, key=lambda n: (0 if n.lower() == MESH_CARRYING else 1, n)):
+		for name in sorted(files, key=lambda n: (
+				0 if os.path.splitext(n)[0].lower() == MESH_CARRYING_STEM else 1, n)):
 			if name.startswith(".") or name.lower().endswith(SKIP_EXT):
 				continue
 			rel = os.path.relpath(os.path.join(root, name), SRC)

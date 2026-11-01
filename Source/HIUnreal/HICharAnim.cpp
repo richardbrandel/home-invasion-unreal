@@ -63,8 +63,21 @@ FString FHICharAnim::CharacterDir(const TCHAR* Tag)
 
 FString FHICharAnim::MeshPathFor(const TCHAR* Tag)
 {
-	// The mesh-carrying export (`idle.fbx`) imports its skeletal mesh as `idle`.
-	return CharacterDir(Tag) + TEXT("idle.idle");
+	// The mesh-carrying export imports its skeletal mesh as `idle`, but WHERE depends on the
+	// source format: an FBX lands at characters_<tag>/idle.idle and a glTF at
+	// characters_<tag>/idle/SkeletalMeshes/idle.idle (2026-11-01). Both are checked, because a
+	// wrong guess here is an intruder that never appears and no error to say why.
+	const FString Flat = CharacterDir(Tag) + TEXT("idle.idle");
+	if (LoadObject<USkeletalMesh>(nullptr, *Flat) != nullptr)
+	{
+		return Flat;
+	}
+	const FString Nested = CharacterDir(Tag) + TEXT("idle/SkeletalMeshes/idle.idle");
+	if (LoadObject<USkeletalMesh>(nullptr, *Nested) != nullptr)
+	{
+		return Nested;
+	}
+	return Flat;
 }
 
 FString FHICharAnim::ClipPathFor(const TCHAR* Tag, const TCHAR* Clip)
@@ -104,6 +117,10 @@ float FHICharAnim::AuthoredCmPerSec(const TCHAR* Tag, const TCHAR* Clip)
 		{ TEXT("james"),  163.1f, 540.8f,  86.7f },
 		{ TEXT("brute"),  204.8f, 679.1f, 108.9f },
 		{ TEXT("martha"), 163.1f, 540.6f,  86.6f },
+		// dancer reuses Martha's clip FBXes verbatim -- her rig was renamed to match, so the same
+		// files drive her -- which means the same authored travel. Measured provenance for these
+		// numbers is Martha's row; they are not a guess (2026-11-01).
+		{ TEXT("dancer"), 163.1f, 540.6f,  86.6f },
 	};
 	for (const FRow& R : Rows)
 	{
