@@ -1233,9 +1233,9 @@ bool FHIUnrealDeathFall::RunTest(const FString& Parameters)
 	// 2026-10-13 turned on.
 	double ShortestDeath = 0.0;
 	const TCHAR* DeadMen[] = {
-		FHICharAnim::IntruderTagForId(0),
-		FHICharAnim::IntruderTagForId(1),
-		FHICharAnim::IntruderTagForId(2),
+		FHICharAnim::EffectiveIntruderTag(0),
+		FHICharAnim::EffectiveIntruderTag(1),
+		FHICharAnim::EffectiveIntruderTag(2),
 	};
 	for (const TCHAR* Tag : DeadMen)
 	{
@@ -1480,9 +1480,9 @@ bool FHIUnrealCast::RunTest(const FString& Parameters)
 	// feature; a cycling bug that sent every Id to one tag would be silent.
 	const TCHAR* CastTags[] = {
 		FHICharAnim::PlayerTag(),
-		FHICharAnim::IntruderTagForId(0),
-		FHICharAnim::IntruderTagForId(1),
-		FHICharAnim::IntruderTagForId(2),
+		FHICharAnim::EffectiveIntruderTag(0),
+		FHICharAnim::EffectiveIntruderTag(1),
+		FHICharAnim::EffectiveIntruderTag(2),
 	};
 	for (int32 i = 0; i < UE_ARRAY_COUNT(CastTags); ++i)
 	{
@@ -1941,9 +1941,9 @@ bool FHIUnrealWeapons::RunTest(const FString& Parameters)
 	// `HI.Unreal.Cast` -- which is where the whole imported-asset story lives now.)
 	const TCHAR* GripCast[] = {
 		FHICharAnim::PlayerTag(),
-		FHICharAnim::IntruderTagForId(0),
-		FHICharAnim::IntruderTagForId(1),
-		FHICharAnim::IntruderTagForId(2),
+		FHICharAnim::EffectiveIntruderTag(0),
+		FHICharAnim::EffectiveIntruderTag(1),
+		FHICharAnim::EffectiveIntruderTag(2),
 	};
 	for (const TCHAR* Tag : GripCast)
 	{

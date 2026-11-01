@@ -57,6 +57,12 @@ struct FHICharAnim
 	 *  instead of posing a T-posed stranger. See IntruderTagForId for why this exists. */
 	static bool CastAvailable(const TCHAR* Tag);
 
+	/** The tag that will ACTUALLY be used for an intruder: the preferred one if its assets are
+	 *  imported, otherwise the stand-in. Everything -- the actor, the tests, and anything that
+	 *  asks "who is in slot N" -- must read this rather than IntruderTagForId, or the answer
+	 *  differs between the game and the check. */
+	static const TCHAR* EffectiveIntruderTag(int32 Id);
+
 	/** `/Game/HIImported/characters_<Tag>/` -- where a character's assets live. */
 	static FString CharacterDir(const TCHAR* Tag);
 	/** The skeletal mesh: the mesh-carrying export imports as `idle`. */

@@ -31,6 +31,18 @@ const TCHAR* FHICharAnim::IntruderTagForId(int32 Id)
 	return Cast[((Id % 3) + 3) % 3];
 }
 
+const TCHAR* FHICharAnim::EffectiveIntruderTag(int32 Id)
+{
+	const TCHAR* Wanted = IntruderTagForId(Id);
+	if (CastAvailable(Wanted))
+	{
+		return Wanted;
+	}
+	// The stand-in for a slot whose preferred character has no imported assets yet. James is the
+	// one slot that was replaced; any future swap adds its own case here.
+	return FCString::Strcmp(Wanted, TEXT("dancer")) == 0 ? TEXT("james") : Wanted;
+}
+
 bool FHICharAnim::CastAvailable(const TCHAR* Tag)
 {
 	if (Tag == nullptr)
