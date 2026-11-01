@@ -89,6 +89,21 @@ def main():
                 tgt = ch.get("target") or {}
                 if "node" in tgt:
                     continue
+        # UP-AXIS FIX (2026-11-01): add a wrapper root carrying +90 deg about X, turning glTF's
+        # Y-up into Z-up. Without it the converted FBX lands in UE lying down -- measured on the
+        # Dancer Girl: extent (71.6, 80.6, 18.3) against Martha's (83.5, 14.1, 88.5), i.e. a body
+        # 18 cm tall and 80 cm deep, flat on the lawn where nothing obvious is wrong except that
+        # she never appears upright.
+        import math
+        half = math.radians(90.0) * 0.5
+        doc.setdefault("nodes", []).append({
+            "name": "ZUpRoot",
+            "rotation": [math.sin(half), 0.0, 0.0, math.cos(half)],
+            "children": list(doc.get("scenes", [{}])[doc.get("scene", 0)].get("nodes", [])),
+        })
+        doc["nodes"][-1]["children"] = [i for i in doc["nodes"][-1]["children"]]
+        for scene in doc.get("scenes", []):
+            scene["nodes"] = [len(doc["nodes"]) - 1]
         blob = json.dumps(doc, separators=(",", ":")).encode("utf-8")
         blob += b" " * ((4 - len(blob) % 4) % 4)
         out_chunks.append((JSON_CHUNK, blob))
