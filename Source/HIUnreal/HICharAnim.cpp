@@ -17,27 +17,18 @@ const TCHAR* FHICharAnim::PlayerTag()
 
 const TCHAR* FHICharAnim::IntruderTagForId(int32 Id)
 {
-	// Three named men, cycling: the default round is three intruders, so within a
+	// Three named intruders, cycling: the default round is three intruders, so within a
 	// default round no two men share a face. A bigger --thieves count reuses faces,
 	// which is the honest failure mode -- inventing unnamed men would be worse.
-	// SLOT 0 IS THE DANCER GIRL, WITH JAMES AS HER STAND-IN (2026-11-01). Richard picked her to
-	// replace James, but her rig is `mixamorig:*` with numeric suffixes while ours is
-	// `mixamorig11:*` -- the clips cannot bind across that, so she is not playable until clips
-	// for HER skeleton exist (Mixamo round trip). Rather than ship a T-posed intruder or leave
-	// the cast unchanged, the slot asks for "dancer" and falls back to james until her assets
-	// are imported: drop the FBXes in `SourceAssets/characters/dancer/`, run
-	// tools/import-assets.sh, and the swap happens with no code change.
-	// SLOT 0 IS JAMES AGAIN (2026-11-01). The Dancer Girl's assets are imported and she is wired,
-	// but the offline rig conversion is not sound: her bind pose faces 119.7 deg against the 90
-	// every Mixamo character in this project faces (HI.Unreal.Cast catches it), and in a capture
-	// she does not render as an animated intruder at all. Shipping that would be a broken
-	// intruder; the alternative -- the Mixamo round trip -- is one upload of the FBX that now
-	// exists at SourceAssets/characters/dancer/idle.fbx. Flip this line back to "dancer" once
-	// her clips come from Mixamo.
-	// SLOT 0 IS JAMES. The Dancer Girl's mesh and skeleton are imported and her clips have been
-	// retargeted, but the retarget bound them to MARTHA's skeleton: IKRetargetBatchOperation with
-	// no retargeter asset simply copies, and building the retargeter needs IK Rig assets this
-	// engine build exposes no factory for. See docs/CHARACTERS.md for exactly how far that got.
+	//
+	// SLOT 0 IS STILL JAMES, ONE LINE FROM BEING THE DANCER GIRL (2026-11-01). Her ten clips now
+	// exist and BIND TO HER OWN SKELETON: tools/retarget-character.sh builds the two IK Rigs, the
+	// IK Retargeter and its 21-chain mapping itself, and the batch retarget it then runs is real
+	// (checked: every clip's skeleton pointer is hers, not Martha's). What still blocks the swap is
+	// a different, pre-existing fact about the imported asset: HI.Unreal.Cast measures her bind
+	// pose facing 119.7 deg against the 90 every other character measures, so drawing her at the
+	// game's 90 costs a 29.7 deg torso twist. Flip this line to TEXT("dancer") once
+	// MeshFacingYawDeg carries her number -- see docs/CHARACTERS.md for the two routes.
 	static const TCHAR* Cast[] = { TEXT("james"), TEXT("brute"), TEXT("martha") };
 	return Cast[((Id % 3) + 3) % 3];
 }

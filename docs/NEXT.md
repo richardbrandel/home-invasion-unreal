@@ -11,31 +11,42 @@ Written at the end of a long session (2026-11-01). Read this, `AGENTS.md`, then
 
 ## The one open technical problem
 
-**Replacing an intruder with a downloaded character.** Two attempts failed, both documented in
-`docs/CHARACTERS.md`:
+**Replacing an intruder with a downloaded character.** Both earlier attempts failed and are
+documented in `docs/CHARACTERS.md`; the second one is now SOLVED (2026-11-01):
 
-1. offline rig conversion (glb -> rename bones -> assimp -> FBX). The mesh imports upright after a
-   Z-up wrapper, but it animates **prone and facing 119.7 deg**, and assimp flattens the node
-   rotation that would fix it. Dead end.
-2. `IKRetargetBatchOperation.duplicate_and_retarget` from Python. The call works with `FAssetData`
-   (see the doc for the three forms that fail), but with no retargeter asset it **copies** --
-   binding the result to the SOURCE skeleton -- and **consumes its inputs**, which cost Martha all
-   ten of her clips once (restored; `HI.Unreal.Cast` caught it).
+1. offline rig conversion (glb -> rename bones -> assimp -> FBX) — dead end, the bone rest
+   orientation it carries animates prone.
+2. ~~`IKRetargetBatchOperation.duplicate_and_retarget` from Python, no retargeter asset~~
+   **DONE.** The factory the docs said did not exist is `unreal.IKRigDefinitionFactory` (wrong name,
+   not a missing capability), and `tools/retarget-character.sh <tag> <src> <model>` now builds the
+   two IK Rigs, builds the IK Retargeter, auto-maps its 21 chains and runs the batch itself. Her ten
+   clips now bind to HER skeleton — verified per clip, and the keys are resampled rather than copied.
+   The second trap was that a freshly created IK Retargeter has NO op stack, so chain mapping
+   silently maps nothing; `AddDefaultOps()` first.
 
-**The blocker:** a real IK Retargeter needs IK Rig assets, and this build exposes no
-`IKRigFactory`. Creating source/target IK Rigs + auto-mapping chains **in the editor GUI** is a few
-minutes of clicking; the ten-clip retarget against that asset is already scripted and working
-(`tools/retarget-character.sh <tag> <source-tag> <model>`).
+**What still blocks her: her bind-pose facing.** `HI.Unreal.Cast` measures 119.7 deg where
+`FHICharAnim::MeshFacingYawDeg()` says 90, so she would draw with a 29.7 deg torso twist. Every
+other fact about her assets passes with her in slot 0 (mesh, skeleton, physics asset, all ten clips
+bound to her skeleton, lengths, rig bones, normalized keys, death fall): the suite is **51/52** with
+her in the cast and **52/52** with `james` in it, which is where the line is left. Two routes, and
+the reasoning for trying the first — her skeleton asset and her mesh appear to disagree about the
+reference pose, which would explain the facing and the odd Hips values in her clips at once — are in
+`docs/CHARACTERS.md`.
 
 ## Ready to go when that lands
 
-- `SourceAssets/models/woman01.glb` -- "Dancer girl", Mixamo-family rig, chosen by Richard
-- `SourceAssets/models/alina.glb` -- "Alina Ip, realistic Asian woman", CC_Base rig, to replace
+- `SourceAssets/models/woman01.glb` — "Dancer Girl", Mixamo-family rig, chosen by Richard
+- `SourceAssets/models/alina.glb` — "Alina Ip, realistic Asian woman", CC_Base rig, to replace
   Martha
-- both need the same retarget; whichever works first proves the pipeline
+- both use the same one-command pipeline now; `alina` is the harder one (foreign rig family)
 
 ## Smaller open items
 
+- `Content/HIImported/characters_dancer/` and `Content/HIImported/retarget/` are **untracked** —
+  ~60 MB of mesh, textures, the ten clips and the three rig assets. They are not committed because
+  her slot is still `james`; `git add` those two folders is what ships her when the facing is fixed.
+- the earlier GUI attempts left dead rigs at `characters_dancer/idle/SkeletalMeshes/IK_idle`,
+  `RTG_idle` and `HIImported/mixamo/IK_Female_Casual*` — safe to delete, nothing references them
 - hedges are leaf cards over a box: fine at distance, bright cards in shadow up close
 - the getaway van's upper box panels still render red
 - `docs/LOBBY.md` is DEFERRED (Steam/multiplayer parked by Richard)
