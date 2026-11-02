@@ -21,15 +21,20 @@ const TCHAR* FHICharAnim::IntruderTagForId(int32 Id)
 	// default round no two men share a face. A bigger --thieves count reuses faces,
 	// which is the honest failure mode -- inventing unnamed men would be worse.
 	//
-	// SLOT 0 IS STILL JAMES, ONE LINE FROM BEING THE DANCER GIRL (2026-11-01). Her ten clips now
-	// exist and BIND TO HER OWN SKELETON: tools/retarget-character.sh builds the two IK Rigs, the
-	// IK Retargeter and its 21-chain mapping itself, and the batch retarget it then runs is real
-	// (checked: every clip's skeleton pointer is hers, not Martha's). What still blocks the swap is
-	// a different, pre-existing fact about the imported asset: HI.Unreal.Cast measures her bind
-	// pose facing 119.7 deg against the 90 every other character measures, so drawing her at the
-	// game's 90 costs a 29.7 deg torso twist. Flip this line to TEXT("dancer") once
-	// MeshFacingYawDeg carries her number -- see docs/CHARACTERS.md for the two routes.
-	static const TCHAR* Cast[] = { TEXT("james"), TEXT("brute"), TEXT("martha") };
+	// SLOT 0 IS THE DANCER GIRL (2026-11-01). She took James's slot, with his clips, his
+	// physics asset and his row in the travel table left in place -- putting him back is this
+	// one string. Her rig is `mixamorig:*` where ours is `mixamorig11:*`, so the ten clips could
+	// not bind across and two attempts failed before this one (an offline glb -> FBX conversion
+	// that animated prone, and a batch retarget with no retargeter asset, which copies and binds
+	// the copies to MARTHA's skeleton). They bind now because tools/retarget-character.sh builds
+	// the IK Rigs, the IK Retargeter and its 21-chain mapping instead of hoping for them, and
+	// because it normalizes the results afterwards. `HI.Unreal.Cast` covers her like everyone
+	// else and is green: 52/52 with her in this slot.
+	//
+	// NOTE FOR ANYONE ADDING A FOURTH: `Cast[Id % 3]` means a 4th entry is never spawned in a
+	// default round of three. Adding one is a no-op for the player unless the count or the
+	// cycling changes with it -- see docs/NEXT.md.
+	static const TCHAR* Cast[] = { TEXT("dancer"), TEXT("brute"), TEXT("martha") };
 	return Cast[((Id % 3) + 3) % 3];
 }
 
@@ -355,17 +360,60 @@ void FHICharAnim::PlayDeath(USkeletalMeshComponent* Mesh, const TCHAR* Tag)
 
 // ---------------------------------------------------------------- facing
 
+// A MEASURED CONSTANT PER CHARACTER, not one number for the cast (2026-11-01).
+//
+// Every earlier character faced the same way (90 deg +- 0.1), so a single constant was
+// justified -- and `HI.Unreal.Cast` recomputed it from each bind pose every run, so a wrong
+// number could not survive. The Dancer Girl does not fit: her rig is `mixamorig:*` where ours
+// is `mixamorig11:*`, and the conversion that put her glTF into Z-up left her 29.7 deg out.
+// Measured by the same test, and measured to be a PURE yaw rather than a tipped rig --
+// lateral=(-0.87, -0.50, 0.00) is exactly horizontal and hips->head is (2.2, -3.9, 39.1), i.e.
+// up the +Z axis -- so rotating the component by her own facing is the complete fix, with no
+// re-import and no change to how her clips are authored. A tipped rig would need the asset
+// fixed instead, which is why the test logs those two vectors next to the angle.
+namespace
+{
+	struct FFacingRow
+	{
+		const TCHAR* Tag;
+		float Yaw;
+	};
+
+	const FFacingRow FFacingRows[] = {
+		{ TEXT("louise"), 90.1f },   // 2026-10-13, from the bind-pose shoulders
+		{ TEXT("james"),  90.1f },
+		{ TEXT("brute"),  90.0f },
+		{ TEXT("martha"), 89.9f },
+		{ TEXT("dancer"), 119.7f },  // 2026-11-01, the ZUpRoot conversion's yaw
+	};
+}
+
+float FHICharAnim::FacingYawDeg(const TCHAR* Tag)
+{
+	for (const FFacingRow& Row : FFacingRows)
+	{
+		if (Tag != nullptr && FCString::Strcmp(Tag, Row.Tag) == 0)
+		{
+			return Row.Yaw;
+		}
+	}
+	// An unknown tag keeps the cast's number: the mesh is not known, and 90 is what every
+	// measured Mixamo body in this project gives. Guessing a quarter turn would be worse.
+	return 90.0f;
+}
+
+FVector FHICharAnim::ForwardAxisFor(const TCHAR* Tag)
+{
+	const float Rad = FMath::DegreesToRadians(FacingYawDeg(Tag));
+	return FVector(FMath::Cos(Rad), FMath::Sin(Rad), 0.0f);
+}
+
 float FHICharAnim::MeshFacingYawDeg()
 {
-	// MEASURED, 2026-10-13, by HI.Unreal.Cast from each character's bind-pose shoulders
-	// (RightShoulder - LeftShoulder is lateral; lateral x up is the facing):
-	// louise 90.1, james 90.1, brute 90.0, martha 89.9. The imported Mixamo meshes face
-	// their own **+Y** -- the same axis the mannequin faced, so BodyRotationFor reduces
-	// to the mannequin era's measured t = -a. The pre-measurement guess in this spot was
-	// 0 (+X), from "a Y-up FBX's +Z becomes the engine's +X"; it was wrong, and wrong by
-	// exactly the quarter turn that 2026-10-13's crosshair report had just cost a
-	// playtest. That is why this is a number with a measurement attached, and why the
-	// Cast test fails with the measured value in its message if an asset ever changes it.
+	// The cast's canonical facing, kept for the one thing that genuinely is cast-wide: the
+	// composition test, which checks that the FORMULA maps a sim yaw onto the aim for any
+	// facing, and must not read a per-character number on both sides of its own assertion.
+	// Per-character work uses FacingYawDeg(Tag).
 	return 90.0f;
 }
 
@@ -375,14 +423,19 @@ FVector FHICharAnim::MeshForwardAxis()
 	return FVector(FMath::Cos(Rad), FMath::Sin(Rad), 0.0f);
 }
 
-FRotator FHICharAnim::BodyRotationFor(float SimYaw)
+FRotator FHICharAnim::BodyRotationFor(float SimYaw, const TCHAR* Tag)
 {
 	// t = 90 - a - facing, in degrees. See the header for the derivation and the
 	// measurement chain; for the mannequin's facing of +90 this is exactly the t = -a
 	// that `-HIProbe` measured into existence on 2026-10-13.
 	return FRotator(0.0f,
-		90.0f - FMath::RadiansToDegrees(SimYaw) - MeshFacingYawDeg(),
+		90.0f - FMath::RadiansToDegrees(SimYaw) - FacingYawDeg(Tag),
 		0.0f);
+}
+
+FRotator FHICharAnim::BodyRotationFor(float SimYaw)
+{
+	return BodyRotationFor(SimYaw, nullptr);
 }
 
 // --------------------------------------------------------------- weapons

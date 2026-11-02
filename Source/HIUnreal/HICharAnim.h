@@ -182,15 +182,25 @@ struct FHICharAnim
 
 	// --------------------------------------------------------------- facing
 	/**
-	 * Which way a Mixamo mesh faces in its own bind pose, as a component-frame yaw in
+	 * Which way ONE character's mesh faces in its own bind pose, as a component-frame yaw in
 	 * degrees: the angle of the forward direction measured at the shoulders (the line
 	 * RightShoulder - LeftShoulder is lateral; forward is lateral x up).
 	 *
-	 * A MEASURED CONSTANT, and the Cast test recomputes it from every character's bind
-	 * pose and fails with the measured number in the message if this disagrees. It
-	 * replaced `BodyRotation`'s old inline "+Y" assumption, which was true of the UE
-	 * mannequin and is a property of the ASSET, never of the arithmetic -- a quarter
-	 * turn of silent wrongness is what it cost the first time.
+	 * A MEASURED NUMBER PER CHARACTER (2026-11-01), and the Cast test recomputes it from each
+	 * bind pose and fails with the measured number in its message if it disagrees. Every
+	 * character imported before the Dancer Girl faced 90 +- 0.1, which is why one constant was
+	 * defensible; her ZUpRoot conversion left her at 119.7, so the number lives in a table
+	 * beside `AuthoredCmPerSec`. An unknown tag returns the cast's 90.
+	 */
+	static float FacingYawDeg(const TCHAR* Tag);
+
+	/** The unit vector of `FacingYawDeg(Tag)` in the component frame. */
+	static FVector ForwardAxisFor(const TCHAR* Tag);
+
+	/**
+	 * The cast's canonical facing, for the one check that must not read a per-character
+	 * number on both sides of its own assertion: the composition test, which asks whether
+	 * the FORMULA maps a sim yaw onto the aim for a given facing.
 	 */
 	static float MeshFacingYawDeg();
 
@@ -198,14 +208,17 @@ struct FHICharAnim
 	static FVector MeshForwardAxis();
 
 	/**
-	 * The sim's plane angle as a world rotation for a BODY, for a mesh that faces
-	 * `MeshFacingYawDeg` in its own frame.
+	 * The sim's plane angle as a world rotation for a BODY, for the mesh of `Tag`.
 	 *
 	 * The sim's yaw 0 faces +Y, so its direction is (sin a, cos a); a component yaw t
 	 * puts the mesh's facing at (t + facing). Equating gives t = 90 - a_deg - facing.
 	 * For the mannequin's +Y-facing meshes (facing = 90) that reduces to the measured
 	 * t = -a; the derivation lives here once instead of twice.
+	 *
+	 * The one-argument form is the canonical 90 and is kept for callers that do not know
+	 * which body they are rotating; every actor passes its tag.
 	 */
+	static FRotator BodyRotationFor(float SimYaw, const TCHAR* Tag);
 	static FRotator BodyRotationFor(float SimYaw);
 
 	// --------------------------------------------------------------- weapons

@@ -6,39 +6,42 @@ Written at the end of a long session (2026-11-01). Read this, `AGENTS.md`, then
 ## State
 
 - Branch `main`, clean tree, 52/52 tests (`Automation RunTests HI.`), nothing pushed.
-- Cast: **james, brute, martha** (`FHICharAnim::IntruderTagForId`). Louise is the player.
+- Cast: **dancer, brute, martha** (`FHICharAnim::IntruderTagForId`). Louise is the player.
+  James is imported and working; he is out of rotation, not gone.
 - The game plays; recent work is mostly scene/asset work, not mechanics.
 
-## The one open technical problem
+## Where this stands: the Dancer Girl is in the cast (2026-11-01)
 
-**Replacing an intruder with a downloaded character.** Both earlier attempts failed and are
-documented in `docs/CHARACTERS.md`; the second one is now SOLVED (2026-11-01):
+Branch `main`, **52/52 green with `TEXT("dancer")` in cast slot 0**, replacing James. His clips,
+physics asset and travel row are untouched, so `TEXT("james")` in that one string puts him back.
 
-1. offline rig conversion (glb -> rename bones -> assimp -> FBX) — dead end, the bone rest
-   orientation it carries animates prone.
-2. ~~`IKRetargetBatchOperation.duplicate_and_retarget` from Python, no retargeter asset~~
-   **DONE.** The factory the docs said did not exist is `unreal.IKRigDefinitionFactory` (wrong name,
-   not a missing capability), and `tools/retarget-character.sh <tag> <src> <model>` now builds the
-   two IK Rigs, builds the IK Retargeter, auto-maps its 21 chains and runs the batch itself. Her ten
-   clips now bind to HER skeleton — verified per clip, and the keys are resampled rather than copied.
-   The second trap was that a freshly created IK Retargeter has NO op stack, so chain mapping
-   silently maps nothing; `AddDefaultOps()` first.
-
-**What still blocks her: her bind-pose facing.** `HI.Unreal.Cast` measures 119.7 deg where
-`FHICharAnim::MeshFacingYawDeg()` says 90, so she would draw with a 29.7 deg torso twist. Every
-other fact about her assets passes with her in slot 0 (mesh, skeleton, physics asset, all ten clips
-bound to her skeleton, lengths, rig bones, normalized keys, death fall): the suite is **51/52** with
-her in the cast and **52/52** with `james` in it, which is where the line is left. Two routes, and
-the reasoning for trying the first — her skeleton asset and her mesh appear to disagree about the
-reference pose, which would explain the facing and the odd Hips values in her clips at once — are in
+Getting her there took the retargeter (`tools/retarget-character.sh` now builds the IK Rigs, the IK
+Retargeter and its 21-chain mapping itself, and normalises its own output) plus three assumptions
+only she broke — a cast-wide facing constant, "retargeted implies normalised", and a test that read
+the Hips' local Z as world height. All four are documented with their measurements in
 `docs/CHARACTERS.md`.
 
-## Ready to go when that lands
+## The next design question: how many intruders, and which
 
-- `SourceAssets/models/woman01.glb` — "Dancer Girl", Mixamo-family rig, chosen by Richard
+A FOURTH entry in `Cast[]` is a one-line change and a **no-op for the player**: `Cast[Id % 3]` with
+three thieves per round means the fourth name is never spawned. Options, cheapest first:
+
+- leave her in slot 0 as she is now — every round has her, James does not appear
+- `--thieves 4` for a round that shows all four (the count is a game-balance knob, not a cast one)
+- a pool of four with the round deciding which three appear (`Cast[(Id + Round) % 4]`) — three
+  thieves kept, everyone appears in three rounds out of four, but soaks stop being round-independent,
+  so the "3x117.9 s bit-identical" measurements in AGENTS.md would need re-taking
+- a fourth slot in the shipped default (four intruders per round) — a difficulty change, Richard's
+
+## Ready to go when wanted
+
 - `SourceAssets/models/alina.glb` — "Alina Ip, realistic Asian woman", CC_Base rig, to replace
-  Martha
-- both use the same one-command pipeline now; `alina` is the harder one (foreign rig family)
+  Martha; same one-command pipeline, harder rig family
+- an asset-level fix for the Dancer Girl's 29.7 deg yaw (add it to the `ZUpRoot` wrapper in
+  `tools/rename-glb-bones.py`, re-import, re-retarget) would retire the per-tag facing table — a
+  want, not a need
+- new skins over the existing three skeletons (Martha, James, Brute) — the cheap route to cast
+  variety, no rigging involved
 
 ## Smaller open items
 

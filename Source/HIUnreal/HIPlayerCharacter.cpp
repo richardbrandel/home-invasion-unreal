@@ -207,7 +207,7 @@ FRotator AHIPlayerCharacter::BodyRotation(float SimYaw)
 	// character's bind-pose shoulders and asserts. For a +Y-facing mesh the new formula
 	// reduces to exactly the old t = -a, which is the check that the generalisation did not
 	// quietly change the mannequin-era answer.
-	return FHICharAnim::BodyRotationFor(SimYaw);
+	return FHICharAnim::BodyRotationFor(SimYaw, FHICharAnim::PlayerTag());
 }
 
 FRotator AHIPlayerCharacter::WeaponAimRotation(const FVector& Aim)

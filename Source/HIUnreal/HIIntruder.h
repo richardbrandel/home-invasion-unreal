@@ -65,7 +65,7 @@ public:
 	 * recomputes from the bind pose. A quarter turn out is silent, which is why it is a
 	 * measurement and a test rather than a comment.
 	 */
-	static FRotator BodyRotation(float SimYaw);
+	static FRotator BodyRotation(float SimYaw, const TCHAR* Tag);
 
 	/**
 	 * The actor's origin, at the sim's own coordinate: on the FLOOR, between his feet.

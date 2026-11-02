@@ -51,6 +51,17 @@ PREFIX = "rt_"   # keeps the batch op from overwriting a working character
 CLIPS = ["aim", "walk", "run", "crouch_idle", "crouch_walk", "idle_Anim",
          "pistol_idle", "reload", "shoot", "death"]
 
+# KEEP IN STEP WITH tools/import-assets.py -- same modes, same failure tokens, and that file is
+# the source of truth for why each clip gets the rule it gets. Duplicated here rather than
+# imported because both scripts are run by the editor with only their own path on sys.path.
+NORMALIZE_MODES = {
+    "aim": "aim",
+    "shoot": "shoot",
+    "death": "none",
+}
+NORMALIZE_FAIL_TOKENS = ("FAILED", "MISSING", "NOT UNIFORM", "UNKNOWN MODE", "MISSED",
+                         "nothing normalized")
+
 lib = unreal.EditorAssetLibrary
 
 
@@ -274,6 +285,32 @@ def retarget():
         else:
             print("RT: could not move %s -> %s" % (src_path, dst_path))
     print("RT: moved %d/%d into %s" % (moved, len(out), DST_DIR))
+
+    # NORMALIZE, because a retargeted clip is NOT automatically a normalized one (2026-11-01).
+    # The retargeter recomputes the pelvis from its retarget pose, so a clip that was pinned flat
+    # on Martha comes back with Hips travel: measured on the first complete run, walk 6.12 cm,
+    # run 5.69, crouch_walk 2.99, pistol_idle 10.04, shoot 8.66 against HI.Unreal.Cast's 2.0 cm
+    # limit. The sim owns position, so these have to be pinned again after the retarget -- exactly
+    # as tools/import-assets.py pins an imported clip. The wrist raise is deliberately 0.0: this
+    # copies ARMS from the source, which was already raised at ITS import, so re-raising would
+    # double it.
+    tool = getattr(unreal, "HIAnimTool", None)
+    if tool is None:
+        print("RT: FAILED -- unreal.HIAnimTool is missing (the C++ build is older than this "
+              "script); the clips would stay unnormalized and skate")
+        return False
+    normalized = 0
+    for clip in CLIPS:
+        pkg = "%s/%s.%s" % (DST_DIR, clip, clip)
+        if not lib.does_asset_exist(pkg):
+            continue
+        report = tool.normalize_character_clip(pkg, NORMALIZE_MODES.get(clip, "locomotion"), 0.0)
+        print("RT: normalize %s: %s" % (clip, report))
+        if not any(tok in report for tok in NORMALIZE_FAIL_TOKENS):
+            normalized += 1
+    print("RT: normalized %d/%d clip(s)" % (normalized, len(CLIPS)))
+    if normalized < len(CLIPS):
+        print("RT: FAILED -- some clips did not normalize; the game would skate")
 
     # ASSERT THE BINDING, ON EVERY CLIP. A retarget that produces sequences still pointing at the
     # source's skeleton looks like success in every log line and fails only when the character

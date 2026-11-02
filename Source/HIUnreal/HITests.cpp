@@ -80,16 +80,30 @@ bool FHIUnrealSizing::RunTest(const FString& Parameters)
 	// rotation consistently) and cannot catch a wrong facing constant, because both sides would
 	// read the same one; the Cast test is the check that can.
 	{
-		const FVector MeshFwd = FHICharAnim::MeshForwardAxis();
+		// EVERY body, not one: the facing stopped being a cast-wide constant on 2026-11-01, and a
+		// composition check that only exercised the canonical 90 would pass while the one
+		// character whose number differs was rotated into a wall.
+		const TCHAR* FacingTags[] = {
+			FHICharAnim::PlayerTag(),
+			FHICharAnim::EffectiveIntruderTag(0),
+			FHICharAnim::EffectiveIntruderTag(1),
+			FHICharAnim::EffectiveIntruderTag(2),
+		};
 		const float SimYaws[] = { 0.0f, UE_PI * 0.5f, UE_PI, -UE_PI * 0.5f, 1.1f };
-		for (const float SimYaw : SimYaws)
+		for (const TCHAR* FacingTag : FacingTags)
 		{
-			const FVector Want = FHISim::AimDir(SimYaw, 0.0f).GetSafeNormal();
-			const FVector World = AHIIntruder::BodyRotation(SimYaw).RotateVector(MeshFwd).GetSafeNormal();
-			const float OnAim = FVector::DotProduct(World, Want);
-			TestTrue(*FString::Printf(
-				TEXT("a body at sim yaw %.2f faces where the sim says (meshFwd . aim = %.4f)"), SimYaw, OnAim),
-				OnAim > 0.9999f);
+			const FVector MeshFwd = FHICharAnim::ForwardAxisFor(FacingTag);
+			for (const float SimYaw : SimYaws)
+			{
+				const FVector Want = FHISim::AimDir(SimYaw, 0.0f).GetSafeNormal();
+				const FVector World =
+					AHIIntruder::BodyRotation(SimYaw, FacingTag).RotateVector(MeshFwd).GetSafeNormal();
+				const float OnAim = FVector::DotProduct(World, Want);
+				TestTrue(*FString::Printf(
+					TEXT("%s at sim yaw %.2f faces where the sim says (meshFwd . aim = %.4f)"),
+					FacingTag, SimYaw, OnAim),
+					OnAim > 0.9999f);
+			}
 		}
 	}
 
@@ -1581,10 +1595,22 @@ bool FHIUnrealCast::RunTest(const FString& Parameters)
 				const FVector Lateral = (Comp[RS].GetLocation() - Comp[LS].GetLocation()).GetSafeNormal();
 				const FVector Fwd = FVector::CrossProduct(Lateral, FVector::UpVector).GetSafeNormal();
 				const float Phi = FMath::RadiansToDegrees(FMath::Atan2(Fwd.Y, Fwd.X));
+				// LOGGED, because the yaw alone cannot say whether a character is twisted or
+				// TIPPED, and the fix for those is different (a per-tag constant vs a re-import).
+				// A pure yaw has lateral.z == 0 and a spine pointing +Z; a tipped rig shows up here.
+				const int32 HipsIdx = Ref.FindBoneIndex(TEXT("Hips"));
+				const int32 HeadIdx = Ref.FindBoneIndex(TEXT("Head"));
+				const FVector Spine = (HipsIdx != INDEX_NONE && HeadIdx != INDEX_NONE)
+					? (Comp[HeadIdx].GetLocation() - Comp[HipsIdx].GetLocation()) : FVector::ZeroVector;
+				AddInfo(FString::Printf(
+					TEXT("%s: lateral=(%.2f, %.2f, %.2f) fwd=(%.2f, %.2f, %.2f) facing=%.1f deg; "
+						"hips->head=(%.1f, %.1f, %.1f) |%.1f| (upright is +Z)"),
+					Tag, Lateral.X, Lateral.Y, Lateral.Z, Fwd.X, Fwd.Y, Fwd.Z, Phi,
+					Spine.X, Spine.Y, Spine.Z, Spine.Size()));
 				TestTrue(*FString::Printf(
-					TEXT("%s's bind pose faces yaw %.1f deg, so FHICharAnim::MeshFacingYawDeg() must say so (it says %.1f)"),
-					Tag, Phi, FHICharAnim::MeshFacingYawDeg()),
-					FMath::Abs(FMath::FindDeltaAngleDegrees(Phi, FHICharAnim::MeshFacingYawDeg())) < 2.0f);
+					TEXT("%s's bind pose faces yaw %.1f deg, so FHICharAnim::FacingYawDeg(Tag) must say so (it says %.1f)"),
+					Tag, Phi, FHICharAnim::FacingYawDeg(Tag)),
+					FMath::Abs(FMath::FindDeltaAngleDegrees(Phi, FHICharAnim::FacingYawDeg(Tag))) < 2.0f);
 			}
 			else
 			{
@@ -1787,7 +1813,31 @@ bool FHIUnrealCast::RunTest(const FString& Parameters)
 		// reason the crouch clips work at all). Godot's probe measured the source FBX:
 		// crouch_idle's Hips sit at ~0.47 m against the standing idle's ~0.96 m. Asserted
 		// from the imported keys: both bands, and crouch strictly below stand.
-		auto MeanHipsZCm = [](UAnimSequence* S) -> float
+		// WHICH WAY IS "UP" IN THE HIPS' PARENT SPACE (2026-11-01). The Hips track holds a
+		// translation expressed in its PARENT's space, so its Z is the world height only when that
+		// parent is unrotated -- true of every FBX-imported character here, false of the Dancer
+		// Girl, whose glTF conversion puts a -90 deg X rotation on `_rootJoint` above the Hips.
+		// Measured there: Hips local (0, -98.1, 6.0) is 98 cm UP along -Y. Projecting onto the
+		// parent's up axis keeps one check that means the same thing under both conventions,
+		// instead of a special case for one character.
+		FVector UpInHipsSpace(0.0f, 0.0f, 1.0f);
+		{
+			const int32 HipsIdx = Ref.FindBoneIndex(TEXT("Hips"));
+			const int32 HipsParent = (HipsIdx != INDEX_NONE) ? Ref.GetParentIndex(HipsIdx) : INDEX_NONE;
+			if (HipsParent != INDEX_NONE)
+			{
+				TArray<FTransform> Comp;
+				Comp.SetNum(Ref.GetNum());
+				for (int32 i = 0; i < Ref.GetNum(); ++i)
+				{
+					const int32 Parent = Ref.GetParentIndex(i);
+					Comp[i] = (Parent != INDEX_NONE)
+						? Ref.GetRefBonePose()[i] * Comp[Parent] : Ref.GetRefBonePose()[i];
+				}
+				UpInHipsSpace = Comp[HipsParent].GetRotation().Inverse().RotateVector(FVector::UpVector);
+			}
+		}
+		auto MeanHipsZCm = [&UpInHipsSpace](UAnimSequence* S) -> float
 		{
 			TArray<FVector3f> Pos; TArray<FQuat4f> Rot;
 			if (S == nullptr || !HICastGetTrack(S, TEXT("Hips"), Pos, Rot))
@@ -1797,7 +1847,7 @@ bool FHIUnrealCast::RunTest(const FString& Parameters)
 			double Sum = 0.0;
 			for (const FVector3f& P : Pos)
 			{
-				Sum += P.Z;
+				Sum += P.X * UpInHipsSpace.X + P.Y * UpInHipsSpace.Y + P.Z * UpInHipsSpace.Z;
 			}
 			return static_cast<float>(Sum / Pos.Num());
 		};

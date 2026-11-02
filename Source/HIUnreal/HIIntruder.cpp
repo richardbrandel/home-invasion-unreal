@@ -244,13 +244,13 @@ int32 AHIIntruder::WoundsForHealth(float Hp)
 	return FMath::Clamp(Bands, 0, MaxWounds);
 }
 
-FRotator AHIIntruder::BodyRotation(float SimYaw)
+FRotator AHIIntruder::BodyRotation(float SimYaw, const TCHAR* Tag)
 {
 	// t = 90 - a - the mesh's own facing; the derivation and the measured facing constant
 	// live in FHICharAnim now, in one place instead of one per actor. A quarter turn out is
 	// silent -- it WAS, on 2026-10-13, at exactly 90.0 degrees, measured by `-HIProbe`'s
 	// clavicle line before anything was believed.
-	return FHICharAnim::BodyRotationFor(SimYaw);
+	return FHICharAnim::BodyRotationFor(SimYaw, Tag);
 }
 
 void AHIIntruder::GoLimp()
@@ -292,7 +292,7 @@ void AHIIntruder::SyncFromSim(const FHISim::FHIThief& T, float Dt)
 	}
 	if (Body != nullptr && !bRagdolled)
 	{
-		Body->SetWorldRotation(BodyRotation(T.Yaw));
+		Body->SetWorldRotation(BodyRotation(T.Yaw, *CastTag));
 	}
 
 	// Wounds follow health every frame: see the header for why this is derived here rather

@@ -93,38 +93,52 @@ target `IK_dancer`, 5 ops, and `Spine/Head/LeftArm/LeftLeg` mapped; and the reta
 Martha's numbers (Hips at frame 0 is (13.7, -97.5, -13.9) against Martha's (0.3, -7.1, 97.2)), which
 is what separates a real resample from a copy.
 
-## What still blocks putting her in the cast: her bind-pose facing
+## The bind-pose facing, and three more assumptions only she broke (2026-11-01)
 
-`HI.Unreal.Cast` fails on her with
+**She is in the cast and the suite is 52/52.** Slot 0 is `TEXT("dancer")`; James's clips, physics
+asset and travel row are untouched, so putting him back is that one string.
 
-    Expected 'dancer's bind pose faces yaw 119.7 deg, so FHICharAnim::MeshFacingYawDeg() must say so
-    (it says 90.0)'
+`HI.Unreal.Cast` used to fail on her with
 
-so every other fact about her passes with her in slot 0 — mesh, skeleton, physics asset, all ten
-clips bound to HER skeleton, their lengths, the 22 rig bone names, the normalized Hips keys and the
-death fall — and the suite is **51/52**, the one failure being that constant. Her compile-time slot
-is left at `james` until it is resolved; flipping `FHICharAnim::IntruderTagForId` to `TEXT("dancer")`
-is the whole swap.
+    dancer's bind pose faces yaw 119.7 deg, so FHICharAnim::MeshFacingYawDeg() must say so (it says 90.0)
 
-A related measurement worth checking first, because the two may be one bug. From the **skeleton
-asset's** reference pose, composed into component space in Python: her `hips -> head` is
-(0.0, 39.1, 4.5) — i.e. along **+Y**, lying down — while Martha's is (0.0, 0.2, 55.1), upright along
-+Z; her lateral (LeftShoulder -> RightShoulder) is (-9.0, 0, 0.03), giving a facing of **90.0**. So
-the skeleton asset says "upright facing 90", the mesh (which is what `HI.Unreal.Cast` measures and
-what skins the body) says "119.7", and the retargeted clips express her Hips in that same rotated
-space. A mesh/skeleton reference-pose disagreement would explain all three at once, and it is also
-why `tools/retarget-character.py` prints her Hips as (13.7, -97.5, -13.9).
+Four things had to change, and the first three are why one constant was defensible until now:
 
-Two routes, and the first is the one to try because it fixes the cause rather than the symptom:
+1. **Facing is per character.** `FHICharAnim::FacingYawDeg(Tag)`, a measured table beside
+   `AuthoredCmPerSec`: louise 90.1, james 90.1, brute 90.0, martha 89.9, **dancer 119.7**. Measured
+   to be a PURE yaw rather than a tipped rig — `lateral=(-0.87, -0.50, 0.00)` is exactly horizontal
+   and `hips->head=(2.2, -3.9, 39.1)` points +Z — so rotating the component by her own number is the
+   complete fix; no re-import, and nothing about how her clips are authored changes. `BodyRotation`
+   takes the tag; the composition test loops every character, because a cast-wide constant no longer
+   exists to be tested once. The test now logs those two vectors next to the angle, since a future
+   character that fails may be TIPPED rather than twisted, and that needs the asset fixed instead.
+2. **A retargeted clip is not a normalised clip.** The retargeter recomputes the pelvis from its
+   retarget pose, so Hips travel came back at **6.12 cm** (walk), 5.69 (run), 2.99 (crouch_walk),
+   10.04 (pistol_idle), 8.66 (shoot) against the test's 2.0 cm limit — motion the sim owns.
+   `tools/retarget-character.py` now runs `HIAnimTool.normalize_character_clip` over its own output,
+   with the same clip→mode table as `tools/import-assets.py` (the wrist raise is deliberately 0.0:
+   the arms were already raised on the source, so re-raising would double it).
+3. **`UHIAnimTool` refused `aim` outright.** Her retargeted `aim` has a Hips track of ONE key — the
+   pelvis never moves — and the uniformity guard read that as "not frames+1" and declined to touch
+   the clip, so it could never be normalised. A single key cannot vary; a constant track is the
+   degenerate uniform case and is now accepted.
+4. **The Cast test assumed the Hips' parent is unrotated.** It read the clip's Hips mean `Z` as the
+   pelvis height, which is world-up only when the Hips sit directly under the skeleton root. Hers has
+   `_rootJoint` above them (the `ZUpRoot` wrapper from `tools/rename-glb-bones.py` carries a -90 deg X
+   rotation), so her 98 cm pelvis is stored on **-Y**. The check now projects the Hips translation
+   onto the parent's up axis, which is the same assertion under either convention.
 
-1. **Reconcile the reference poses** — re-import her mesh so the mesh's ref skeleton and the
-   skeleton asset agree (the `ZUpRoot` wrapper in `tools/rename-glb-bones.py` is where the up-axis
-   fix lives, and a yaw belongs beside it), then delete `IK_dancer`/`RT_dancer_from_martha` and
-   re-run `tools/retarget-character.sh` — it recreates both and re-retargets in one command.
-2. **Carry her number in code** — `MeshFacingYawDeg()` becomes a per-tag table, exactly like
-   `AuthoredCmPerSec` two functions below it (which already has a measured `dancer` row), with 119.7
-   for her and `HI.Unreal.Cast` asserting the per-tag value. Cheap, but it papers over a suspect
-   asset and cannot be right if the 29.7 deg is not a pure yaw.
+Two things left, neither blocking:
+
+- **Her asset could still be made to face 90** by adding a yaw to that same `ZUpRoot` wrapper and
+  re-importing, which would retire the per-tag table. Optional: the table is measured, the test
+  recomputes it, and nothing else in the game cares.
+- **The skeleton asset's stored reference pose disagrees with the mesh's.** Read from the skeleton
+  asset, her `hips->head` is `(0.0, 39.1, 4.5)` — lying along +Y — while the mesh (what renders and
+  what the test measures) is upright. Harmless for rendering, and it is why her clip Hips values look
+  rotated; worth understanding before a second glTF character arrives.
+- Cosmetic: normalising `aim` reports `MISSED` for 12 bones. They have no tracks because the batch
+  retarget exported only animated bones, and a bone with no track cannot move — benign, but noisy.
 
 `alina.glb` is staged in `SourceAssets/models` for the same pipeline; it has a `CC_Base_*` rig, so
 expect the auto-characterizer to need more help than the Dancer Girl's Mixamo-family one did.

@@ -160,7 +160,12 @@ FString UHIAnimTool::NormalizeCharacterClip(const FString& PackagePath, const FS
 	// demanded keys == frames refused every clip in the set -- a fencepost, caught by
 	// the report line rather than by a retimed animation.
 	const int32 Frames = Model->GetNumberOfFrames();
-	if (HipsKeys.Pos.Num() != Frames + 1)
+	// A SINGLE KEY CANNOT VARY, so it is the degenerate uniform case (2026-11-01). A retargeted
+	// clip whose pelvis the retargeter already held still collapses its Hips track to one key, and
+	// `aim` -- whose source is fully pinned -- came out that way and was the one clip the guard
+	// refused, so it could never be normalized. Refusing a constant track protects nothing.
+	const bool bUniform = HipsKeys.Pos.Num() == Frames + 1 || HipsKeys.Pos.Num() == 1;
+	if (!bUniform)
 	{
 		return FString::Printf(
 			TEXT("%s: NOT UNIFORM (%d Hips keys vs %d frames, want frames+1) -- refusing to retime; nothing normalized"),
