@@ -42,9 +42,12 @@ reference pose, which would explain the facing and the odd Hips values in her cl
 
 ## Smaller open items
 
-- `Content/HIImported/characters_dancer/` and `Content/HIImported/retarget/` are **untracked** —
-  ~60 MB of mesh, textures, the ten clips and the three rig assets. They are not committed because
-  her slot is still `james`; `git add` those two folders is what ships her when the facing is fixed.
+- `Content/HIImported/characters_dancer/` (19 MB), `characters_dancer_idle/`,
+  `characters_dancer_idle_Anim/` and `retarget/` (136 KB) are **untracked** — mesh, textures, the
+  ten clips and the three rig assets. Nothing of hers was ever committed, and nothing is, because
+  her slot is still `james`; `git add` those four folders is what ships her when the facing is
+  fixed. Five untracked files in `HIImported/mixamo/` (`IK_Female_Casual*`, `RTG_Female_Casual*`,
+  `Female_Casual_Skeleton1`) are dead leftovers from the GUI attempts.
 - the earlier GUI attempts left dead rigs at `characters_dancer/idle/SkeletalMeshes/IK_idle`,
   `RTG_idle` and `HIImported/mixamo/IK_Female_Casual*` — safe to delete, nothing references them
 - hedges are leaf cards over a box: fine at distance, bright cards in shadow up close
