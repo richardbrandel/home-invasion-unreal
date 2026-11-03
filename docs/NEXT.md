@@ -63,19 +63,25 @@ three thieves per round means the fourth name is never spawned. Options, cheapes
   that screen is set up -- so the one screen that needs a cursor had an invisible one), and
   `tools/play-guard.sh` now writes the game's exit status into its log, so a repeat reads
   `status=139` (segfault) / `137` (killed) / `143` (stopped) instead of "it crashed".
-- **ALINA IS AT STEP 5 OF 6 (2026-11-01).** Her rig works end to end: `CC_Base_*` renamed to our
-  names, 19 glTF meshes merged to one, imported via Interchange (NOT assimp -- it carried only one
-  submesh), `IK_alina` auto-characterized to **21 chains**, 21/21 mapped, ten clips retargeted and
-  bound, facing exactly **90.0 deg** so no code row is needed. What blocks her is her SCALE AND
-  ORIGIN: her glb is authored at 2x (345 cm) and hip-centred, so a 0.5 scale on a wrapper node
-  halves the MESH but not the skinned joints -- measured after import: mesh 172 cm, `hips->head`
-  151.5 cm against Martha's 55.1, and the clip's Hips sits at Z=0 where the game expects ~96. That
-  also makes `death` show no descent and the physics-asset reference get lost in the rename. The fix
-  is at the DATA level (scale POSITION accessors, joint translations and inverse-bind-matrix
-  translations together, then offset so the feet sit at Z=0) -- a per-tag scale in code cannot
-  satisfy `HI.Unreal.Cast`, which reads the CLIP's Hips height. Tools for the rest are committed:
-  `tools/rename-glb-bones.py` now maps CC_Base (and takes `GLB_WRAPPER=0` for the Interchange path,
-  `GLB_SCALE=`), and `tools/merge-glb-meshes.py` does the 19->1 merge.
+- **ALINA: her SOURCE FILE IS FINE; THE IMPORT IS WHAT DISTORTS HER (2026-11-01, corrected).** Measured
+  in the glb itself by composing her node transforms: feet at Y~0, hips **100.7**, head **158.3**, so
+  `hips->head` is **57.6** against Martha's 55.1 and her height is 180 units -- a normal adult, rig
+  and mesh both Y-up and consistent. An earlier note in this file claimed she was "authored at 2x and
+  hip-centred"; that was inferred from engine bounds and is WRONG -- do not act on it.
+  What the engine does with her is the problem: after an Interchange import the mesh measures ~345 cm
+  (172 half-extent) and `HI.Unreal.Cast` reads `hips->head` as **151.5** -- about 2.6x the truth. The
+  assimp->FBX route is no better and now for a different reason: with the merged single mesh it DOES
+  carry the mesh, but writes it in metres into an FBX the engine reads as centimetres, so it lands
+  1.8 cm tall.
+  So the fix is an IMPORT-OPTION question, not a modelling one, and it is cheap to settle: import the
+  merged glb with Interchange and vary (a) global/uniform scale 1 vs 100, (b) "use T0 as ref pose",
+  (c) convert-scene on/off, reading `mesh bounds` and `hips->head` after each. Three or four runs.
+  Everything else about her already works and is committed: `CC_Base_*` renamed to our names,
+  `tools/merge-glb-meshes.py` merges her 19 parts into one mesh (stripping `primitive.targets`, which
+  Interchange requires -- "Number of Primitive.Targets is not consistent across the Mesh"),
+  `IK_alina` auto-characterizes to **21 chains**, 21/21 map, ten clips retarget and bind, and her
+  facing is exactly **90.0 deg** so no code row is needed. `tools/scale-glb.py` exists for
+  scale/ground surgery on a glb if a file ever really is wrong, but her file does not need it.
 - hedges are leaf cards over a box: fine at distance, bright cards in shadow up close
 - the getaway van's upper box panels still render red
 - `docs/LOBBY.md` is DEFERRED (Steam/multiplayer parked by Richard)
