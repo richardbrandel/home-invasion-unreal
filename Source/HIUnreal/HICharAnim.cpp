@@ -34,7 +34,7 @@ const TCHAR* FHICharAnim::IntruderTagForId(int32 Id)
 	// NOTE FOR ANYONE ADDING A FOURTH: `Cast[Id % 3]` means a 4th entry is never spawned in a
 	// default round of three. Adding one is a no-op for the player unless the count or the
 	// cycling changes with it -- see docs/NEXT.md.
-	static const TCHAR* Cast[] = { TEXT("dancer"), TEXT("brute"), TEXT("martha") };
+	static const TCHAR* Cast[] = { TEXT("alina"), TEXT("brute"), TEXT("martha") };
 	return Cast[((Id % 3) + 3) % 3];
 }
 
@@ -128,6 +128,13 @@ float FHICharAnim::AuthoredCmPerSec(const TCHAR* Tag, const TCHAR* Clip)
 		// files drive her -- which means the same authored travel. Measured provenance for these
 		// numbers is Martha's row; they are not a guess (2026-11-01).
 		{ TEXT("dancer"), 163.1f, 540.6f,  86.6f },
+		// alina's ten clips are RETARGETED from Martha, so the cadence and the stride the
+		// angles were authored at are Martha's. Measured, not assumed: her retargeted clips
+		// carry no Hips translation left to measure (walk/run/crouch_walk report horiz=0.00,
+		// z=0.00 -- the retarget drops the pelvis track, the Dancer Girl's do the same), so
+		// the only honest source for a travel figure is the row it was retargeted from. She
+		// is 176.6 cm against Martha's 177, so no body-scale correction is warranted.
+		{ TEXT("alina"),  163.1f, 540.6f,  86.6f },
 	};
 	for (const FRow& R : Rows)
 	{

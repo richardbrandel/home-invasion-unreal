@@ -6,8 +6,10 @@ Written at the end of a long session (2026-11-01). Read this, `AGENTS.md`, then
 ## State
 
 - Branch `main`, clean tree, 52/52 tests (`Automation RunTests HI.`), nothing pushed.
-- Cast: **dancer, brute, martha** (`FHICharAnim::IntruderTagForId`). Louise is the player.
-  James is imported and working; he is out of rotation, not gone.
+- Cast: **alina, brute, martha** (`FHICharAnim::IntruderTagForId`). Louise is the player. Alina took
+  slot 0 on 2026-11-03, so the Dancer Girl is the one who is out of rotation now -- she is imported,
+  tested and untouched apart from the one string, and `retarget-character.sh dancer martha woman01`
+  regenerates her clips if they ever get overwritten. James is imported and working too.
 - The game plays; recent work is mostly scene/asset work, not mechanics.
 
 ## Where this stands: the Dancer Girl is in the cast (2026-11-01)
@@ -63,12 +65,21 @@ three thieves per round means the fourth name is never spawned. Options, cheapes
   that screen is set up -- so the one screen that needs a cursor had an invisible one), and
   `tools/play-guard.sh` now writes the game's exit status into its log, so a repeat reads
   `status=139` (segfault) / `137` (killed) / `143` (stopped) instead of "it crashed".
-- **ALINA: THE SCALE/ORIGIN BLOCKER IS DEAD (2026-11-03, fifth pass).** See the section below --
-  her rig now imports at 1.76 m with `hips->head` **56.4 cm** (Martha is 55.1) and 102 bones with
-  our names. What is left is clip work, not rig work: her retargeted `death` has its Hips going
-  UP 104 cm instead of down, and her walk/run/crouch_walk retargets carry **0 cm of root travel**,
-  so `AuthoredCmPerSec` has no row to give her. Everything below this line is the history that led
-  there, kept because the diagnosis was wrong four times and the wrong turns are the useful part.
+- **ALINA IS IN THE CAST AND PLAYABLE (2026-11-03, fifth pass).** `Cast[]` slot 0 is `alina`, she
+  renders textured (camisole, denim, red sneakers, pistol in hand), the suite is **52/52** and
+  `HI.Unreal.Cast` reads `hips->head` **56.4 cm** over 102 bones with our names, facing 90. Two
+  things had to be fixed after the rig, and neither was her asset:
+  1. her `death` was reported as *rising* 104 cm. It falls **81 cm** -- the assertion was reading
+     raw Hips Z, and her parent's up is **(0, 1, 0)**, not (0,0,1). Fixed by projecting onto the
+     parent's up axis, which is the correction the crouch check already carried; both numbers are
+     now logged.
+  2. her `walk`/`run`/`crouch_walk` carry **no Hips translation** (the retarget drops the pelvis
+     track -- the Dancer Girl's do the same), so `AuthoredCmPerSec` gets her Martha's row, which is
+     where her clips were retargeted from.
+  **Cast composition is now a live decision**: slot 0 held the Dancer Girl and now holds Alina.
+  Putting the dancer back is that one string; the four-way pool at the top of this section is still
+  the open design question. Everything below is the history, kept because the diagnosis was wrong
+  four times and the wrong turns are the useful part.
 - **ALINA: her MESH now imports correctly; her SKELETON still does not (2026-11-01, fourth pass).**
   Blender is installed (5.0.1 from apt; `python3-numpy` was needed for its glTF importer, and the
   importer rejects the merged file with `'NoneType' object has no attribute 'id_type'` but accepts
@@ -144,15 +155,26 @@ Three traps on that route, all hit today:
    sit at 0 cm, and `Cast` went red. Re-run `retarget-character.sh dancer martha woman01` to restore
    her; do not run `import-assets.sh` casually on a character that has been retargeted.
 
-**What is still wrong with Alina, both clip-side and both measured** (cast is `dancer/brute/martha`,
-52/52, her assets are on disk and out of the cast):
+**Both of the clip faults turned out to be bookkeeping, not motion** (recorded here because the
+first reading of each was wrong):
 
-- `alina/death` **rises** 104 cm where it must fall (martha falls 80, brute 100). The retargeted
-  Hips descend in the wrong direction for her rig -- the same class of mistake `Cast` already
-  projects around for the crouch check (`Hips` up is not always `+Z`; hers is `(0.0, -1.7, 56.4)`).
-- her `walk`/`run`/`crouch_walk` retargets carry **0.0 cm of travel**, so there is no authored
-  cm/s to put in `AuthoredCmPerSec` and `Cast`'s stride checks are right to fail. Fix the retarget
-  first (or author the rows from the engine's own measurement), not the table.
+- `alina/death` was reported as **rising** 104 cm. It **falls 81 cm**. The clip was always right;
+  the assertion read raw Hips `Z`, and her Hips' parent up is `(0, 1, 0)`, not `(0,0,1)` -- the
+  same trap the crouch check documented on 2026-11-01 and the death check had not. Her
+  `hips->head` being `(0.0, -1.7, 56.4)` says nothing about the PARENT's frame, which is the
+  distinction that cost the reading.
+- her `walk`/`run`/`crouch_walk` carry **0.0 cm of Hips translation**, and so do the Dancer Girl's:
+  the batch retarget drops the pelvis track, and the values in `AuthoredCmPerSec` were always
+  measured from the SOURCE clips before pinning. So the row for a retargeted character is the row
+  it was retargeted from (Martha's). That is provenance, not a guess -- the same reasoning the
+  dancer's row already carried.
+
+**Materials.** She renders textured only if her 19 materials and 37 textures survive the import.
+They do NOT survive a re-import of the mesh into an existing flat package (Interchange replaces the
+mesh alone and reports one object), and the nested glTF layout has to be flattened AROUND them --
+move `Textures/` and `Materials/` up first, then the mesh. Importing her while
+`SourceAssets/characters/dancer` exists re-breaks the dancer (see trap 3 above); hold that folder
+out of the tree for the run.
 
 ## Working notes that keep costing time
 

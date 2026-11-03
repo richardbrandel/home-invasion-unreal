@@ -1770,10 +1770,43 @@ bool FHIUnrealCast::RunTest(const FString& Parameters)
 				// held upright at 87 cm -- if a re-export ever regresses to that,
 				// the ragdoll stops being a settle and has to become the fall again,
 				// and this line is what says so.
-				const float Drop = HipPos[0].Z - HipPos.Last().Z;
+				//
+				// MEASURED ALONG THE PARENT'S UP AXIS, not raw Z (2026-11-03), for the reason
+				// the crouch check below already documents: a Hips track is expressed in its
+				// PARENT's space, so its Z is world height only while that parent is unrotated.
+				// Alina's rig carries `_rootJoint` and `CC_Base_BoneRoot_01` above the Hips, and
+				// her death clip read a raw **-104 cm** on a body that plainly falls. Projected
+				// onto her parent's up -- which is (0, 1, 0) for her and (0, 0, 1) for every
+				// FBX character here -- the same clip descends **81 cm**, in family with louise
+				// 82, martha 80 and brute 100. Both numbers are logged, so a future character
+				// that genuinely rises cannot hide behind this correction.
+				FVector UpInHipsSpace(0.0f, 0.0f, 1.0f);
+				{
+					const int32 HipsIdx = Ref.FindBoneIndex(TEXT("Hips"));
+					const int32 HipsParent = (HipsIdx != INDEX_NONE) ? Ref.GetParentIndex(HipsIdx) : INDEX_NONE;
+					if (HipsParent != INDEX_NONE)
+					{
+						TArray<FTransform> Comp;
+						Comp.SetNum(Ref.GetNum());
+						for (int32 i = 0; i < Ref.GetNum(); ++i)
+						{
+							const int32 Parent = Ref.GetParentIndex(i);
+							Comp[i] = (Parent != INDEX_NONE)
+								? Ref.GetRefBonePose()[i] * Comp[Parent] : Ref.GetRefBonePose()[i];
+						}
+						UpInHipsSpace = Comp[HipsParent].GetRotation().Inverse().RotateVector(FVector::UpVector);
+					}
+				}
+				auto AlongUp = [&UpInHipsSpace](const FVector3f& P) -> float
+				{
+					return P.X * UpInHipsSpace.X + P.Y * UpInHipsSpace.Y + P.Z * UpInHipsSpace.Z;
+				};
+				const float DropRaw = HipPos[0].Z - HipPos.Last().Z;
+				const float Drop = AlongUp(HipPos[0]) - AlongUp(HipPos.Last());
 				const float Travel = HICastHorizSpreadCm(HipPos);
-				AddInfo(FString::Printf(TEXT("%s/death: Hips drops %.0f cm and travels %.0f cm horizontally (left as authored -- the fall IS the root motion)"),
-					Tag, Drop, Travel));
+				AddInfo(FString::Printf(
+					TEXT("%s/death: Hips drops %.0f cm along the parent's up (%.2f, %.2f, %.2f), %.0f cm in raw Z, travelling %.0f cm horizontally (left as authored -- the fall IS the root motion)"),
+					Tag, Drop, UpInHipsSpace.X, UpInHipsSpace.Y, UpInHipsSpace.Z, DropRaw, Travel));
 				TestTrue(*FString::Printf(TEXT("%s/death really falls: Hips descends %.0f cm (> 40)"), Tag, Drop),
 					Drop > 40.0f);
 			}
