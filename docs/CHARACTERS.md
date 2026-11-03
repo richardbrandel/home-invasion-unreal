@@ -142,3 +142,23 @@ Two things left, neither blocking:
 
 `alina.glb` is staged in `SourceAssets/models` for the same pipeline; it has a `CC_Base_*` rig, so
 expect the auto-characterizer to need more help than the Dancer Girl's Mixamo-family one did.
+
+## Alina: the rig imports correctly IF Blender is fed the repaired glb (2026-11-03)
+
+The auto-characterizer needed no help at all in the end -- `IK_alina` characterised to 21 chains
+and mapped 21/21, exactly as the Dancer Girl did. The whole four-pass blocker was the input file:
+Blender positions skinned bones from the skin's **inverse-bind matrices**, and `alina.glb` ships 21
+of its 102 as zero-translation placeholders, so Blender put her hips on the floor and every importer
+downstream inherited a 155 cm spine on a 176 cm body.
+
+| input to `blender-reexport.py` | hips | head | `hips->head` |
+|---|---|---|---|
+| raw `alina.glb` | 0.000 m (0% of height) | 1.550 m | **155.0 cm** |
+| `fix-glb-skin.py` output | 0.986 m (55.8%) | 1.550 m | **56.4 cm** |
+
+Martha's is 55.1 cm, so the repaired path is in family. The engine agrees to 0.4 cm: `Cast` logs
+`alina: 102 bones, bone[0] is '_rootJoint'`, `lateral=(-1.00, 0.00, 0.00)` and `hips->head` 56.4 --
+so `FacingYawDeg` needs no row for her (she is a clean 90). `tools/blender-reexport.py` now refuses
+to write a rig whose hips are outside 40-65% of height, which is the check that would have caught
+this on day one. Remaining work is clip-side only; see `NEXT.md`.
+

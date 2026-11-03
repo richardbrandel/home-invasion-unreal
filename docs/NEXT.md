@@ -63,6 +63,12 @@ three thieves per round means the fourth name is never spawned. Options, cheapes
   that screen is set up -- so the one screen that needs a cursor had an invisible one), and
   `tools/play-guard.sh` now writes the game's exit status into its log, so a repeat reads
   `status=139` (segfault) / `137` (killed) / `143` (stopped) instead of "it crashed".
+- **ALINA: THE SCALE/ORIGIN BLOCKER IS DEAD (2026-11-03, fifth pass).** See the section below --
+  her rig now imports at 1.76 m with `hips->head` **56.4 cm** (Martha is 55.1) and 102 bones with
+  our names. What is left is clip work, not rig work: her retargeted `death` has its Hips going
+  UP 104 cm instead of down, and her walk/run/crouch_walk retargets carry **0 cm of root travel**,
+  so `AuthoredCmPerSec` has no row to give her. Everything below this line is the history that led
+  there, kept because the diagnosis was wrong four times and the wrong turns are the useful part.
 - **ALINA: her MESH now imports correctly; her SKELETON still does not (2026-11-01, fourth pass).**
   Blender is installed (5.0.1 from apt; `python3-numpy` was needed for its glTF importer, and the
   importer rejects the merged file with `'NoneType' object has no attribute 'id_type'` but accepts
@@ -86,6 +92,67 @@ three thieves per round means the fourth name is never spawned. Options, cheapes
 - hedges are leaf cards over a box: fine at distance, bright cards in shadow up close
 - the getaway van's upper box panels still render red
 - `docs/LOBBY.md` is DEFERRED (Steam/multiplayer parked by Richard)
+
+## Alina, 2026-11-03: the rig was never broken, the INPUT to Blender was
+
+Four passes blamed her rig: the wrapper rotation, the 2x/hip-centred authoring, the zero
+inverse-bind matrices, then "her bone space is incomprehensible". The measurement that settles it
+takes one command and no engine:
+
+```sh
+python3 tools/fix-glb-skin.py SourceAssets/models/alina.glb /tmp/alina_fixed.glb
+blender --background --python tools/blender-reexport.py -- /tmp/alina_fixed.glb /tmp/alina_bl.glb 1.75
+```
+
+- **Fed the RAW glb, Blender puts `CC_Base_Hip_02` on the floor.** Measured on the raw file at
+  import: hip local `(0.000, 0.000, 0.000)` while the head bone is at `158.295` -- so the rig comes
+  out with a **155 cm `hips->head` on a 176 cm body**, which is EXACTLY the number
+  `HI.Unreal.Cast` logged for four passes. Blender positions skinned bones from the skin's
+  inverse-bind matrices, and `alina.glb` ships 21 of them as zero placeholders.
+- **Fed the REPAIRED glb, the same command gives hip `z = 0.986 m` (55.8% of height), head
+  `1.550`, `hips->head` 56.4 cm, feet at 0, mesh 1.765 m** -- and the engine imports it unchanged:
+  `alina: 102 bones, bone[0] is '_rootJoint'`, `lateral=(-1.00, 0.00, 0.00)`, **`hips->head` 56.4**.
+  No wrapper, no per-tag scale, no code change: she faces 90 deg like the rest of the cast.
+- **The gate is now in the tool**, not in a doc: `tools/blender-reexport.py` refuses to write a rig
+  whose hips are outside 40-65% of height and names `fix-glb-skin.py` in the error. Verified both
+  ways -- raw file: "hips at -0.1% of height -- refusing"; repaired file: writes normally.
+
+**Working pipeline, in order** (the `idle.glb` route, not FBX):
+
+```sh
+python3 tools/fix-glb-skin.py SourceAssets/models/alina.glb /tmp/a_fixed.glb
+blender --background --python tools/blender-reexport.py -- /tmp/a_fixed.glb /tmp/a_bl.glb 1.75
+GLB_WRAPPER=0 GLB_SCALE=1 python3 tools/rename-glb-bones.py /tmp/a_bl.glb /tmp/a_named.glb
+python3 tools/merge-glb-meshes.py /tmp/a_named.glb SourceAssets/characters/alina/idle.glb
+tools/import-assets.sh
+tools/retarget-character.sh alina martha woman01
+```
+
+Three traps on that route, all hit today:
+
+1. **A stale `SourceAssets/models/alina.glb` poisons the retarget.** `import-assets.sh` imports
+   everything, so the old 2x model re-created `models/alina/SkeletalMeshes/alina_Skeleton`, and
+   `retarget-character.sh` bound her ten clips to THAT instead of to her character rig. The binding
+   check is what named it -- read the `-> OK, all 10 clips bound to ...` line, do not assume.
+2. **A glTF character imports NESTED** (`characters_alina/idle/SkeletalMeshes/idle`), and
+   `rename-glb-bones`/`retarget` cannot rename it to the flat `characters_alina/idle` while the
+   folder of that name still holds the textures. Flatten first (rename mesh to `idle_tmp`, rename
+   the `Textures`/`Materials` folders up one level, delete the empty folder, then rename the mesh),
+   or the game loads nothing and `Cast` reports a bone list from a stale asset.
+3. **`import-assets.sh` OVERWRITES retargeted clips with the raw FBX in that character's folder.**
+   Running it after `retarget-character.sh` silently reverted the Dancer Girl to clips whose Hips
+   sit at 0 cm, and `Cast` went red. Re-run `retarget-character.sh dancer martha woman01` to restore
+   her; do not run `import-assets.sh` casually on a character that has been retargeted.
+
+**What is still wrong with Alina, both clip-side and both measured** (cast is `dancer/brute/martha`,
+52/52, her assets are on disk and out of the cast):
+
+- `alina/death` **rises** 104 cm where it must fall (martha falls 80, brute 100). The retargeted
+  Hips descend in the wrong direction for her rig -- the same class of mistake `Cast` already
+  projects around for the crouch check (`Hips` up is not always `+Z`; hers is `(0.0, -1.7, 56.4)`).
+- her `walk`/`run`/`crouch_walk` retargets carry **0.0 cm of travel**, so there is no authored
+  cm/s to put in `AuthoredCmPerSec` and `Cast`'s stride checks are right to fail. Fix the retarget
+  first (or author the rows from the engine's own measurement), not the table.
 
 ## Working notes that keep costing time
 

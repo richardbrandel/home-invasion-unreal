@@ -18,6 +18,16 @@ What this does:
     rather than discovered after an import;
   * exports glb (not FBX): Blender's FBX exporter is the one this project already recorded as
     broken for skinned armatures in 5.0 (`use_space_transform`), and its glTF exporter is sound.
+
+FEED IT THE **IBM-REPAIRED** GLB, NOT THE DOWNLOAD (measured 2026-11-03). Blender places a
+skinned bone from the joint node AND positions the rest of the rig through the skin's
+inverse-bind matrices. `alina.glb` ships 21 of its 102 IBMs as zero-translation placeholders,
+so fed the raw file Blender puts `CC_Base_Hip_02` **on the floor** (local z 0.000, head bone
+158.3) and the rig comes out with a 155 cm spine for a 176 cm body -- the "bones are 2.7x the
+mesh" symptom four earlier passes chased. `tools/fix-glb-skin.py` rewrites those matrices from
+the node transforms; its output re-exports as hips at 55.8% of height and hips->head 56.4 cm,
+which the engine then imports unchanged. The gate at the end of this script refuses a rig whose
+hips are not near half height, so the wrong input fails here instead of in the game.
 """
 
 import sys
@@ -71,6 +81,35 @@ lo, hi = deformed_height()
 print("REEXPORT: height before = %.4f m (feet at %.4f)" % (hi - lo, lo))
 if hi - lo <= 0:
     raise SystemExit("REEXPORT: zero height")
+
+
+def hips_fraction():
+    """Where the pelvis sits between the deformed feet and the top of the head, 0..1.
+
+    Read from the ARMATURE, not the mesh, because that is the number the engine turns into
+    `HI.Unreal.Cast`'s `hips->head`, and it is the one that silently goes to zero when Blender
+    is handed a glb whose inverse-bind matrices are placeholders.
+    """
+    if armature is None:
+        return -1.0
+    for bone in armature.data.bones:
+        low = bone.name.lower()
+        if low == "hips" or low == "hip" or low == "cc_base_hip_02" or low.startswith("hips."):
+            z = (armature.matrix_world @ bone.head_local).z
+            return (z - lo) / (hi - lo)
+    return -1.0
+
+
+frac = hips_fraction()
+print("REEXPORT: hips at %.1f%% of height" % (100.0 * frac))
+if not (0.40 <= frac <= 0.65):
+    raise SystemExit(
+        "REEXPORT: hips at %.1f%% of height -- refusing to write a rig this far off.\n"
+        "  Almost always this means the input glb's inverse-bind matrices are the zero\n"
+        "  placeholders Blender positions bones from. Run:\n"
+        "    python3 tools/fix-glb-skin.py <in.glb> <fixed.glb>\n"
+        "  and re-export the FIXED file (see this script's docstring, 2026-11-03)." % (100.0 * frac))
+
 if armature is not None:
     factor = target_h / (hi - lo)
     armature.scale = [v * factor for v in armature.scale]
