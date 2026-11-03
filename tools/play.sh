@@ -24,6 +24,7 @@
 # Optional: any extra Unreal arguments are passed through, e.g.
 #     tools/play.sh -HIThieves=1
 set -u
+HERE=$(cd "$(dirname "$0")" && pwd)
 
 # ---- ON THE MAC, FORWARD TO THE BUILD MACHINE. The game runs on `ubuntu-dev`, but the project
 # is edited on the Mac and that is where Richard usually is, so the SAME script has to work from
@@ -57,8 +58,12 @@ LOG=/tmp/hi_play.log
 # `intruders=3` with identical step counts, and the single-thief question the battery
 # existed to answer was never asked. Explicit arguments must win over defaults, and
 # with first-wins parsing the only way to arrange that is defaults last.
-setsid nohup "$UE" "$PROJ" -game "$@" -windowed -ResX=1600 -ResY=900 -HIThieves=3 \
-	-log -abslog="$LOG" >/tmp/hi_play.out 2>&1 < /dev/null &
+# THROUGH A GUARD, so the exit status survives (2026-11-01). "It crashed" with no status is
+# unanswerable: 139 is a segfault, 137 is a kill, 143 is a polite stop, and the launcher used to
+# discard all three by backgrounding the game and exiting. The guard appends the verdict to the
+# game's own log, which is where anyone looks.
+setsid nohup "$HERE/play-guard.sh" "$UE" "$PROJ" -game "$@" -windowed -ResX=1600 -ResY=900 \
+	-HIThieves=3 -log -abslog="$LOG" >/tmp/hi_play.out 2>&1 < /dev/null &
 disown 2>/dev/null || true
 
 # Wait for it to actually claim input, rather than assuming 20 seconds is enough. "The game did
@@ -67,8 +72,10 @@ n=0
 while [ "$n" -lt 60 ]; do
 	sleep 2
 	n=$((n + 2))
-	if grep -aq "input claimed" "$LOG" 2>/dev/null; then
-		echo "play: running (input claimed after ${n}s), pid $(pgrep -x UnrealEditor | head -1)"
+	# "input claimed" now means IN A ROUND, because the main menu keeps its cursor (2026-11-01).
+	# The menu marker is the "game is up" signal for a launch that stops at the front end.
+	if grep -aqE "input claimed|main menu up" "$LOG" 2>/dev/null; then
+		echo "play: running (up after ${n}s), pid $(pgrep -x UnrealEditor | head -1)"
 		exit 0
 	fi
 	if ! pgrep -x UnrealEditor >/dev/null 2>&1; then

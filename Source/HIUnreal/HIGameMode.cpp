@@ -453,6 +453,13 @@ void AHIGameMode::BeginPlay()
 	Screen = bMenuAvailable ? EHIScreen::MainMenu : EHIScreen::Playing;
 	if (bMenuAvailable)
 	{
+		// A MARKER, because every launcher and harness in tools/ used to key on "input claimed" as
+		// "the game is up" -- and the menu no longer claims the mouse (2026-11-01), so that signal
+		// now means "in a round". This one means what they actually want.
+		UE_LOG(LogTemp, Display, TEXT("HI: main menu up"));
+	}
+	if (bMenuAvailable)
+	{
 		// The menu is navigated with the keyboard and the mouse must be free to be visible.
 		IntruderCount = MenuIntruders;
 	}
@@ -1736,7 +1743,17 @@ void AHIGameMode::Tick(float DeltaSeconds)
 	// rather than inside the live-round branch below. `ClaimInput` is idempotent; `[ESC]` is the
 	// only way out of a captured cursor, and a player who cannot free it cannot reach anything --
 	// not the round-restart prompt, and not a window control, because this window has no title bar.
-	ClaimInput();
+	//
+	// THE MENU KEEPS ITS CURSOR (2026-11-01). This call used to be unconditional, which grabbed the
+	// mouse while the MAIN MENU was up -- directly against the comment where that screen is set up
+	// ("the menu is navigated with the keyboard and the mouse must be free to be visible"), so the
+	// one screen that needs a pointer had an invisible one. Only the round claims it now; the claim
+	// happens on the first tick after `StartFromMenu` sets `Playing`, and `[ESC]` still gives it
+	// back from there.
+	if (Screen == EHIScreen::Playing)
+	{
+		ClaimInput();
+	}
 	PollMouseRelease();
 
 	// The hit marker's fade, ticked here rather than in the HUD so the marker runs down even

@@ -53,6 +53,16 @@ three thieves per round means the fourth name is never spawned. Options, cheapes
   `Female_Casual_Skeleton1`) are dead leftovers from the GUI attempts.
 - the earlier GUI attempts left dead rigs at `characters_dancer/idle/SkeletalMeshes/IK_idle`,
   `RTG_idle` and `HIImported/mixamo/IK_Female_Casual*` — safe to delete, nothing references them
+- **AN UNREPRODUCED CRASH AT THE MAIN MENU (2026-11-01).** One interactive launch died 16 ms after
+  `input claimed`, before `HI: menu -> play` -- i.e. ON the menu, not in a round. There is no
+  evidence of *how*: no `Saved/Crashes/` entry, no core, no OOM or kernel message, and the log just
+  stops (a clean exit always logs `LogExit: Exiting`). Five controlled runs afterwards, including
+  the exact command line with a real window, all survived; the only coincidence worth noting is that
+  the user's wireless HID dongle had re-enumerated two minutes before the launch. Two things came
+  out of the investigation: **the menu no longer grabs the mouse** (it did, against the comment where
+  that screen is set up -- so the one screen that needs a cursor had an invisible one), and
+  `tools/play-guard.sh` now writes the game's exit status into its log, so a repeat reads
+  `status=139` (segfault) / `137` (killed) / `143` (stopped) instead of "it crashed".
 - hedges are leaf cards over a box: fine at distance, bright cards in shadow up close
 - the getaway van's upper box panels still render red
 - `docs/LOBBY.md` is DEFERRED (Steam/multiplayer parked by Richard)
