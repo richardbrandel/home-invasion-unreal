@@ -63,6 +63,19 @@ three thieves per round means the fourth name is never spawned. Options, cheapes
   that screen is set up -- so the one screen that needs a cursor had an invisible one), and
   `tools/play-guard.sh` now writes the game's exit status into its log, so a repeat reads
   `status=139` (segfault) / `137` (killed) / `143` (stopped) instead of "it crashed".
+- **ALINA IS AT STEP 5 OF 6 (2026-11-01).** Her rig works end to end: `CC_Base_*` renamed to our
+  names, 19 glTF meshes merged to one, imported via Interchange (NOT assimp -- it carried only one
+  submesh), `IK_alina` auto-characterized to **21 chains**, 21/21 mapped, ten clips retargeted and
+  bound, facing exactly **90.0 deg** so no code row is needed. What blocks her is her SCALE AND
+  ORIGIN: her glb is authored at 2x (345 cm) and hip-centred, so a 0.5 scale on a wrapper node
+  halves the MESH but not the skinned joints -- measured after import: mesh 172 cm, `hips->head`
+  151.5 cm against Martha's 55.1, and the clip's Hips sits at Z=0 where the game expects ~96. That
+  also makes `death` show no descent and the physics-asset reference get lost in the rename. The fix
+  is at the DATA level (scale POSITION accessors, joint translations and inverse-bind-matrix
+  translations together, then offset so the feet sit at Z=0) -- a per-tag scale in code cannot
+  satisfy `HI.Unreal.Cast`, which reads the CLIP's Hips height. Tools for the rest are committed:
+  `tools/rename-glb-bones.py` now maps CC_Base (and takes `GLB_WRAPPER=0` for the Interchange path,
+  `GLB_SCALE=`), and `tools/merge-glb-meshes.py` does the 19->1 merge.
 - hedges are leaf cards over a box: fine at distance, bright cards in shadow up close
 - the getaway van's upper box panels still render red
 - `docs/LOBBY.md` is DEFERRED (Steam/multiplayer parked by Richard)
