@@ -63,27 +63,26 @@ three thieves per round means the fourth name is never spawned. Options, cheapes
   that screen is set up -- so the one screen that needs a cursor had an invisible one), and
   `tools/play-guard.sh` now writes the game's exit status into its log, so a repeat reads
   `status=139` (segfault) / `137` (killed) / `143` (stopped) instead of "it crashed".
-- **ALINA: THE ASSET IS MALFORMED, AND THAT IS NOW PROVEN (2026-11-01, third correction).** Her
-  glb declares a 105-joint skin whose `inverseBindMatrices` are partly ZERO-TRANSLATION
-  PLACEHOLDERS: `CC_Base_Hip_02` carries IBM translation (0,0,0) while its bind position, composed
-  from the node transforms, is (0, 100.7, 0) -- measured on Hip, L_Thigh, L_Calf. **21 of 102** are
-  wrong; the rest are real. `tools/fix-glb-skin.py` recomputes them from the node transforms and
-  self-checks (`|IBM * bindPosition|` comes back 0.0000).
-  BUT THE UNITS DO NOT RECONCILE EITHER. After the IBM repair the engine reports the Hips at
-  **10069 cm** (its unit conversion multiplying *joint translations* by 100) while the mesh stays
-  **345 cm** (vertices passing through ~1.9x). Vertices and joints are being scaled by different
-  factors, so no single pre-scale in the file can satisfy both -- and that is the state of this
-  asset, not a knob I have not found yet. Earlier notes here said "she is 2x and hip-centred" and
-  then "her file is sound"; both were wrong, this is the measured version.
-  So: her asset needs a RE-EXPORT through a tool that recomputes skinning and units together. That
-  is available -- `apt-cache policy blender` offers 5.0.1 and passwordless sudo works on this box.
-  The project's recorded objection to Blender concerns its FBX **animation** exporter
-  (`use_space_transform`), not a skinned mesh export, and its glTF exporter is the sane one; so:
-  import her glb in Blender, export FBX (mesh + skeleton, no clips) for the engine's FBX importer,
-  and fall back to a re-exported glb if the FBX path trips the same bug. Then the pipeline that
-  already works takes over -- `IK_alina` auto-characterized to 21 chains on the first attempt, 21/21
-  mapped, ten clips retargeted, facing exactly 90.0 deg -- and step 6 is the one-line cast flip.
-  If the re-export disappoints too, the cheap fallback is her materials on the Dancer Girl's body.
+- **ALINA: her MESH now imports correctly; her SKELETON still does not (2026-11-01, fourth pass).**
+  Blender is installed (5.0.1 from apt; `python3-numpy` was needed for its glTF importer, and the
+  importer rejects the merged file with `'NoneType' object has no attribute 'id_type'` but accepts
+  her ORIGINAL glb). `tools/blender-reexport.py` imports her, joins her 20 parts into one mesh,
+  scales her to a chosen height and grounds her feet, then exports glb -- and that file is right:
+  1 mesh, 102 joints, **1.765 m tall, feet at 0, bones named Hips/RightHand/Spine2/LeftToeBase**.
+  The engine imports THAT to a **176.6 cm** mesh (Martha is 177) -- so the mesh finally matches the
+  cast.
+  But the skeleton does not: with her in the cast the suite is 50/52 and `HI.Unreal.Cast` reads
+  `hips->head` as **155.0 cm** for a 176.6 cm body, the same bone-vs-mesh split as every earlier
+  attempt, plus her clip Hips reads 0 cm (so `death` shows no fall) and her walk/run strides read
+  0.0. Two of those are mine to fix -- the `AuthoredCmPerSec` row for alina was removed on revert
+  and the physics-asset reference is lost when the mesh is renamed/moved -- but `hips->head` is not:
+  the bones are ~2.7x the mesh in every path tried (raw glb, IBM-repaired glb, assimp FBX, Blender
+  re-export), which points at her rig's bone space rather than at any importer.
+  RECOMMENDATION, and it is judgement not measurement: stop spending sessions on this asset. The
+  reliable routes are (a) her MATERIALS on the Dancer Girl's body -- no rig, works today, different
+  body shape; (b) a re-rigged character (Mixamo upload, or a model that ships with a standard rig),
+  which the pipeline handles in one command; (c) a deliberate investigation of her glb's joint
+  space with a fresh session's full attention. Do not start (c) expecting a quick win.
 - hedges are leaf cards over a box: fine at distance, bright cards in shadow up close
 - the getaway van's upper box panels still render red
 - `docs/LOBBY.md` is DEFERRED (Steam/multiplayer parked by Richard)
