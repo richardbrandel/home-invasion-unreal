@@ -63,25 +63,27 @@ three thieves per round means the fourth name is never spawned. Options, cheapes
   that screen is set up -- so the one screen that needs a cursor had an invisible one), and
   `tools/play-guard.sh` now writes the game's exit status into its log, so a repeat reads
   `status=139` (segfault) / `137` (killed) / `143` (stopped) instead of "it crashed".
-- **ALINA: her SOURCE FILE IS FINE; THE IMPORT IS WHAT DISTORTS HER (2026-11-01, corrected).** Measured
-  in the glb itself by composing her node transforms: feet at Y~0, hips **100.7**, head **158.3**, so
-  `hips->head` is **57.6** against Martha's 55.1 and her height is 180 units -- a normal adult, rig
-  and mesh both Y-up and consistent. An earlier note in this file claimed she was "authored at 2x and
-  hip-centred"; that was inferred from engine bounds and is WRONG -- do not act on it.
-  What the engine does with her is the problem: after an Interchange import the mesh measures ~345 cm
-  (172 half-extent) and `HI.Unreal.Cast` reads `hips->head` as **151.5** -- about 2.6x the truth. The
-  assimp->FBX route is no better and now for a different reason: with the merged single mesh it DOES
-  carry the mesh, but writes it in metres into an FBX the engine reads as centimetres, so it lands
-  1.8 cm tall.
-  So the fix is an IMPORT-OPTION question, not a modelling one, and it is cheap to settle: import the
-  merged glb with Interchange and vary (a) global/uniform scale 1 vs 100, (b) "use T0 as ref pose",
-  (c) convert-scene on/off, reading `mesh bounds` and `hips->head` after each. Three or four runs.
-  Everything else about her already works and is committed: `CC_Base_*` renamed to our names,
-  `tools/merge-glb-meshes.py` merges her 19 parts into one mesh (stripping `primitive.targets`, which
-  Interchange requires -- "Number of Primitive.Targets is not consistent across the Mesh"),
-  `IK_alina` auto-characterizes to **21 chains**, 21/21 map, ten clips retarget and bind, and her
-  facing is exactly **90.0 deg** so no code row is needed. `tools/scale-glb.py` exists for
-  scale/ground surgery on a glb if a file ever really is wrong, but her file does not need it.
+- **ALINA: THE ASSET IS MALFORMED, AND THAT IS NOW PROVEN (2026-11-01, third correction).** Her
+  glb declares a 105-joint skin whose `inverseBindMatrices` are partly ZERO-TRANSLATION
+  PLACEHOLDERS: `CC_Base_Hip_02` carries IBM translation (0,0,0) while its bind position, composed
+  from the node transforms, is (0, 100.7, 0) -- measured on Hip, L_Thigh, L_Calf. **21 of 102** are
+  wrong; the rest are real. `tools/fix-glb-skin.py` recomputes them from the node transforms and
+  self-checks (`|IBM * bindPosition|` comes back 0.0000).
+  BUT THE UNITS DO NOT RECONCILE EITHER. After the IBM repair the engine reports the Hips at
+  **10069 cm** (its unit conversion multiplying *joint translations* by 100) while the mesh stays
+  **345 cm** (vertices passing through ~1.9x). Vertices and joints are being scaled by different
+  factors, so no single pre-scale in the file can satisfy both -- and that is the state of this
+  asset, not a knob I have not found yet. Earlier notes here said "she is 2x and hip-centred" and
+  then "her file is sound"; both were wrong, this is the measured version.
+  So: her asset needs a RE-EXPORT through a tool that recomputes skinning and units together. That
+  is available -- `apt-cache policy blender` offers 5.0.1 and passwordless sudo works on this box.
+  The project's recorded objection to Blender concerns its FBX **animation** exporter
+  (`use_space_transform`), not a skinned mesh export, and its glTF exporter is the sane one; so:
+  import her glb in Blender, export FBX (mesh + skeleton, no clips) for the engine's FBX importer,
+  and fall back to a re-exported glb if the FBX path trips the same bug. Then the pipeline that
+  already works takes over -- `IK_alina` auto-characterized to 21 chains on the first attempt, 21/21
+  mapped, ten clips retargeted, facing exactly 90.0 deg -- and step 6 is the one-line cast flip.
+  If the re-export disappoints too, the cheap fallback is her materials on the Dancer Girl's body.
 - hedges are leaf cards over a box: fine at distance, bright cards in shadow up close
 - the getaway van's upper box panels still render red
 - `docs/LOBBY.md` is DEFERRED (Steam/multiplayer parked by Richard)
