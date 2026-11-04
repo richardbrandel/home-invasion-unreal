@@ -429,3 +429,61 @@ killing blow. A flinch clip is the gap; whether Richard wants it is a feel call
 
 None of this changes the sim's determinism contract — every proposal above is
 either visual-only or a data rule in the same style as the existing ones.
+
+---
+
+## Frame pass, 2026-11-03 (tour + six targeted captures)
+
+A fresh look at the current build — the eight-view `tools/tour.sh` plus targeted frames —
+rather than a re-read of this list. **Two of the items below were already built and read badly,
+which is a different job from not existing**, and that distinction is the point of this section.
+
+### Fixed the same day
+
+- **The pistol was pale/white** (item from 2026-10-12, still open). The recorded cause -- "its
+  texture is not reaching the shader" -- was WRONG. `MI_Weapon_Pistol` has all four textures bound
+  and is BLEND_OPAQUE; what it also has is a `Team.WeaponTint` vector defaulting to white, and
+  nobody set one. `FHICharAnim::DarkenWeapon` now sets it to gunmetal on a dynamic instance per
+  slot, so the albedo, normal map and masks keep working. Both the player's and the intruders' gun
+  go through `AttachPistol`, so one call site covers the whole cast.
+- **`tour_1_street` was capturing from inside the van.** The camera sat at y=6.0, the van occupies
+  y 7.0-9.4, and the frame was a green close-up of paint. Moved to (0, 12.0) at pitch 0 and 4 s
+  after launch, because at 1.5 s the shot fired during shader compilation and wrote garbage
+  ("Skipping final capture"). Verified: house, drive and van all in frame.
+
+### Already implemented, but reading badly (tuning, not building)
+
+- **Skirting exists.** `HIHouse.cpp` derives it from the wall rows per storey (2026-10-23). It is
+  there and nearly invisible: same near-white as the wall, so the wall/floor junction still reads
+  as a hard line. What it needs is contrast -- a slightly grey or off-white paint -- not geometry.
+- **The ceiling fittings exist.** A dark housing plus an inset diffuser (2026-10-27), and in a close
+  crop the diffuser is blown to pure white with a hard edge and the "dark" housing reads mid-grey,
+  because the light it houses is 3 cm away. Needs proportion + emissive tuning, and ideally a
+  darker material that does not catch its own lamp.
+
+### New, not on the list above
+
+- **The van's tyres are body-coloured.** Confirmed in the new street frame: the wheels are the same
+  pale green as the cargo box, rim included. The wheels are NOT the `WheelInstances` component --
+  that component is tinted `Tyre` (0.05) and the only `AddInstance` on it is the lally column, so
+  whatever draws those wheels is something else. Diagnose before changing: the fix may be a tint on
+  the van's own material rather than a wheel material.
+- **The van reads as one speckled slab.** Whatever texture it wears is a mottled pale green across
+  the body, the cab and the wheels, with no door seams, latches or glazing break-up visible at 4 m.
+- **A blank grey rectangle on the living-room wall** where a picture belongs (item 24's "still flat"
+  list does not mention it because it is not flat -- it is empty).
+- **The entry has a white sheet draped over a dark wardrobe and stacked cardboard boxes.** Reads as
+  a moving-day placeholder in the first room the player sees.
+- **The minimap is sometimes an empty grey box.** In four of nine frames it drew no walls at all,
+  only the two bars and a couple of dots, which reads as broken rather than "nothing to show".
+- **The ceilings in the hall/dining have stepped white slabs** at different depths. Possibly the
+  stair soffit rather than a defect -- it needs a deliberate look before anyone "fixes" it.
+- **The interfloor ceilings blow out** near every fitting: the wall/ceiling junction loses all
+  definition within about a metre of a lamp.
+
+### Still standing from the list above (unchanged, and still true on screen)
+
+Items 1 (furniture), 2 (neighbourhood: the two neighbour buildings are pastel slabs with coloured
+stripes), 3 (van), 10 (no windows on any interior wall -- every room is lit as if the walls were
+paper), 14 (night lighting), 24 (carpet, casings, ceiling finish), 25 (the house front has no door
+or windows on the street face), 26 (no muzzle flash or casings).

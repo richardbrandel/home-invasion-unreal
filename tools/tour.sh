@@ -41,7 +41,7 @@ shot() {
 
 echo "tour: eight views, $THIEVES intruders"
 #                    name              pos         yaw  pitch after
-shot tour_1_street     "0,6.0"       180  -2   1.5   # the approach: house and drive ahead
+shot tour_1_street     "0,12.0"      180   0   4.0   # the approach: house, drive and van
 shot tour_2_spawn      "0,-10.6"       0   2   2.0   # where a round starts: the front door
 shot tour_3_hall       "0,-13.0"       0   0   2.0   # the hall, divider, fittings
 shot tour_4_living     "-3.5,-11.0"  270   0   2.0   # sofa, coffee table, tv, lamp

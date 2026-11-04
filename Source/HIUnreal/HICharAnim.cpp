@@ -7,6 +7,7 @@
 #include "Engine/StaticMesh.h"
 #include "Engine/SkeletalMesh.h"
 #include "HIUnits.h"
+#include "Materials/MaterialInstanceDynamic.h"
 
 // ---------------------------------------------------------------- the cast
 
@@ -472,6 +473,42 @@ FName FHICharAnim::HandBoneFor(const USkeletalMeshComponent* Mesh)
 	return NAME_None;
 }
 
+void FHICharAnim::DarkenWeapon(UStaticMeshComponent* Pistol)
+{
+	if (Pistol == nullptr)
+	{
+		return;
+	}
+	// A real gunmetal: near-black, but a shade above zero so the normal map and the blade of
+	// specular still read on a 26 cm object held a metre from the camera.
+	static const FLinearColor Gunmetal(0.09f, 0.09f, 0.10f, 1.0f);
+	const int32 Slots = Pistol->GetNumMaterials();
+	for (int32 i = 0; i < Slots; ++i)
+	{
+		UMaterialInterface* Base = Pistol->GetMaterial(i);
+		if (Base == nullptr)
+		{
+			continue;
+		}
+		// ASK THE MATERIAL, do not assume. Swapping in a tint it does not understand is the
+		// silent no-op that made this look unfixable, so a slot without the parameter is left
+		// exactly as authored.
+		FLinearColor Existing(ForceInit);
+		if (!Base->GetVectorParameterValue(
+				FHashedMaterialParameterInfo(TEXT("Team.WeaponTint")), Existing))
+		{
+			continue;
+		}
+		UMaterialInstanceDynamic* Mid = UMaterialInstanceDynamic::Create(Base, Pistol);
+		if (Mid == nullptr)
+		{
+			continue;
+		}
+		Mid->SetVectorParameterValue(TEXT("Team.WeaponTint"), Gunmetal);
+		Pistol->SetMaterial(i, Mid);
+	}
+}
+
 UStaticMeshComponent* FHICharAnim::AttachPistol(
 	AActor* Owner, USkeletalMeshComponent* Mesh, UStaticMeshComponent* Pistol)
 {
@@ -538,6 +575,17 @@ UStaticMeshComponent* FHICharAnim::AttachPistol(
 				Pistol->SetRelativeScale3D(FVector(FCString::Atof(*ScaleS)));
 			}
 		}
+
+		// ---- THE PISTOL WAS WHITE (2026-11-03). Reported as a pale gun held by a dark man, and
+		// still an open item from 2026-10-12, which recorded the cause as its texture not
+		// reaching the shader. That was wrong: `MI_Weapon_Pistol` has all four textures bound
+		// (Albedo, AORM, Masks, Normal -- measured by dumping the asset's parameter values) and
+		// is BLEND_OPAQUE. What it also has is a **`Team.WeaponTint`** vector defaulting to
+		// (1,1,1): the material is authored to be tinted per team and nobody set one, so it
+		// rendered at full untinted brightness. Setting the tint is the material's own hook,
+		// which is why this keeps the textures instead of replacing the material.
+		DarkenWeapon(Pistol);
+
 		return Pistol;
 	}
 	// NOT SILENT. When this returned nullptr without a word, the pistol stayed parented

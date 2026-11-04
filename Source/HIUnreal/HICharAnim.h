@@ -240,4 +240,15 @@ struct FHICharAnim
 	 * which reads as a gun stuck through the middle of a man's chest.
 	 */
 	static UStaticMeshComponent* AttachPistol(AActor* Owner, USkeletalMeshComponent* Mesh, UStaticMeshComponent* Pistol);
+
+	/**
+	 * Tint a weapon down to gunmetal through the material's OWN team hook.
+	 *
+	 * `MI_Weapon_Pistol` carries a `Team.WeaponTint` vector that nobody was setting, so the
+	 * pistol rendered pale against every dark body in the cast (reported 2026-10-12, fixed
+	 * 2026-11-03). This sets that parameter on a dynamic instance per slot rather than
+	 * swapping the material, so the albedo, normal map and masks keep doing their work.
+	 * A slot whose material has no such parameter is left alone.
+	 */
+	static void DarkenWeapon(UStaticMeshComponent* Pistol);
 };
