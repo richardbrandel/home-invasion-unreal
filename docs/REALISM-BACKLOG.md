@@ -529,3 +529,33 @@ skipped, so the call is idempotent.
   through, which is wall geometry (holes), not a number.
 - **Item 9 (the neighbourhood).** The neighbours are KayKit low-poly buildings rendering correctly:
   the problem is a style mismatch against a photoreal house, so the fix is an asset decision.
+
+### Windows are real openings now (2026-11-04)
+
+Item 8's geometry half is DONE: the twelve windows live in one table (`HIWindows()` in
+`HIHouse.cpp`), and `Build` emits each exterior wall, and the cladding over it, as rectangles
+around those holes (`EmitWallWithHeads` -> `EmitWallWithHoles`). Verified by looking both ways:
+from the drive you see the room through the glass, and from the living room you see the lawn, the
+driveway and a thief walking past the window. The glazing is now genuinely clear (it was tuned
+near-black on purpose, because a pane on a SOLID wall had to hide the plaster behind it).
+
+**The daylight half is NOT done.** Two attempts, both reverted:
+
+- a rect light in each opening at 9000 *candelas* -- contributed nothing visible against the
+  ambient (a rect light's intensity is in candelas unless told otherwise);
+- the same at 2600 *lumens* -- lifted the whole exterior exposure, and the cast rendered white-hot
+  in the drive. Removed.
+
+What the house needs is a lighting pass with an eye on it: sunlight through the openings (which
+means deciding whether the sun's fixed yaw 216 should change, knowing it was chosen so the intruder
+is not backlit), a fill level that does not flatten the rooms, and probably auto-exposure limits.
+Numbers guessed between builds is how a scene ends up either flat or nuclear.
+
+### The brute's axe (2026-11-04)
+
+`SourceAssets/characters/brute/idle.fbx` contains `Axe_GEO` with its own three textures, so the axe
+is geometry inside the character mesh, not a weapon we attach. The imported asset has 10 material
+slots; nine are body parts and slot 9 is `phong4`, the axe. Replacing that slot with a zero-opacity
+glass instance did NOT hide it -- it rendered bright white -- and was reverted. The real fix is to
+delete the axe geometry from the model (Blender, then re-import through the character pipeline) or
+to hide the material SECTION rather than the material. Not attempted further in that session.

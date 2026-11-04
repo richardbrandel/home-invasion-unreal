@@ -362,6 +362,21 @@ private:
 	 * ABOVE that floor -- the defaults are the ground floor's ordinary window, and the
 	 * small high bathroom windows (§4.6: 0.6 m square at 1.4 m up) override both.
 	 */
+	/**
+	 * Emit a vertical wall band as boxes with rectangular holes cut out of it.
+	 *
+	 * `Plan` is the band's thin footprint (thickness on one axis, run on the other), `bAlongX` says
+	 * which axis it runs along, and each hole is (alongMin, alongMax, zMin, zMax) in metres. The
+	 * band is split at every hole edge and each resulting column is filled between its holes, which
+	 * is the cheapest decomposition that leaves no sliver and no overlap.
+	 *
+	 * This is what makes a window an OPENING rather than a picture of one: the wall and the siding
+	 * are both emitted through here, so daylight reaches the room instead of stopping at the
+	 * cladding.
+	 */
+	void EmitWallWithHoles(UInstancedStaticMeshComponent* Target, const FBox2D& Plan,
+		float MinZ, float MaxZ, bool bAlongX, const TArray<FVector4f>& Holes);
+
 	void AddWindow(bool bAlongX, float Along, float WallCoord, float Facing, float Width,
 		float FloorZ = 0.0f, float SillUp = 0.95f, float HeadUp = 2.15f);
 

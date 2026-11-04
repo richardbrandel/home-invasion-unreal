@@ -7,6 +7,8 @@
 #include "HIMaterials.h"
 #include "HIUnits.h"
 #include "UObject/ConstructorHelpers.h"
+#include "Components/RectLightComponent.h"
+#include "Engine/RectLight.h"
 
 // (A file-local `AddInstance` helper lived here until 2026-10-23. It took metres and built
 // the transform with them directly, which Unreal reads as centimetres, and it also turned
@@ -304,6 +306,65 @@ void AHIHouse::AddBoxR(UInstancedStaticMeshComponent* Target, const FVector& Cen
 		/*bWorldSpace=*/false);
 }
 
+namespace
+{
+	/**
+	 * ONE TABLE OF WINDOWS, so the hole in the wall and the frame in the hole cannot disagree.
+	 *
+	 * Every window used to be an add-call in `BuildDressing` -- a frame, a mullion and a pane
+	 * sitting outside an unbroken wall. A real opening has to be cut out of the wall geometry, and
+	 * a cut is only in the right place if it is derived from the same numbers that place the frame.
+	 * So the schedule lives here: `BuildDressing` loops over it, and `Build` cuts the exterior
+	 * walls and the cladding with it.
+	 */
+	struct FHWindowSpec
+	{
+		bool bAlongX;      // true: the wall runs along X, so `Along` is an X coordinate
+		float Along;
+		float WallCoord;   // the wall's OUTER face coordinate on the other axis
+		float Facing;      // +1 when the outward normal is positive on that axis
+		float Width;
+		float FloorZ;
+		float SillUp;
+		float HeadUp;
+	};
+
+	const TArray<FHWindowSpec>& HIWindows()
+	{
+		static const TArray<FHWindowSpec> W = []()
+		{
+			const FBox2D H = FHISim::House;
+			const float Z2 = FHISim::SecondZ;
+			TArray<FHWindowSpec> Out;
+			Out.Add({ true,  -3.60f, H.Max.Y,  1.0f, 2.20f, 0.0f, 0.95f, 2.15f }); // living, south
+			Out.Add({ false, -15.40f, H.Min.X, -1.0f, 1.60f, 0.0f, 0.95f, 2.15f }); // master, west
+			Out.Add({ true,  -5.10f, H.Min.Y, -1.0f, 1.40f, 0.0f, 0.95f, 2.15f }); // master, north
+			Out.Add({ true,  -2.60f, H.Min.Y, -1.0f, 0.60f, 0.0f, 1.40f, 2.00f }); // master bath, high
+			Out.Add({ true,   3.45f, H.Min.Y, -1.0f, 1.60f, 0.0f, 0.95f, 2.15f }); // kitchen, north
+			Out.Add({ false, -15.20f, H.Max.X,  1.0f, 1.40f, 0.0f, 0.95f, 2.15f }); // kitchen, east
+			Out.Add({ true,   3.80f, H.Max.Y,  1.0f, 1.50f, 0.0f, 0.95f, 2.15f }); // dining, south
+			Out.Add({ false, -10.60f, H.Max.X,  1.0f, 1.40f, 0.0f, 0.95f, 2.15f }); // dining, east
+			Out.Add({ true,  -2.60f, H.Max.Y,  1.0f, 1.60f, Z2,    0.95f, 2.15f }); // bedroom 2, south
+			Out.Add({ true,  -4.90f, H.Min.Y, -1.0f, 1.40f, Z2,    0.95f, 2.15f }); // bedroom 3, north
+			Out.Add({ true,   4.30f, H.Max.Y,  1.0f, 1.50f, Z2,    0.95f, 2.15f }); // office, south
+			Out.Add({ true,   4.60f, H.Min.Y, -1.0f, 0.60f, Z2,    1.40f, 2.00f }); // bath 2, high
+			return Out;
+		}();
+		return W;
+	}
+
+	/** Is this window on the exterior face at coordinate `Face`, on the given normal axis? */
+	bool WindowOnFace(const FHWindowSpec& W, bool bAlongX, float Face)
+	{
+		// 10 cm, NOT 2 cm (2026-11-04). The cladding panels are placed 2.5-4.5 cm PROUD of the wall
+		// face, so a tight tolerance matched the wall and MISSED the siding -- which left every
+		// window with a real hole behind it and a solid panel of siding across the front of it.
+		// The four faces are metres apart, so a loose tolerance here cannot confuse one with
+		// another.
+		return W.bAlongX == bAlongX && FMath::IsNearlyEqual(W.WallCoord, Face, 0.10f);
+	}
+}
+
 void AHIHouse::AddWindow(bool bAlongX, float Along, float WallCoord, float Facing, float Width,
 	float FloorZ, float SillUp, float HeadUp)
 {
@@ -343,7 +404,19 @@ void AHIHouse::AddWindow(bool bAlongX, float Along, float WallCoord, float Facin
 
 	// The glazing goes to its OWN component, so that making it translucent cannot drag the
 	// frame, the mullion and the sill along with it -- they share nothing but a position.
-	Place(GlassInstances, 0.0f, 0.0f, Width, Height);
+	//
+	// IN THE OPENING, NOT ON THE SKIN (2026-11-04). The pane used to sit 15 cm outside the wall
+	// with the wall behind it, so it read as frosted glass and let no light in. Now that the wall
+	// is actually cut, the pane belongs in the middle of the thickness: frames on both faces,
+	// glass between them, and the sun comes through it into the room.
+	{
+		const float MidWall = WallCoord - Facing * (FHISim::WallThickness * 0.5f);
+		const FVector Centre = bAlongX
+			? FVector(Along, MidWall, MidZ) : FVector(MidWall, Along, MidZ);
+		const FVector Extent = bAlongX
+			? FVector(Width, 0.02f, Height) : FVector(0.02f, Width, Height);
+		AddBox(GlassInstances, Centre, Extent);
+	}
 	// Then the four sides of the frame around it.
 	Place(WindowInstances, 0.0f, (Height * 0.5f) + (FrameT * 0.5f), Width + FrameT * 2.0f, FrameT);
 	Place(WindowInstances, 0.0f, -(Height * 0.5f) - (FrameT * 0.5f), Width + FrameT * 2.0f, FrameT);
@@ -398,6 +471,86 @@ void AHIHouse::AddWindow(bool bAlongX, float Along, float WallCoord, float Facin
 			Place(VanDetailInstances, Sign * (Width * 0.5f + FrameT + ShutterW * 0.5f + 0.02f),
 				0.0f, ShutterW, Height * 0.96f);
 		}
+	}
+}
+
+void AHIHouse::EmitWallWithHoles(UInstancedStaticMeshComponent* Target, const FBox2D& Plan,
+	float MinZ, float MaxZ, bool bAlongX, const TArray<FVector4f>& Holes)
+{
+	if (Target == nullptr || MaxZ - MinZ <= 0.005f)
+	{
+		return;
+	}
+	const FVector2D Size = Plan.GetSize();
+	const float AlongMin = bAlongX ? Plan.Min.X : Plan.Min.Y;
+	const float AlongMax = bAlongX ? Plan.Max.X : Plan.Max.Y;
+
+	// Split points: the band's own ends plus both edges of every hole that reaches it.
+	TArray<float> Edges;
+	Edges.Add(AlongMin);
+	Edges.Add(AlongMax);
+	for (const FVector4f& H : Holes)
+	{
+		if (H.Y <= AlongMin || H.X >= AlongMax)
+		{
+			continue;
+		}
+		Edges.Add(FMath::Clamp(H.X, AlongMin, AlongMax));
+		Edges.Add(FMath::Clamp(H.Y, AlongMin, AlongMax));
+	}
+	Edges.Sort();
+	TArray<float> Cuts;
+	for (float E : Edges)
+	{
+		if (Cuts.Num() == 0 || !FMath::IsNearlyEqual(E, Cuts.Last(), 0.002f))
+		{
+			Cuts.Add(E);
+		}
+	}
+
+	const FVector2D Centre2D = Plan.GetCenter();
+	auto Emit = [&](float A, float B, float Z0, float Z1)
+	{
+		if (B - A <= 0.005f || Z1 - Z0 <= 0.005f)
+		{
+			return;
+		}
+		const float AlongC = (A + B) * 0.5f;
+		const FVector Centre = bAlongX
+			? FVector(AlongC, Centre2D.Y, (Z0 + Z1) * 0.5f)
+			: FVector(Centre2D.X, AlongC, (Z0 + Z1) * 0.5f);
+		const FVector Extent = bAlongX
+			? FVector(B - A, Size.Y, Z1 - Z0)
+			: FVector(Size.X, B - A, Z1 - Z0);
+		AddBox(Target, Centre, Extent);
+	};
+
+	for (int32 i = 0; i + 1 < Cuts.Num(); ++i)
+	{
+		const float A = Cuts[i];
+		const float B = Cuts[i + 1];
+		const float Mid = (A + B) * 0.5f;
+		// Every hole that covers this column, as spans up the wall, sorted low to high.
+		TArray<FVector2f> Spans;
+		for (const FVector4f& H : Holes)
+		{
+			if (Mid > H.X && Mid < H.Y)
+			{
+				Spans.Add(FVector2f(FMath::Max(H.Z, MinZ), FMath::Min(H.W, MaxZ)));
+			}
+		}
+		Spans.Sort([](const FVector2f& P, const FVector2f& Q) { return P.X < Q.X; });
+		float Z = MinZ;
+		for (const FVector2f& S : Spans)
+		{
+			if (S.Y <= Z)
+			{
+				continue;
+			}
+			Emit(A, B, Z, S.X);
+			Z = S.Y;
+		}
+		Emit(A, B, Z, MaxZ);
 	}
 }
 
@@ -621,11 +774,25 @@ void AHIHouse::BuildDressing()
 			{
 				const float C = From + (i + 0.5f) * Each;
 				const float Zc = (MinZ + MaxZ) * 0.5f;
-				const FVector Centre = bAlongX ? FVector(C, Face, Zc) : FVector(Face, C, Zc);
-				const FVector Size = bAlongX
-					? FVector(Each - 0.02f, Thick, MaxZ - MinZ)
-					: FVector(Thick, Each - 0.02f, MaxZ - MinZ);
-				AddBox(SidingInstances, Centre, Size);
+				// The cladding is cut by the SAME holes as the wall behind it -- a hole in the
+				// plasterboard with the siding still across it lets in no light at all, which is
+				// what the first frame after the wall cut showed.
+				TArray<FVector4f> FaceHoles;
+				for (const FHWindowSpec& W : HIWindows())
+				{
+					if (!WindowOnFace(W, bAlongX, Face))
+					{
+						continue;
+					}
+					FaceHoles.Add(FVector4f(W.Along - W.Width * 0.5f, W.Along + W.Width * 0.5f,
+						W.FloorZ + W.SillUp, W.FloorZ + W.HeadUp));
+				}
+				const FBox2D Panel = bAlongX
+					? FBox2D(FVector2D(C - Each * 0.5f + 0.01f, Face - Thick * 0.5f),
+						FVector2D(C + Each * 0.5f - 0.01f, Face + Thick * 0.5f))
+					: FBox2D(FVector2D(Face - Thick * 0.5f, C - Each * 0.5f + 0.01f),
+						FVector2D(Face + Thick * 0.5f, C + Each * 0.5f - 0.01f));
+				EmitWallWithHoles(SidingInstances, Panel, MinZ, MaxZ, bAlongX, FaceHoles);
 			}
 		};
 
@@ -734,19 +901,12 @@ void AHIHouse::BuildDressing()
 	{
 		const float Z2 = FHISim::SecondZ;
 		// ground
-		AddWindow(true, -3.60f, H.Max.Y, 1.0f, 2.20f);                       // living-room picture, south
-		AddWindow(false, -15.40f, H.Min.X, -1.0f, 1.60f);                    // master, west (over the bed head)
-		AddWindow(true, -5.10f, H.Min.Y, -1.0f, 1.40f);                      // master, north
-		AddWindow(true, -2.60f, H.Min.Y, -1.0f, 0.60f, 0.0f, 1.40f, 2.00f);  // master bath, high
-		AddWindow(true, 3.45f, H.Min.Y, -1.0f, 1.60f);                       // kitchen, north (over the counter)
-		AddWindow(false, -15.20f, H.Max.X, 1.0f, 1.40f);                     // kitchen, east
-		AddWindow(true, 3.80f, H.Max.Y, 1.0f, 1.50f);                        // dining, south
-		AddWindow(false, -10.60f, H.Max.X, 1.0f, 1.40f);                     // dining, east
+		for (const FHWindowSpec& W : HIWindows())
+		{
+			AddWindow(W.bAlongX, W.Along, W.WallCoord, W.Facing, W.Width,
+				W.FloorZ, W.SillUp, W.HeadUp);
+		}
 		// second
-		AddWindow(true, -2.60f, H.Max.Y, 1.0f, 1.60f, Z2);                   // bedroom 2, south
-		AddWindow(true, -4.90f, H.Min.Y, -1.0f, 1.40f, Z2);                  // bedroom 3, north
-		AddWindow(true, 4.30f, H.Max.Y, 1.0f, 1.50f, Z2);                    // office, south (over the desk)
-		AddWindow(true, 4.60f, H.Min.Y, -1.0f, 0.60f, Z2, 1.40f, 2.00f);     // bath 2, high
 	}
 
 	// ---- fix-list item 8: the things that are on a wall in a real house.
@@ -1499,7 +1659,35 @@ void AHIHouse::Build()
 			Row.Floor == -1 ? WallBasementInstances : WallInstances;
 		if (Target != nullptr)
 		{
-			Target->AddInstance(BoxTransform(Row.Rect, MinZ, MaxZ), /*bWorldSpace=*/false);
+			// A WINDOW IS A HOLE IN THIS WALL (2026-11-04). Exterior rows are emitted through the
+			// hole cutter so the openings in the wall, the holes in the cladding and the frames
+			// that sit in them all come from the one window table. Every other row -- partitions,
+			// the door transom, the basement -- stays a single box, which is what it is.
+			const bool bExterior = Row.TopZ > 0.0f;
+			if (bExterior)
+			{
+				const bool bAlongX = Row.Rect.GetSize().X > Row.Rect.GetSize().Y;
+				const FVector2D C = Row.Rect.GetCenter();
+				const FVector2D HC = FHISim::House.GetCenter();
+				const float Face = bAlongX
+					? (C.Y > HC.Y ? FHISim::House.Max.Y : FHISim::House.Min.Y)
+					: (C.X > HC.X ? FHISim::House.Max.X : FHISim::House.Min.X);
+				TArray<FVector4f> Holes;
+				for (const FHWindowSpec& W : HIWindows())
+				{
+					if (!WindowOnFace(W, bAlongX, Face))
+					{
+						continue;
+					}
+					Holes.Add(FVector4f(W.Along - W.Width * 0.5f, W.Along + W.Width * 0.5f,
+						W.FloorZ + W.SillUp, W.FloorZ + W.HeadUp));
+				}
+				EmitWallWithHoles(Target, Row.Rect, MinZ, MaxZ, bAlongX, Holes);
+			}
+			else
+			{
+				Target->AddInstance(BoxTransform(Row.Rect, MinZ, MaxZ), /*bWorldSpace=*/false);
+			}
 		}
 	}
 
@@ -1854,8 +2042,13 @@ void AHIHouse::Build()
 			// every front view (the 10-cell grid sheet, 2026-10-19, cells 1 and 3, and again in
 			// the packaged build's front frame on 2026-10-23). Lower opacity matters as much as
 			// a darker colour -- the pane blends toward whatever is behind it.
-			Mid->SetScalarParameterValue(TEXT("Opacity"), 0.55f);
-			Mid->SetVectorParameterValue(TEXT("GlassColor"), FLinearColor(0.045f, 0.060f, 0.085f, 1.0f));
+			// CLEAR, NOW THAT THERE IS A HOLE BEHIND IT (2026-11-04). The dark values that
+			// preceded this were the honest answer to a pane standing on a SOLID wall: anything
+			// brighter showed the plaster behind it and read as a white sticker on the siding.
+			// The wall is cut now, so the pane has the lawn and the sky behind it and can be what
+			// glass is: nearly transparent.
+			Mid->SetScalarParameterValue(TEXT("Opacity"), 0.14f);
+			Mid->SetVectorParameterValue(TEXT("GlassColor"), FLinearColor(0.62f, 0.72f, 0.80f, 1.0f));
 			GlassInstances->SetMaterial(0, Mid);
 		}
 	}
@@ -1903,6 +2096,8 @@ void AHIHouse::Build()
 		BasementFloorInstances->GetInstanceCount(),
 		RoofInstance->GetInstanceCount(), CeilingInstance->GetInstanceCount(),
 		TrimInstances->GetInstanceCount(),
+
+
 		WindowInstances->GetInstanceCount(), GlassInstances->GetInstanceCount(),
 		FittingInstances->GetInstanceCount(),
 		PropInstances->GetInstanceCount(), CoatInstances->GetInstanceCount(),
@@ -1920,6 +2115,12 @@ void AHIHouse::Build()
 		BushHeightUU,
 		WheelInstances->GetInstanceCount(),
 		WheelRimInstances->GetInstanceCount());
+
+	// ---- NO WINDOW LIGHTS (2026-11-04). A rect light at each opening was tried and removed: at
+	// 2600 lm x 12 it lifted the whole exterior exposure (the cast rendered white-hot in the
+	// drive), and at 9000 cd it did nothing visible inside. The openings are real and the glass is
+	// clear -- what is missing is a proper lighting pass, which is a job with an eye on it, not a
+	// number guessed between builds. REALISM-BACKLOG item 8 owns it.
 	UE_LOG(LogTemp, Display, TEXT("HI: shape material %s"),
 		FHIMaterials::ShapeMaterial() != nullptr ? TEXT("loaded") : TEXT("MISSING -- everything will be default grey"));
 }

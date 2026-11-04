@@ -138,6 +138,11 @@ void AHIIntruder::BuildVisuals()
 	{
 		Body->SetSkeletalMeshAsset(Mesh);
 		FHICharAnim::SetupCharacter(Body, *CastTag);
+		// ---- THE BRUTE'S AXE IS STILL THERE (2026-11-04). It is baked into the mesh (slot 9,
+		// `phong4`, with its own three textures in `SourceAssets/characters/brute/idle.fbx`), and
+		// replacing that slot with a zero-opacity glass instance did NOT hide it -- the axe
+		// rendered bright white instead. Removing it means editing the model and re-importing,
+		// which is recorded in docs/REALISM-BACKLOG.md rather than half-done here.
 	}
 	else
 	{
