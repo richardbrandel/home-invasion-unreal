@@ -6,10 +6,11 @@ Written at the end of a long session (2026-11-01). Read this, `AGENTS.md`, then
 ## State
 
 - Branch `main`, clean tree, 52/52 tests (`Automation RunTests HI.`), nothing pushed.
-- Cast: **alina, brute, martha** (`FHICharAnim::IntruderTagForId`). Louise is the player. Alina took
-  slot 0 on 2026-11-03, so the Dancer Girl is the one who is out of rotation now -- she is imported,
-  tested and untouched apart from the one string, and `retarget-character.sh dancer martha woman01`
-  regenerates her clips if they ever get overwritten. James is imported and working too.
+- Cast: **dancer, alina, brute** (`FHICharAnim::IntruderTagForId`). Louise is the player.
+  **Martha and James are OUT of the rotation** (Richard, 2026-11-03) -- the two women are the point
+  of the pair. They are still imported, still pass `HI.Unreal.Cast`, and putting either back is the
+  one string. `EffectiveIntruderTag` falls back to **brute**, not to James, so a missing asset
+  cannot quietly resurrect a retired character.
 - The game plays; recent work is mostly scene/asset work, not mechanics.
 
 ## Where this stands: the Dancer Girl is in the cast (2026-11-01)
@@ -76,10 +77,12 @@ three thieves per round means the fourth name is never spawned. Options, cheapes
   2. her `walk`/`run`/`crouch_walk` carry **no Hips translation** (the retarget drops the pelvis
      track -- the Dancer Girl's do the same), so `AuthoredCmPerSec` gets her Martha's row, which is
      where her clips were retargeted from.
-  **Cast composition is now a live decision**: slot 0 held the Dancer Girl and now holds Alina.
-  Putting the dancer back is that one string; the four-way pool at the top of this section is still
-  the open design question. Everything below is the history, kept because the diagnosis was wrong
-  four times and the wrong turns are the useful part.
+  **Cast composition, corrected the same day**: Alina was briefly put in slot 0 *in place of* the
+  Dancer Girl, which was not what was asked for -- Richard's rotation is **dancer, alina, brute**,
+  with Martha and James out. Slot 0 is the Dancer Girl again. The four-way pool at the top of this
+  section is still an open design question, not a licence to reshuffle the three. Everything below
+  is the history, kept because the diagnosis was wrong four times and the wrong turns are the
+  useful part.
 - **ALINA: her MESH now imports correctly; her SKELETON still does not (2026-11-01, fourth pass).**
   Blender is installed (5.0.1 from apt; `python3-numpy` was needed for its glTF importer, and the
   importer rejects the merged file with `'NoneType' object has no attribute 'id_type'` but accepts

@@ -18,23 +18,19 @@ const TCHAR* FHICharAnim::PlayerTag()
 const TCHAR* FHICharAnim::IntruderTagForId(int32 Id)
 {
 	// Three named intruders, cycling: the default round is three intruders, so within a
-	// default round no two men share a face. A bigger --thieves count reuses faces,
-	// which is the honest failure mode -- inventing unnamed men would be worse.
+	// default round no two intruders share a face. A bigger --thieves count reuses faces,
+	// which is the honest failure mode -- inventing unnamed people would be worse.
 	//
-	// SLOT 0 IS THE DANCER GIRL (2026-11-01). She took James's slot, with his clips, his
-	// physics asset and his row in the travel table left in place -- putting him back is this
-	// one string. Her rig is `mixamorig:*` where ours is `mixamorig11:*`, so the ten clips could
-	// not bind across and two attempts failed before this one (an offline glb -> FBX conversion
-	// that animated prone, and a batch retarget with no retargeter asset, which copies and binds
-	// the copies to MARTHA's skeleton). They bind now because tools/retarget-character.sh builds
-	// the IK Rigs, the IK Retargeter and its 21-chain mapping instead of hoping for them, and
-	// because it normalizes the results afterwards. `HI.Unreal.Cast` covers her like everyone
-	// else and is green: 52/52 with her in this slot.
+	// THE ROTATION IS RICHARD'S, 2026-11-03: **the Dancer Girl and Alina are the cast; Martha
+	// and James are OUT.** That is the point of the pair, so do not "restore" either of them
+	// here without being asked -- and note that slot 0 is the DANCER, not Alina: Alina was
+	// briefly put in slot 0 and displaced her, which was not what was asked for. Brute keeps
+	// the third slot.
 	//
-	// NOTE FOR ANYONE ADDING A FOURTH: `Cast[Id % 3]` means a 4th entry is never spawned in a
-	// default round of three. Adding one is a no-op for the player unless the count or the
-	// cycling changes with it -- see docs/NEXT.md.
-	static const TCHAR* Cast[] = { TEXT("alina"), TEXT("brute"), TEXT("martha") };
+	// Martha and James are still imported, still pass `HI.Unreal.Cast` and still have their
+	// clips, physics assets and travel rows; they are simply not spawned. Putting either back
+	// is this one string.
+	static const TCHAR* Cast[] = { TEXT("dancer"), TEXT("alina"), TEXT("brute") };
 	return Cast[((Id % 3) + 3) % 3];
 }
 
@@ -45,9 +41,12 @@ const TCHAR* FHICharAnim::EffectiveIntruderTag(int32 Id)
 	{
 		return Wanted;
 	}
-	// The stand-in for a slot whose preferred character has no imported assets yet. James is the
-	// one slot that was replaced; any future swap adds its own case here.
-	return FCString::Strcmp(Wanted, TEXT("dancer")) == 0 ? TEXT("james") : Wanted;
+	// The stand-in for a slot whose preferred character has no imported assets. It must be
+	// someone who IS in the rotation: the old rule fell back to James, which would have quietly
+	// put a retired character back on screen the first time the Dancer Girl's assets were
+	// missing. Brute is the anchor -- imported for the whole life of the port, and the only
+	// member of the cast whose assets are tracked in the repo.
+	return TEXT("brute");
 }
 
 bool FHICharAnim::CastAvailable(const TCHAR* Tag)
