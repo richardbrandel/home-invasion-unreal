@@ -353,6 +353,52 @@ void AHIHouse::AddWindow(bool bAlongX, float Along, float WallCoord, float Facin
 	Place(WindowInstances, 0.0f, 0.0f, FrameT * 0.8f, Height);
 	// No sill: the white ledge at counter height read as a white box on the counter
 	// (2026-10-21). The frame + frosted glass read as a window on their own.
+
+	// ---- AND THE SAME WINDOW ON THE INSIDE FACE (2026-11-04). Everything above sits 15 cm
+	// OUTSIDE the wall, so from inside the house a window was simply not there: no frame, no
+	// glass, no sign a room had one -- "inside the house are no windows". The assembly mirrored
+	// onto the inner face gives the room a window it can actually see, and the wall between the
+	// two panes reads as the reveal rather than as a mistake. This is NOT real daylight: a hole
+	// through the wall is wall geometry and sim sight, which is a separate and much larger job
+	// (see REALISM-BACKLOG item 8). What it fixes is what the eye checks first.
+	// CLEAR OF THE WALL, NOT INSIDE IT. The first version offset the inner face by 11 cm; the
+	// exterior wall is 25 cm thick (`FHISim::WallThickness`), so the pane, the frame and the sill
+	// were all buried in the wall and the room still showed a blank wall -- which is exactly what
+	// the frame after that change showed. The inner face has to sit on the far side of the wall.
+	const float In = WallCoord - Facing * (FHISim::WallThickness + 0.03f);
+	auto PlaceIn = [&](UInstancedStaticMeshComponent* Target, float AlongOffset, float HeightOffset,
+		float SizeAlong, float SizeZ)
+	{
+		const FVector Centre = bAlongX
+			? FVector(Along + AlongOffset, In, MidZ + HeightOffset)
+			: FVector(In, Along + AlongOffset, MidZ + HeightOffset);
+		const FVector Size = bAlongX
+			? FVector(SizeAlong, 0.08f, SizeZ)
+			: FVector(0.08f, SizeAlong, SizeZ);
+		AddBox(Target, Centre, Size);
+	};
+	PlaceIn(GlassInstances, 0.0f, 0.0f, Width, Height);
+	PlaceIn(WindowInstances, 0.0f, (Height * 0.5f) + (FrameT * 0.5f), Width + FrameT * 2.0f, FrameT);
+	PlaceIn(WindowInstances, 0.0f, -(Height * 0.5f) - (FrameT * 0.5f), Width + FrameT * 2.0f, FrameT);
+	PlaceIn(WindowInstances, -(Width * 0.5f) - (FrameT * 0.5f), 0.0f, FrameT, Height);
+	PlaceIn(WindowInstances, (Width * 0.5f) + (FrameT * 0.5f), 0.0f, FrameT, Height);
+	PlaceIn(WindowInstances, 0.0f, 0.0f, FrameT * 0.8f, Height);
+	// A proper interior sill, which every real window has and which hides the seam where the
+	// reveal meets the wall.
+	PlaceIn(TrimInstances, 0.0f, -(Height * 0.5f) - 0.07f, Width + 0.34f, 0.05f);
+
+	// Shutters, but only on the STREET face: that is the elevation the player sees every round
+	// from the spawn and the one the drop camera frames, and a dark shutter pair either side of
+	// a window is most of what makes a facade read as a house rather than as a wall with holes.
+	if (Facing > 0.0f && FMath::IsNearlyEqual(WallCoord, FHISim::House.Max.Y, 0.02f))
+	{
+		const float ShutterW = FMath::Min(0.34f, Width * 0.35f);
+		for (float Sign : { -1.0f, 1.0f })
+		{
+			Place(VanDetailInstances, Sign * (Width * 0.5f + FrameT + ShutterW * 0.5f + 0.02f),
+				0.0f, ShutterW, Height * 0.96f);
+		}
+	}
 }
 
 void AHIHouse::BuildDressing()
@@ -595,6 +641,54 @@ void AHIHouse::BuildDressing()
 		PanelRun(false, H.Min.X - Out, H.Min.Y, H.Max.Y, Z1, Z2);
 		PanelRun(false, H.Max.X + Out, H.Min.Y, H.Max.Y, Z0, Z1);
 		PanelRun(false, H.Max.X + Out, H.Min.Y, H.Max.Y, Z1, Z2);
+
+		// ---- THE HOUSE'S JEWELLERY (2026-11-04). Boards and battens alone leave a house as a
+		// textured box: what the eye reads as BUILT is the edges and the bands -- corner boards
+		// where two walls meet, a fascia line where the wall stops and the roof starts, a
+		// foundation course where the wall meets the ground. Four runs of boxes, all derived from
+		// H so they cannot drift from the shell.
+		const float Proud = Out + 0.02f;
+		// Corner boards: one vertical board at each corner, tall enough to cover both storeys.
+		for (float SX : { -1.0f, 1.0f })
+		{
+			for (float SY : { -1.0f, 1.0f })
+			{
+				AddBox(TrimInstances,
+					FVector(SX > 0.0f ? H.Max.X + Proud : H.Min.X - Proud,
+						SY > 0.0f ? H.Max.Y + Proud : H.Min.Y - Proud,
+						(Z0 + Z2) * 0.5f),
+					FVector(0.20f, 0.20f, Z2 - Z0));
+			}
+		}
+		// Fascia: the band the roof sits on, all four sides.
+		const float FasciaH = 0.26f;
+		const float FasciaZ = Z2 - FasciaH * 0.5f;
+		AddBox(TrimInstances, FVector(0.0f, H.Max.Y + Proud, FasciaZ),
+			FVector(H.Max.X - H.Min.X + 0.40f, 0.10f, FasciaH));
+		AddBox(TrimInstances, FVector(0.0f, H.Min.Y - Proud, FasciaZ),
+			FVector(H.Max.X - H.Min.X + 0.40f, 0.10f, FasciaH));
+		AddBox(TrimInstances, FVector(H.Max.X + Proud, (H.Min.Y + H.Max.Y) * 0.5f, FasciaZ),
+			FVector(0.10f, H.Max.Y - H.Min.Y + 0.40f, FasciaH));
+		AddBox(TrimInstances, FVector(H.Min.X - Proud, (H.Min.Y + H.Max.Y) * 0.5f, FasciaZ),
+			FVector(0.10f, H.Max.Y - H.Min.Y + 0.40f, FasciaH));
+		// Foundation course: a cinderblock plinth at the ground line, so the siding stops ON
+		// something instead of meeting the lawn.
+		const float PlinthH = 0.38f;
+		const float PlinthZ = Z0 + PlinthH * 0.5f;
+		AddBox(WallBasementInstances, FVector(0.0f, H.Max.Y + Proud, PlinthZ),
+			FVector(H.Max.X - H.Min.X + 0.24f, 0.09f, PlinthH));
+		AddBox(WallBasementInstances, FVector(0.0f, H.Min.Y - Proud, PlinthZ),
+			FVector(H.Max.X - H.Min.X + 0.24f, 0.09f, PlinthH));
+		AddBox(WallBasementInstances, FVector(H.Max.X + Proud, (H.Min.Y + H.Max.Y) * 0.5f, PlinthZ),
+			FVector(0.09f, H.Max.Y - H.Min.Y + 0.24f, PlinthH));
+		AddBox(WallBasementInstances, FVector(H.Min.X - Proud, (H.Min.Y + H.Max.Y) * 0.5f, PlinthZ),
+			FVector(0.09f, H.Max.Y - H.Min.Y + 0.24f, PlinthH));
+		// A stoop: one concrete pad and one step in front of the front door, so the door does
+		// not open straight onto grass.
+		AddBox(WallBasementInstances, FVector(0.0f, H.Max.Y + 0.75f, Z0 + 0.06f),
+			FVector(2.60f, 1.30f, 0.12f));
+		AddBox(WallBasementInstances, FVector(0.0f, H.Max.Y + 1.55f, Z0 + 0.03f),
+			FVector(2.60f, 0.50f, 0.06f));
 	}
 
 	// ---- skirting, DERIVED from the wall rows rather than hand-placed, per storey: a band
@@ -1647,8 +1741,11 @@ void AHIHouse::Build()
 	// across one ~1.9 m panel, which lands near 12 cm a board on every facade -- the whole
 	// reason the panels are equal-width. A missing `siding` texture degrades to the tint.
 	FHIMaterials::Tint(SidingInstances, FHIMaterials::WallExterior);
+	// 0.97/0.95/0.90 times a warm-grey scan gave a beige-grey box (measured average of the
+	// siding texture: (180,166,157)). Richard, from the street: "it's a grey box". A deep slate
+	// blue with white trim is the cheapest thing that stops a house looking like a shed.
 	FHIMaterials::Textured(SidingInstances, TEXT("siding"), 1.0f,
-		0, FLinearColor(0.97f, 0.95f, 0.90f), 1.0f);
+		0, FLinearColor(0.46f, 0.55f, 0.66f), 1.0f);
 	// The basement: Richard's brief is CINDERBLOCK. The asset set once had no cinderblock
 	// texture, so it wore a coarse plaster grain as a stand-in. A real concrete-block
 	// texture is now imported (Poly Haven `concrete_block_wall`, CC0, 2026-10-19), so the
