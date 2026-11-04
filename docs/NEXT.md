@@ -188,3 +188,13 @@ out of the tree for the run.
 - metres vs UU has cost three separate bugs; check units at every placement
 - a fix must be photographed by a camera that FACES it, and the object in frame must be the object
   you changed (the red trees were `tree2`, a crimson pine by design, for four rounds)
+
+- **A `TObjectPtr` WITHOUT `UPROPERTY` IS A RAW POINTER, and it cost three crashed runs on
+  2026-11-04.** `AHIMark` (the pooled blood decal) declared `PlaneMesh`, `CylinderMesh` and
+  `DecalMat` as `TObjectPtr` with no `UPROPERTY`, so the garbage collector could not see them and
+  was free to collect the material instance while the actor lived. The game then stamped through a
+  dangling pointer: a SIGSEGV three rounds into a run, in `AHIMark::Stamp`. The smart-pointer
+  spelling buys nothing for lifetime; only `UPROPERTY` does. Four house ISM components had the same
+  omission and were fixed with it. `HI.Unreal.Cast` cannot see this class of bug -- it needs a run
+  long enough for a GC pass, which is what `-HISoak=200 -HIRounds=6 -HINoAuto` gives (passive
+  rounds lose, so it exercises the restart path too).

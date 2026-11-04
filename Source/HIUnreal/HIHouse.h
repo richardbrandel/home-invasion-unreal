@@ -70,8 +70,10 @@ public:
 	TObjectPtr<class UInstancedStaticMeshComponent> FurnitureInstances;
 	/** Collision-only twin of FurnitureInstances (hidden): the modeled furniture keeps a
 	 *  bullet-blocking box here, so the visible box never pokes out around the mesh. */
+	UPROPERTY()
 	TObjectPtr<class UInstancedStaticMeshComponent> FurnitureCollisionInstances;
 	/** The counter/island worktops, wood-textured so their top face doesn't read white. */
+	UPROPERTY()
 	TObjectPtr<class UInstancedStaticMeshComponent> CountertopInstances;
 
 	/** The fork's slice: second-floor slab decks. These collide -- the slab is what stops a
@@ -129,9 +131,11 @@ public:
 	TObjectPtr<class UInstancedStaticMeshComponent> TreeInstances;
 	/** The KayKit bush (CC0), instanced along every hedge run. Created as a cube and given its
 	 *  real mesh in Build(), because CreateDefaultSubobject only works from the constructor. */
+	UPROPERTY()
 	TObjectPtr<class UInstancedStaticMeshComponent> BushInstances;
 	/** Alpha leaf cards scattered over every hedge run -- the thing that stops a hedge being a
 	 *  slab. Instanced: the card mesh is one plane and the count runs to several hundred. */
+	UPROPERTY()
 	TObjectPtr<class UInstancedStaticMeshComponent> LeafInstances;
 	/** The bush mesh's own height in UU, so a run can be scaled to the height it was asked for. */
 	float BushHeightUU = 0.0f;

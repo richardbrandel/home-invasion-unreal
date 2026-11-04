@@ -1699,6 +1699,12 @@ void AHIGameMode::RestartRound()
 		if (Mark != nullptr)
 		{
 			Mark->SetActorHiddenInGame(true);
+			// AND DROP THE CACHED MATERIAL (2026-11-04). See AHIMark::ResetDecalMaterial: a
+			// decal instance held across a round was destroyed underneath the pool, and the
+			// next stamp called a virtual through a null vtable. Measured as a SIGSEGV three
+			// rounds into a passive multi-round soak, with the stack pointing at
+			// GameThread_UpdateMIParameter.
+			Mark->ResetDecalMaterial();
 		}
 	}
 	MarkCursor = 0;

@@ -38,6 +38,18 @@ public:
 	void Stamp(const FVector& Where, const FVector& Normal, float SizeMeters, const FLinearColor& Colour);
 
 	/**
+	 * Throw away the cached dynamic material, so the next Stamp builds a fresh one.
+	 *
+	 * THE BLOOD DECAL CRASHED THE GAME THREE ROUNDS IN (2026-11-04). A pooled mark keeps its
+	 * `DecalMat` between rounds; round 4 stamped through it and called a virtual on a material
+	 * instance whose object had been destroyed, which is a jump to 0x0 -- measured under gdb:
+	 * `AHIMark::Stamp` -> `UMaterialInstanceDynamic::SetVectorParameterValue` ->
+	 * `GameThread_UpdateMIParameter` -> 0x0000000000000000. Rebuilding the instance once per
+	 * round costs one object per mark and removes the stale-object window entirely.
+	 */
+	void ResetDecalMaterial();
+
+	/**
 	 * The rotation that lays the slab in the plane a normal implies: its thin Z along the
 	 * normal.
 	 *
@@ -58,10 +70,22 @@ public:
 
 	UPROPERTY(VisibleAnywhere, Category = "Home Invasion")
 	TObjectPtr<class UStaticMeshComponent> Quad;
+
+	// UPROPERTY ON ALL THREE (2026-11-04). `Quad` had it; these three did not, so the garbage
+	// collector could not see them and was free to destroy the objects they point at while the
+	// actor stayed alive. That is the whole of the crash that killed three separate runs three
+	// rounds in: `AHIMark::Stamp` is handed a pooled mark, `DecalMat` points at a collected
+	// material instance, and the next call jumps through a null vtable -- or, with the guard
+	// that was tried first, walks a stale object index and dies inside `IndexToObject`.
+	// A `TObjectPtr` WITHOUT `UPROPERTY` IS JUST A RAW POINTER; the smart-pointer spelling buys
+	// nothing for lifetime. Measured under gdb, twice, from two different builds.
 	/** The plane mesh for textured holes, and the cylinder the tracers are drawn with. */
+	UPROPERTY()
 	TObjectPtr<class UStaticMesh> PlaneMesh;
+	UPROPERTY()
 	TObjectPtr<class UStaticMesh> CylinderMesh;
 	/** M_HIMark instance while this slab is a bullet hole; null when it is a tracer rod. */
+	UPROPERTY()
 	TObjectPtr<class UMaterialInstanceDynamic> DecalMat;
 	bool bUsingDecal = false;
 

@@ -65,12 +65,25 @@ FRotator AHIMark::SlabRotation(const FVector& Normal)
 	return FRotationMatrix::MakeFromZ(Normal.GetSafeNormal()).Rotator();
 }
 
+void AHIMark::ResetDecalMaterial()
+{
+	DecalMat = nullptr;
+	bUsingDecal = false;   // the mesh swap is redone with the material
+}
+
 void AHIMark::Stamp(const FVector& Where, const FVector& Normal, float SizeMeters,
 	const FLinearColor& Colour)
 {
 	if (Quad->GetStaticMesh() == nullptr)
 	{
 		return;
+	}
+	// A DESTROYED INSTANCE MUST NOT BE USED (2026-11-04). Belt and braces with the per-round
+	// reset in `RestartRound`: if anything else ever invalidates this pointer, the stamp
+	// rebuilds instead of jumping through a null vtable.
+	if (DecalMat != nullptr && !IsValid(DecalMat))
+	{
+		ResetDecalMaterial();
 	}
 
 	// THE HOLE IS A TEXTURED QUAD NOW. Swap the mesh to a plane and the material to M_HIMark if
