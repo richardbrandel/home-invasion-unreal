@@ -48,12 +48,15 @@ three thieves per round means the fourth name is never spawned. Options, cheapes
 
 ## Smaller open items
 
-- `Content/HIImported/characters_dancer/` (19 MB), `characters_dancer_idle/`,
-  `characters_dancer_idle_Anim/` and `retarget/` (136 KB) are **untracked** — mesh, textures, the
-  ten clips and the three rig assets. Nothing of hers was ever committed, and nothing is, because
-  her slot is still `james`; `git add` those four folders is what ships her when the facing is
-  fixed. Five untracked files in `HIImported/mixamo/` (`IK_Female_Casual*`, `RTG_Female_Casual*`,
-  `Female_Casual_Skeleton1`) are dead leftovers from the GUI attempts.
+- **THE CAST IS IN THE REPO AS OF 2026-11-03**: `characters_dancer/` (18 MB), `characters_alina/`
+  (57 MB) and `retarget/` (240 KB) are tracked, so a fresh clone has both women and the rig assets
+  its own `retarget-character.sh` run would reuse. STILL UNTRACKED, all of it verified unreferenced
+  (grep for the folder name across `Content/HIImported/**/*.uasset` returns 0 other assets):
+  `characters_dancer_idle/` (3.1 MB), `characters_dancer_idle_Anim/` (57 MB) and
+  `characters_martha_idle_Anim/` (57 MB) — stray copies from earlier import layouts, safe to delete;
+  `models/college_girlfriend|everyday_jane|girl_with_clothes_worker_set|miss_galaxy|woman01/`
+  (203 MB of art candidates, none of them in the game); and five dead rigs in `HIImported/mixamo/`
+  (`IK_Female_Casual*`, `RTG_Female_Casual*`, `Female_Casual_Skeleton1`) from the GUI attempts.
 - the earlier GUI attempts left dead rigs at `characters_dancer/idle/SkeletalMeshes/IK_idle`,
   `RTG_idle` and `HIImported/mixamo/IK_Female_Casual*` — safe to delete, nothing references them
 - **AN UNREPRODUCED CRASH AT THE MAIN MENU (2026-11-01).** One interactive launch died 16 ms after
