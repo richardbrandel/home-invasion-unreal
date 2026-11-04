@@ -490,6 +490,17 @@ void FHICharAnim::DarkenWeapon(UStaticMeshComponent* Pistol)
 		{
 			continue;
 		}
+		// ONCE ONLY. `AttachPistol` runs on every weapon set -- every frame the round is live --
+		// and a dynamic instance whose parent is another dynamic instance is illegal ("Only
+		// Materials and MaterialInstanceConstants are valid parents"). The first version of this
+		// wrapped the previous MID again on each call, so the parent chain grew as
+		// MID_MID_MID_... until the engine asserted and the process died: measured as a crashed
+		// capture with no PNG, not as a visual fault. Skipping an already-dynamic slot makes the
+		// call idempotent.
+		if (Base->IsA(UMaterialInstanceDynamic::StaticClass()))
+		{
+			continue;
+		}
 		// ASK THE MATERIAL, do not assume. Swapping in a tint it does not understand is the
 		// silent no-op that made this look unfixable, so a slot without the parameter is left
 		// exactly as authored.

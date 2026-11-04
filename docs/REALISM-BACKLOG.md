@@ -487,3 +487,45 @@ Items 1 (furniture), 2 (neighbourhood: the two neighbour buildings are pastel sl
 stripes), 3 (van), 10 (no windows on any interior wall -- every room is lit as if the walls were
 paper), 14 (night lighting), 24 (carpet, casings, ceiling finish), 25 (the house front has no door
 or windows on the street face), 26 (no muzzle flash or casings).
+
+### Second pass, same day: six more done, four left
+
+Done and verified in a frame (not inferred):
+
+1. **Van tyres.** The van is one imported model with 59 sub-meshes and every one of them was
+   getting the same texture at the same tint -- body, glass, rims and tyres alike. Sub-mesh NAME is
+   the only part label an import gives, so the placement helper now classifies: `...Tire...` /
+   `CG_W1..4` -> tyre black, `...RIM...` -> alloy, `Glass|Blinkers|Brakelights|Taillights` ->
+   glazing, `Disk|polySurface|Cal` -> dark steel. The truck in frame is `LCT300095_WheelStock_*`,
+   which the first attempt missed because the wheels we SEE belong to a different vehicle in the
+   same import than the `CG_W*` names suggest. Also gave the van a body colour: it was being tinted
+   WHITE, which is why a dark green van rendered as a pale speckled slab.
+2. **The blank picture.** Three bands in existing tints behind the existing frame -- sky, waterline,
+   land. No new asset, reads as art at arm's length.
+3. **The minimap.** Closed frame on all four edges and the storey label, so a clipped sight fan
+   reads as "nothing in view" rather than a broken widget. The label indexes the SIM's floor number,
+   which is -1 for the basement -- the first version labelled a player in the street "BASEMENT".
+4. **Skirting contrast.** `FHIMaterials::Trim` 0.94 -> 0.86. The skirting has existed since
+   2026-10-23 and was invisible because it was the same near-white as the wall.
+5. **Ceiling fittings.** Wider housing (0.44), smaller and thinner diffuser (0.20 x 0.035) sitting
+   closer to it, so the dark rim around the glow dominates instead of the blow-out.
+6. **The front door.** It did not exist -- jambs and a head trim around a hole. A timber leaf
+   standing open against the outside wall, outside the wall so the sim's DoorGap and nav path are
+   untouched.
+
+A bug this batch introduced and the frame caught: the pistol tint ran from `AttachPistol`, which
+runs on every weapon set, and it created a dynamic instance from the previous dynamic instance --
+illegal, and it walked the parent chain to `MID_MID_MID_...` until the engine asserted. The capture
+returned "NO FRAME WAS WRITTEN" rather than a bad picture. Guarded: an already-dynamic slot is
+skipped, so the call is idempotent.
+
+**Still open, and none of them cheap:**
+
+- **Item 5 (entry dressing).** The sheet-draped cabinet is a real imported model and the boxes are
+  props; this needs a different asset or a re-dress, not a colour.
+- **Item 6 (stepped ceiling slabs in the hall/dining).** Not diagnosed. Likely the stair soffit, in
+  which case it is correct and wants fascia rather than removal.
+- **Item 8 (interiors lit as if the walls were paper).** Needs windows that daylight actually enters
+  through, which is wall geometry (holes), not a number.
+- **Item 9 (the neighbourhood).** The neighbours are KayKit low-poly buildings rendering correctly:
+  the problem is a style mismatch against a photoreal house, so the fix is an asset decision.

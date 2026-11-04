@@ -523,6 +523,27 @@ void AHIHouse::BuildDressing()
 	AddBox(TrimInstances,
 		FVector(1.45f, H.Max.Y + 0.21f, 2.02f), FVector(0.12f, 0.04f, 0.16f));
 
+	// ---- THE FRONT DOOR (2026-11-03). The opening had jambs, a head trim and a porch light and
+	// NO DOOR AT ALL: from the street the house read as an unfinished shell, and from the hall you
+	// looked out through a hole with no leaf. A door standing OPEN against the outside wall is the
+	// honest default for a home-invasion round -- the intruders walk in through it -- and it is one
+	// box and a handle. It sits OUTSIDE the wall (+Y), so it obstructs nothing: the sim's DoorGap
+	// is unchanged and the nav path does not see it.
+	{
+		const float WallCY = H.Max.Y - FHISim::WallThickness * 0.5f;
+		const float HingeX = FHISim::DoorGap.Y;             // right jamb, facing the house
+		const float LeafW = 0.98f;
+		const float LeafT = 0.045f;
+		const float LeafH = 2.05f;
+		// Swung ~95 deg outward: the leaf's WIDTH runs along +Y and its thickness along X.
+		AddBox(FurnitureWoodDecorInstances,
+			FVector(HingeX - LeafT * 0.5f, WallCY + LeafW * 0.5f, LeafH * 0.5f),
+			FVector(LeafT, LeafW, LeafH));
+		AddBox(TrimInstances,
+			FVector(HingeX - LeafT - 0.012f, WallCY + LeafW - 0.12f, 1.02f),
+			FVector(0.03f, 0.10f, 0.03f));                  // handle
+	}
+
 	// ---- the house's OUTSIDE SKIN (2026-10-23): board-and-batten panels on the four
 	// facades, in their own component so the interior keeps its painted plaster. This is
 	// what turns the front view from a mottled concrete shed into a house -- measured in a
@@ -687,9 +708,14 @@ void AHIHouse::BuildDressing()
 		// is a housing with a diffuser inset in it, so: a dark plate against the ceiling, and a
 		// slightly smaller white diffuser hanging 3.5 cm below it. From underneath that shows a
 		// white panel with a dark rim, which is what the eye reads as a light fitting.
-		AddBox(VanDetailInstances, R, FVector(0.34f, 0.34f, 0.03f));      // housing, dark metal
-		AddBox(FittingInstances, FVector(R.X, R.Y, R.Z - 0.035f),
-			FVector(0.26f, 0.26f, 0.05f));                                 // diffuser, inset
+		// PROPORTION, AFTER LOOKING AT ONE CLOSE UP (2026-11-03). A crop of the kitchen fitting
+		// showed the diffuser blown to pure white with a hard edge and the "dark metal" housing
+		// reading mid-grey, because the housing is 3 cm from the lamp it houses: the plate is
+		// lit by its own light. A wider plate with a smaller, thinner diffuser sitting closer to
+		// it puts more dark rim around the glow, and the eye reads a fitting instead of a panel.
+		AddBox(VanDetailInstances, R, FVector(0.44f, 0.44f, 0.025f));     // housing, dark metal
+		AddBox(FittingInstances, FVector(R.X, R.Y, R.Z - 0.020f),
+			FVector(0.20f, 0.20f, 0.035f));                                // diffuser, inset
 	}
 
 	// ---- fix-list items 10 and 11: the small things a house actually contains, on phase-2
@@ -733,7 +759,16 @@ void AHIHouse::BuildDressing()
 	// said "picture". A white frame plate against the wall with the canvas standing a little
 	// proud of it gives the border the eye needs, for the cost of one instance.
 	AddBox(TrimInstances, FVector(-6.085f, -10.40f, 1.60f), FVector(0.04f, 1.00f, 0.78f)); // frame
+	// ---- THE BLANK GREY RECTANGLE (2026-11-03). The frame got its canvas and the canvas got
+	// the Prop tint (0.30,0.32,0.36) -- a flat grey panel on a living-room wall, which reads as
+	// an unfinished placeholder rather than as art. A picture needs no new asset: three bands in
+	// existing tints read as a landscape at arm's length, and the largest one (sky) is the only
+	// one that has to be a believable colour. Bands stand 4 mm proud of the canvas so they cannot
+	// z-fight with it.
 	AddBox(PropInstances, FVector(-6.055f, -10.40f, 1.60f), FVector(0.03f, 0.86f, 0.64f)); // canvas
+	AddBox(FurnitureSoftInstances, FVector(-6.040f, -10.40f, 1.74f), FVector(0.012f, 0.78f, 0.34f)); // sky
+	AddBox(VanInstances,  FVector(-6.040f, -10.40f, 1.50f), FVector(0.012f, 0.78f, 0.16f)); // land
+	AddBox(PropInstances, FVector(-6.038f, -10.40f, 1.40f), FVector(0.010f, 0.78f, 0.04f)); // waterline
 	AddBox(PropInstances, FVector(3.75f, -8.40f, 3.52f), FVector(0.50f, 0.36f, 0.06f));   // desk mat, office
 	AddBox(PropInstances, FVector(4.90f, -8.35f, 3.54f), FVector(0.09f, 0.09f, 0.10f));   // a mug-ish shape
 
@@ -747,9 +782,14 @@ void AHIHouse::BuildDressing()
 		// conifer at the plot corner was a red herring I chased for two rounds. Several of the
 		// van's own material slots import with no base colour and render red, exactly as the
 		// fridge and the trees did, so it takes the same opaque override.
+		// AND A COLOUR. It was passed TEXT("van_texture_0") and nothing else, so TintColour
+		// defaulted to WHITE -- the texture went through untinted, which is the other half of
+		// "the van is a pale speckled slab". FHICharAnim's pistol had the same shape of bug the
+		// same day: a tint parameter nobody set.
 		PlaceSketchfabModel(TEXT("van"), V.GetCenter(), V.GetSize().X, V.GetSize().Y,
 			0.0f, 2.5f, FRotator::ZeroRotator,
-			/*bCollide=*/false, /*bPerAxis=*/false, TEXT("van_texture_0"));
+			/*bCollide=*/false, /*bPerAxis=*/false, TEXT("van_texture_0"),
+			FLinearColor(0.19f, 0.25f, 0.20f));
 	}
 }
 
@@ -862,6 +902,43 @@ void AHIHouse::PlaceSketchfabModel(const FString& Name, const FVector2D& Center,
 					// appeared to work elsewhere. `GetStaticMaterials()` is the mesh's own list and
 					// cannot be empty for a loaded mesh.
 					const int32 Slots = FMath::Max(1, M->GetStaticMaterials().Num());
+					// ONE TEXTURE, MANY PARTS, ONE TINT IS WRONG FOR A VEHICLE (2026-11-03). The
+					// van is 59 sub-meshes -- body, cab, four tyres, four rims, brake discs,
+					// windscreen, lamps, plates -- and every one of them was getting the same
+					// texture at the same tint. That is why the tyres, the glass and the body all
+					// read as the same pale speckled panel: not a material bug, a blanket override.
+					// The sub-mesh NAME is the only part label an import gives us, and these are
+					// the KayKit/Chevrolet conventions (`CG_W1...` tyre, `CG_W1RIM_1` rim,
+					// `...TrafficGlassOpaque_Mirror...` glazing, `LCT300095_Brakelights...` lamps).
+					const FString MeshName = M->GetName();
+					auto Named = [&MeshName](const TCHAR* Sub)
+					{
+						return MeshName.Contains(Sub, ESearchCase::IgnoreCase);
+					};
+					FLinearColor SlotTint = TintColour;
+					if (Named(TEXT("RIM")))
+					{
+						SlotTint = FLinearColor(0.44f, 0.44f, 0.46f);      // alloy wheel
+					}
+					else if (Named(TEXT("Glass")) || Named(TEXT("Blinkers"))
+						|| Named(TEXT("Brakelights")) || Named(TEXT("Taillights")))
+					{
+						SlotTint = FLinearColor(0.03f, 0.035f, 0.045f);    // glazing and lamp lenses
+					}
+					else if (Named(TEXT("Disk")) || Named(TEXT("polySurface")) || Named(TEXT("Cal")))
+					{
+						SlotTint = FLinearColor(0.10f, 0.10f, 0.11f);      // discs, calipers, hubs
+					}
+					else if (Named(TEXT("CG_W1")) || Named(TEXT("CG_W2"))
+						|| Named(TEXT("CG_W3")) || Named(TEXT("CG_W4"))
+						|| Named(TEXT("WheelStock")) || Named(TEXT("Tire")) || Named(TEXT("Tyre")))
+					{
+						// `LCT300095_WheelStock_FL_RB1c_Tire_1k_0` is the truck we actually SEE, and it
+						// was not caught by the `CG_W*` names -- which belong to a second, parked
+						// Chevrolet in the same import. Measured from the frame: the body went green
+						// and the tyres stayed green with it.
+						SlotTint = FLinearColor(0.035f, 0.035f, 0.038f);   // the tyre itself
+					}
 					for (int32 SM = 0; SM < Slots; ++SM)
 					{
 						UMaterialInstanceDynamic* Mid = UMaterialInstanceDynamic::Create(BaseMat, Comp);
@@ -873,7 +950,7 @@ void AHIHouse::PlaceSketchfabModel(const FString& Name, const FVector2D& Center,
 						// flat crimson while their own atlas measures olive (extracted from
 						// SourceAssets/models/tree1.glb: avg (91,84,59)). The fridge's red frame was
 						// the same defect. If a material input matters, the instance must state it.
-						Mid->SetVectorParameterValue(TEXT("Tint"), TintColour);
+						Mid->SetVectorParameterValue(TEXT("Tint"), SlotTint);
 						Mid->SetScalarParameterValue(TEXT("TextureStrength"), 1.0f);
 						Comp->SetMaterial(SM, Mid);
 					}

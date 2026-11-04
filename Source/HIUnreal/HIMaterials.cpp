@@ -19,7 +19,11 @@ const FLinearColor FHIMaterials::Wood          = FLinearColor(0.30f, 0.19f, 0.11
 const FLinearColor FHIMaterials::Sofa          = FLinearColor(0.20f, 0.26f, 0.38f);
 const FLinearColor FHIMaterials::Counter       = FLinearColor(0.72f, 0.73f, 0.71f);
 const FLinearColor FHIMaterials::Door          = FLinearColor(0.26f, 0.15f, 0.09f);
-const FLinearColor FHIMaterials::Trim          = FLinearColor(0.94f, 0.93f, 0.90f);
+// 0.94 WAS WHITE ENOUGH TO DISAPPEAR (2026-11-03). Every piece of trim in the house -- skirting,
+// door casings, window frames -- is this one colour, and against painted plaster at 0.9+ it had no
+// edge at all: the skirting has been built since 2026-10-23 and reads as nothing in every frame.
+// A real painted skirting is a shade off the wall, not a shade off paper.
+const FLinearColor FHIMaterials::Trim          = FLinearColor(0.86f, 0.85f, 0.82f);
 const FLinearColor FHIMaterials::Glass         = FLinearColor(0.16f, 0.21f, 0.26f);
 const FLinearColor FHIMaterials::Van           = FLinearColor(0.22f, 0.36f, 0.24f);
 const FLinearColor FHIMaterials::GTOGreen      = FLinearColor(0.06f, 0.13f, 0.07f);

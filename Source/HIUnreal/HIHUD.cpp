@@ -408,7 +408,27 @@ void AHIHUD::DrawMinimap(const FHISim::FHIRound& Round)
 	};
 
 	DrawRect(FLinearColor(0.0f, 0.0f, 0.0f, 0.42f), X0, Y0, PanelW, PanelH);
-	DrawRect(FLinearColor(0.6f, 0.6f, 0.6f, 0.30f), X0, Y0, PanelW, 2.0f);
+	// A FRAME, NOT JUST A LID (2026-11-03). The panel had one 2 px line along its top edge and
+	// nothing else, so in the four rooms where the sight fan is clipped away by the walls it
+	// rendered as a grey rectangle with two bars in it -- reported as "the minimap looks broken".
+	// A closed frame plus the storey label says "this is a map of nothing in view" instead of
+	// "this is a broken widget", and it costs four rects and one string.
+	const FLinearColor Frame(0.60f, 0.60f, 0.60f, 0.30f);
+	DrawRect(Frame, X0, Y0, PanelW, 2.0f);
+	DrawRect(Frame, X0, Y0 + PanelH - 2.0f, PanelW, 2.0f);
+	DrawRect(Frame, X0, Y0, 2.0f, PanelH);
+	DrawRect(Frame, X0 + PanelW - 2.0f, Y0, 2.0f, PanelH);
+	{
+		// The storey the player is on, because the map draws one floor at a time and a reader
+		// looking at a grey panel has no other way to tell which one they are seeing.
+		// THE SIM'S FLOOR INDEX IS NOT AN ARRAY INDEX: -1 is the basement, 0 the ground, 1 and 2
+		// the upper storeys. The first version indexed from 0 and labelled a player standing in
+		// the street "BASEMENT", which the very first frame after the change showed.
+		const TCHAR* FloorLabel = Round.Player.Floor < 0 ? TEXT("BASEMENT")
+			: (Round.Player.Floor == 0 ? TEXT("GROUND") : TEXT("UPSTAIRS"));
+		DrawText(FloorLabel, FLinearColor(0.75f, 0.75f, 0.75f, 0.85f),
+			X0 + 10.0f, Y0 + 6.0f, GEngine->GetMediumFont(), 0.85f);
+	}
 
 	// ---- the house floor, DIM, under everything: the layout as known rather than as seen.
 	// `minimap.gd` draws its dim layer -- floor, furniture, then walls -- before the lit fan.
