@@ -2276,6 +2276,41 @@ bool FHISimView::RunTest(const FString& Parameters)
 			&& FMath::IsNearlyEqual(Side.Y, 0.0f, 1e-5f));
 	}
 
+	// ---- A THIEF'S YAW IS A BEARING, and `YawFromBearing` is the bridge to these directions.
+	// This is the check that was missing on 2026-11-05, when every man walked turned by twice his
+	// heading -- a mirror, not an offset, which is why it looked like "90 degrees to the right" on
+	// some walks and like walking backwards on others. Measured before the fix: the angle between
+	// a walking thief's chest and his direction of travel was 123-180 degrees.
+	{
+		bool bAll = true;
+		FString Detail;
+		for (int32 I = 0; I < 16; ++I)
+		{
+			const float Bearing = (-UE_PI) + (2.0f * UE_PI) * static_cast<float>(I) / 16.0f;
+			const FVector Got = FHISim::AimDir(FHISim::YawFromBearing(Bearing), 0.0f);
+			// A bearing's own direction is (cos b, sin b).
+			const FVector Want(FMath::Cos(Bearing), FMath::Sin(Bearing), 0.0f);
+			if (!Got.Equals(Want, 1e-4f))
+			{
+				bAll = false;
+				Detail += FString::Printf(TEXT(" [b=%.0f got(%.2f,%.2f) want(%.2f,%.2f)]"),
+					FMath::RadiansToDegrees(Bearing), Got.X, Got.Y, Want.X, Want.Y);
+			}
+		}
+		TestTrue(*FString::Printf(
+			TEXT("a thief's bearing converts to the sim yaw that points the same way, all round the compass%s"),
+			*Detail), bAll);
+
+		// The two conventions are NOT the same, so the conversion is not the identity -- if it ever
+		// becomes one, one of the two has silently changed and this test should fail loudly.
+		const float SouthBearing = -UE_PI * 0.5f;                 // (0, -1) in (cos, sin)
+		TestTrue(FString::Printf(
+			TEXT("walking south is bearing -90 but sim yaw +180 (%.1f), so the bridge cannot be skipped"),
+			FMath::RadiansToDegrees(FHISim::YawFromBearing(SouthBearing))),
+			FMath::IsNearlyEqual(FMath::Abs(FMath::RadiansToDegrees(FHISim::YawFromBearing(SouthBearing))),
+				180.0f, 0.01f));
+	}
+
 	// ---- pitch: NEGATIVE is looking up, which is the sign that is easiest to get backwards
 	{
 		const FVector Up = FHISim::AimDir(0.0f, -0.30f);

@@ -297,7 +297,8 @@ void AHIIntruder::SyncFromSim(const FHISim::FHIThief& T, float Dt)
 	}
 	if (Body != nullptr && !bRagdolled)
 	{
-		Body->SetWorldRotation(BodyRotation(T.Yaw, *CastTag));
+		// `T.Yaw` is a BEARING; the body-rotation formula is in the sim's (sin, cos) convention.
+		Body->SetWorldRotation(BodyRotation(FHISim::YawFromBearing(T.Yaw), *CastTag));
 	}
 
 	// Wounds follow health every frame: see the header for why this is derived here rather
@@ -375,6 +376,6 @@ void AHIIntruder::SyncFromSim(const FHISim::FHIThief& T, float Dt)
 		// world-aimed since bug 14 for exactly this reason; the intruder's now is too,
 		// through the same pure helper, along his facing.
 		Gun->SetWorldRotation(AHIPlayerCharacter::WeaponAimRotation(
-			FHISim::AimDir(T.Yaw, 0.0f)));
+			FHISim::AimDir(FHISim::YawFromBearing(T.Yaw), 0.0f)));
 	}
 }

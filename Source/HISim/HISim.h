@@ -270,6 +270,27 @@ struct HISIM_API FHISim
 	static FVector AimDir(float Yaw, float Pitch);
 
 	/**
+	 * Convert a BEARING -- `Atan2(dY, dX)`, the convention a thief's `Yaw` is in -- to the sim
+	 * yaw that `AimDir` and every other direction here are built from, (Sin(yaw), Cos(yaw)).
+	 *
+	 * THERE ARE TWO CONVENTIONS IN THIS SIM AND THIS IS THE BRIDGE (2026-11-05). The player's
+	 * yaw comes from the mouse and is the sim's own: yaw 0 faces +Y, yaw +90 faces +X, because
+	 * `AimDir` is (sin, cos). A thief's yaw does not: `StepThief` steers by
+	 * `Atan2(WP.Y - Pos.Y, WP.X - Pos.X)` and moves along `(cos A, sin A)`, so a thief's yaw is a
+	 * bearing, 0 along +X. Those two disagree.
+	 *
+	 * The AI is self-consistent in its own convention (its movement, its turning and its vision
+	 * cones all use bearings), so the bridge belongs at the seam where a yaw becomes a FACING:
+	 * an actor's body and gun, and the carried prop's offset. Feeding a bearing to the
+	 * body-rotation formula -- which was derived in the player's convention -- turned every man
+	 * by twice his heading: measured before this existed, the angle between a walking thief's
+	 * chest and his direction of travel was 123-180 degrees. Richard, from play: "when they walk,
+	 * they don't face where they are going, they are turned 90 degrees to the right." That was
+	 * the symptom; this is the cause.
+	 */
+	static float YawFromBearing(float Bearing);
+
+	/**
 	 * The chase camera's position relative to a pivot at the player's eyes.
 	 *
 	 * Godot computes `pivot - view * back + UP * up + right * side`, with right being

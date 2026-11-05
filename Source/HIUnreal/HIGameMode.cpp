@@ -2303,7 +2303,9 @@ void AHIGameMode::Tick(float DeltaSeconds)
 				}
 				bCarried = true;
 				CarrierPos = T.Pos;
-				CarrierYaw = T.Yaw;
+				// A BEARING again: everything `SyncFromSim` does with this yaw -- the facing and
+				// the hand offset -- assumes the sim's (sin, cos) convention.
+				CarrierYaw = FHISim::YawFromBearing(T.Yaw);
 				// The HAND, because the original takes the carried item's position from the
 				// hand bone and says why: "the hand bone moves with the animation, so taking
 				// the position from it is what makes the object look carried rather than glued

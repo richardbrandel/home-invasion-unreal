@@ -357,6 +357,58 @@ Source assets refreshed to match: `SourceAssets/models/woman01_edited.glb` (raw 
 - The screenshots that go with this: `shots/dancerdrive_01.png` (her on the driveway, in the game),
   `shots/chestab5_02.png`. `shots/` is gitignored.
 
+## The cast walked 90 degrees out (2026-11-05)
+
+Richard, from play: *"when they walk, they don't face where they are going, they are turned 90 degrees
+to the right. I suppose you wouldn't see that from just screen shots."* Both halves were right: the
+frames I had showed them walking the one heading where the error happened to be near zero, and no
+test could see it at all.
+
+**Two yaw conventions, one formula.** `FHISim::AimDir` is `(sin yaw, cos yaw)` -- yaw 0 faces +Y, +90
+faces +X -- and that is what the player's yaw, the camera, the player's movement and
+`FHICharAnim::BodyRotationFor` all speak. A thief's yaw is not that: `StepThief` steers by
+`Atan2(WP.Y - Pos.Y, WP.X - Pos.X)` and moves along `(cos A, sin A)`, so it is a BEARING, 0 along +X.
+`AHIIntruder` fed that bearing straight into the body-rotation formula, so every man was turned by
+`90 - 2 * bearing`, not by a constant: 90 degrees out at the cardinals, correct only near 45 and 135,
+which is why it looked fine walking one way and absurd walking another.
+
+**Measured, on the same frames, by evaluating both paths in one build:** the angle between a walking
+thief's chest and his direction of travel was **78-102 degrees** on the old path (90 on the nose when
+his yaw had settled) and **0-12 degrees** after -- the residual being the turn-rate lag while he
+rounds a corner, which is correct behaviour.
+
+**The fix** is one function, `FHISim::YawFromBearing(Bearing) = 90 - Bearing`, applied at the three
+seams where a thief's yaw becomes a FACING rather than an AI input:
+
+- `AHIIntruder::SyncFromSim` -- the body rotation;
+- `AHIIntruder::SyncFromSim` -- the pistol's `AimDir` (it was 90 degrees out too, same cause);
+- `HIGameMode` -- the carried item's carrier yaw, which `HILootProp` uses both for its facing and
+  for the hand offset.
+
+The AI is untouched: its movement, turning and vision cones are self-consistent in bearings, and
+converting inside the AI would have changed behaviour for nothing.
+
+**The test that was missing** is in `HI.Sim.View`: `AimDir(YawFromBearing(b), 0)` must equal
+`(cos b, sin b)` all round the compass, plus an assertion that walking south is bearing -90 and sim
+yaw 180 so the bridge can never be quietly dropped. Before this there was no test that tied a
+thief's yaw to a direction at all.
+
+**Two traps worth keeping.**
+
+1. **The Cast test cannot see this class of bug.** It measures each mesh's facing from
+   `Cross(RightShoulder - LeftShoulder, Up)`, and the body-rotation formula was derived to agree with
+   that same cross product -- so the measurement and the bug share a convention and stay consistent
+   while the render is a quarter turn out. The tiebreaker is the SKELETON IN WORLD SPACE (chest axis
+   from two shoulder bones vs `Pos - Prev`), or the frame itself: `shots/brute-facing-ab.png` shows
+   the brute side-on before and facing his travel after.
+2. **A forwarded hypothesis was close but not the cause.** Another session proposed that the cast
+   animates out because the clips are Martha's (bind 89.9) while the Dancer's bind faces 119.7, and
+   that Alina has no facing row. The error here was heading-dependent in a way a per-tag bind
+   mismatch cannot produce (it would be a constant offset for a given tag), and Alina does have a
+   number: she uses the 90.0 fallback, and `HI.Unreal.Cast` recomputes every tag's bind facing and
+   asserts it, which passes. Worth noting because the wrong fix -- bending the per-tag constants --
+   would have masked this on one heading and made it worse on another.
+
 ## Cleanup queue — DONE 2026-11-05
 
 Collected 2026-11-04 after the chest attempt; worked through on 2026-11-05. The repo is clean:

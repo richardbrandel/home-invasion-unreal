@@ -2289,6 +2289,12 @@ bool FHISim::LosBlocked(const FVector2D& A, const FVector2D& B)
 	return false;
 }
 
+float FHISim::YawFromBearing(float Bearing)
+{
+	// (sin y, cos y) with y = 90 - b is (cos b, sin b) -- the bearing's own direction.
+	return FMath::UnwindRadians(HALF_PI - Bearing);
+}
+
 FVector FHISim::AimDir(float Yaw, float Pitch)
 {
 	const float Ap = FMath::Clamp(Pitch, PitchMin, PitchMax);
