@@ -245,3 +245,26 @@ round-trip gave facing 56.7 deg and the spine along -Z) is solved by using the p
 (her content is TRACKED, 27 files, and restores mesh + skeleton + ten clips), then re-import
 `SourceAssets/models/woman01_original.glb` into `/Game/HIImported/models/woman01/SkeletalMeshes`
 as `woman01.glb` if the model folder was touched, then run the suite: expect 52/52.
+
+## Cleanup queue (for after the Dancer chest attempt)
+
+Collected 2026-11-04, not started. Ordered by how much it cleans for how little risk.
+
+1. **962 tracked files under `Content/` show as modified.** 951 of them date from 2026-10-31 (an
+   import run), the rest from the 2026-11-03/04 imports. The current on-disk state is what passes
+   52/52, so this is a decision, not a chore: either commit them (a large binary commit) or
+   `git checkout -- Content/` and re-verify. Do not "tidy" it without re-running the suite.
+2. **Untracked and referenced by nothing** (verified by grepping the folder name across every
+   `.uasset`): `characters_dancer_idle/`, `characters_dancer_idle_Anim/`,
+   `characters_martha_idle_Anim/` — 117 MB of strays from earlier import layouts. Safe to delete.
+3. **Untracked art candidates**: `models/college_girlfriend`, `everyday_jane`,
+   `girl_with_clothes_worker_set`, `miss_galaxy`, `woman01` (203 MB, none of them in the game).
+4. **Dead rigs** in `HIImported/mixamo/` (`IK_Female_Casual*`, `RTG_Female_Casual*`,
+   `Female_Casual_Skeleton1`) and `characters_dancer/idle/SkeletalMeshes/{IK_idle,RTG_idle}` — from
+   the GUI attempts, nothing references them. Note these are TRACKED, so deleting them is a commit.
+5. **The brute's axe** — baked into his mesh (`Axe_GEO`, material slot 9 `phong4`). Hiding the slot
+   with a zero-opacity material rendered it white instead of removing it. The fix is a model edit,
+   the same in-place-glb trick that worked for the Dancer's chest.
+6. **Daylight through the new window openings** — the openings are real and the glass is clear, but
+   nothing lights the rooms through them yet; two lighting attempts were reverted (see
+   REALISM-BACKLOG item 8).
