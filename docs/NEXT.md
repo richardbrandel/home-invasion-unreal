@@ -198,3 +198,50 @@ out of the tree for the run.
   omission and were fixed with it. `HI.Unreal.Cast` cannot see this class of bug -- it needs a run
   long enough for a GC pass, which is what `-HISoak=200 -HIRounds=6 -HINoAuto` gives (passive
   rounds lose, so it exercises the restart path too).
+
+## The Dancer Girl's chest edit: mesh done, asset pipeline blocked (2026-11-04)
+
+Richard asked for her bust roughly doubled. **The mesh edit itself is finished and verified**;
+what fails is getting the edited mesh back into a playable character. Two attempts, both rolled
+back, both documented here so a third does not repeat them.
+
+**The edit is done.** `SourceAssets/models/woman01_edited.glb` is her source glb with the chest
+bulged by `tools/edit-glb-chest.py` — vertices only, so skeleton, inverse-bind matrices, weights,
+UVs and materials are byte-identical. Measured: chest apex **7.43 cm -> 12.40 cm** in front of the
+chest centre (x1.67 protrusion, about double the volume), 203 vertices, symmetric about the midline.
+`SourceAssets/models/woman01_original.glb` is the untouched source, kept for rollback.
+`SourceAssets/models/woman01_edited_renamed.glb` is the same edit after `rename-glb-bones.py`
+(`GLB_WRAPPER=1 GLB_SCALE=1`), i.e. the file that is ready to import.
+
+**What works: the rig comes back exactly right.** Importing the renamed glb and letting the retarget
+pipeline flatten it reproduces her original rig to the digit:
+`dancer: facing 119.7 deg; hips->head=(2.2, -3.9, 39.1) |39.3|` -- identical to the values recorded
+on 2026-11-01. So the axis-convention problem that killed the first attempt (a Blender glTF
+round-trip gave facing 56.7 deg and the spine along -Z) is solved by using the project's own wrapper.
+
+**The two blockers, in the order they bite:**
+
+1. **`retarget-character.sh` cannot retarget a mesh that was MOVED out of `models/`.** Its
+   `move_mesh_into_place` path fails with `Unable to retrieve bone index for track: Hips/Spine`
+   even though the target skeleton has those bones and the chain mapping reports 21/21. The same
+   script SUCCEEDS when the mesh is imported directly into `characters_dancer` as `idle.glb` and
+   flattened (mesh -> idle_tmp, skeleton -> idle_Skeleton, physics -> idle_PhysicsAsset, move
+   Textures/Materials up, delete the nested folder, idle_tmp -> idle). That path produced ten bound
+   clips.
+2. **On that working path the character is still broken in two ways:** her retargeted clips carry
+   NO pelvis motion (`HI.Unreal.Cast`: "the standing idle's Hips mean -0 cm", should be ~96) and the
+   flattened mesh has NO physics asset ("dancer carries a physics asset ... must be not null"). So
+   she would sink into the floor and never fall. Both must be fixed before this ships.
+
+**Two tooling traps that cost most of the time, both measured:**
+
+- **Renaming a skeletal mesh and its skeleton as separate assets can sever the mesh's skeleton
+  link**, and `skeleton` is read-only from Python. The only reliable way is to let the importer
+  create the pair, which means the FILE must be named `idle.glb` before import.
+- **Blender's FBX exporter is unusable in 5.0** (same `use_space_transform` failure the project
+  recorded months ago), which is why `tools/edit-glb-chest.py` edits the glb directly.
+
+**Rollback, used twice and proven:** `git checkout -- Content/HIImported/characters_dancer`
+(her content is TRACKED, 27 files, and restores mesh + skeleton + ten clips), then re-import
+`SourceAssets/models/woman01_original.glb` into `/Game/HIImported/models/woman01/SkeletalMeshes`
+as `woman01.glb` if the model folder was touched, then run the suite: expect 52/52.
