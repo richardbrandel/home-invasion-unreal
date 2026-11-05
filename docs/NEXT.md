@@ -199,56 +199,85 @@ out of the tree for the run.
   long enough for a GC pass, which is what `-HISoak=200 -HIRounds=6 -HINoAuto` gives (passive
   rounds lose, so it exercises the restart path too).
 
-## The Dancer Girl's chest edit: mesh done, asset pipeline blocked (2026-11-04)
+## The Dancer Girl's chest edit: SHIPPED (2026-11-05)
 
-Richard asked for her bust roughly doubled. **The mesh edit itself is finished and verified**;
-what fails is getting the edited mesh back into a playable character. Two attempts, both rolled
-back, both documented here so a third does not repeat them.
+Richard asked for her bust roughly doubled. Two attempts were rolled back on 2026-11-04 and the
+third shipped. **Both of the blockers recorded in the previous version of this section were
+symptoms of the same thing: the import.** The retarget was never broken.
 
-**The edit is done.** `SourceAssets/models/woman01_edited.glb` is her source glb with the chest
-bulged by `tools/edit-glb-chest.py` — vertices only, so skeleton, inverse-bind matrices, weights,
-UVs and materials are byte-identical. Measured: chest apex **7.43 cm -> 12.40 cm** in front of the
-chest centre (x1.67 protrusion, about double the volume), 203 vertices, symmetric about the midline.
-`SourceAssets/models/woman01_original.glb` is the untouched source, kept for rollback.
-`SourceAssets/models/woman01_edited_renamed.glb` is the same edit after `rename-glb-bones.py`
-(`GLB_WRAPPER=1 GLB_SCALE=1`), i.e. the file that is ready to import.
+**Result, measured:** suite **52/52**, `HI.Unreal.Cast` green.
+`dancer: Hips mean 98 cm standing, 48 cm crouching (parent up)`; `facing 119.7 deg;
+hips->head=(2.2, -3.9, 39.1) |39.3|` — unchanged from before the edit; the mesh carries a physics
+asset; all ten clips are bound to `characters_dancer/idle_Skeleton`. The shipped mesh really is the
+edited geometry: exported and compared vertex-cloud-to-vertex-cloud, the 203 moved vertices sit
+**0.000 cm** from it and up to **6.25 cm** from her original (source glb: apex 7.43 -> 12.40 cm,
+largest moved vertex 7.41 cm, 9509 verts before the engine's split).
 
-**What works: the rig comes back exactly right.** Importing the renamed glb and letting the retarget
-pipeline flatten it reproduces her original rig to the digit:
-`dancer: facing 119.7 deg; hips->head=(2.2, -3.9, 39.1) |39.3|` -- identical to the values recorded
-on 2026-11-01. So the axis-convention problem that killed the first attempt (a Blender glTF
-round-trip gave facing 56.7 deg and the spine along -Z) is solved by using the project's own wrapper.
+**What was actually wrong, in the order it bit:**
 
-**The two blockers, in the order they bite:**
+1. **The bone-renaming wrapper was written for the OLD glTF importer.** This engine's Interchange
+   importer converts glTF's Y-up to Z-up itself AND scales glTF metres to centimetres, so
+   `GLB_WRAPPER=1 GLB_SCALE=1` stacked a second conversion on top: the mesh came in **100x too big
+   and lying on its back** (bounds `(6278, 8059, 3706)` against her real `(62.79, 37.06, 80.59)`).
+   A retarget pose built from that mesh is flat, which is exactly what "the standing idle's Hips
+   mean -0 cm" was. The variant that imports correctly here is
+   **`GLB_WRAPPER=0 GLB_SCALE=0.01`** (identity wrapper, 1/100 scale).
+2. **The glTF importer REUSES an existing skeleton asset of the same name at the destination.** The
+   tracked nested `characters_dancer/idle/SkeletalMeshes/idle_Skeleton` was a pre-fix import whose
+   bones are named `mixamorig11_Hips`; importing over it rebuilt the mesh with those names, and every
+   bone lookup after that failed — the `Unable to retrieve bone index for track: Hips` that cost
+   attempt one. Empty the destination folder first; then the import creates a clean pair.
+3. **The mesh's bone space cannot be swapped under her old clips.** Her old `_rootJoint` carried
+   -90 deg X (so the Hips' parent space had UP on -Y); the new import leaves `_rootJoint` at
+   identity (UP on +Z) for the SAME rendered geometry, because the axis conversion is now baked into
+   the vertex data instead of the root bone. Pointing the new mesh back at her old skeleton read
+   `Hips mean -7 cm`. Mesh and skeleton must come from ONE import, and the ten clips are retargeted
+   onto that pair — `tools/retarget-character.sh dancer martha woman01` then produced **98 cm**, with
+   21/21 chains mapped and `aim`'s known single-key `MISSED` report unchanged.
+4. **The import skipped the physics asset and replaced her material.** Importing `idle.glb` into her
+   own folder reused `Scene_-_Root` by name (good: her approved look, and the edit is vertex-only so
+   the UVs still map) but created no physics asset, which failed `Cast` and `DeathFall` with
+   "dancer has no physics asset". `SkeletalMeshEditorSubsystem.create_physics_asset(mesh, True, 0)`
+   builds and assigns one.
+5. **Cleanup that came with it:** the nested pre-fix folder is gone (10 tracked assets, including the
+   dead `IK_idle`/`RTG_idle` rigs). Her folder is now flat: `idle`, `idle_Skeleton`,
+   `idle_PhysicsAsset`, the ten clips, and the material + two textures.
 
-1. **`retarget-character.sh` cannot retarget a mesh that was MOVED out of `models/`.** Its
-   `move_mesh_into_place` path fails with `Unable to retrieve bone index for track: Hips/Spine`
-   even though the target skeleton has those bones and the chain mapping reports 21/21. The same
-   script SUCCEEDS when the mesh is imported directly into `characters_dancer` as `idle.glb` and
-   flattened (mesh -> idle_tmp, skeleton -> idle_Skeleton, physics -> idle_PhysicsAsset, move
-   Textures/Materials up, delete the nested folder, idle_tmp -> idle). That path produced ten bound
-   clips.
-2. **On that working path the character is still broken in two ways:** her retargeted clips carry
-   NO pelvis motion (`HI.Unreal.Cast`: "the standing idle's Hips mean -0 cm", should be ~96) and the
-   flattened mesh has NO physics asset ("dancer carries a physics asset ... must be not null"). So
-   she would sink into the floor and never fall. Both must be fixed before this ships.
+**Reproducing it, exactly** (the order matters; each step was measured):
 
-**Two tooling traps that cost most of the time, both measured:**
+```sh
+GLB_WRAPPER=0 GLB_SCALE=0.01 python3 tools/rename-glb-bones.py \
+    SourceAssets/models/woman01_edited.glb /tmp/idle.glb      # FILE must be named idle.glb
+# 1. delete /Game/HIImported/characters_dancer/{idle,idle_Skeleton,idle_PhysicsAsset}
+#    and the whole characters_dancer/idle/ folder; exit the editor.
+# 2. import /tmp/idle.glb into /Game/HIImported/characters_dancer (AssetImportTask,
+#    automated, replace_existing, save). It lands FLAT: idle + idle_Skeleton.
+#    The mesh is her height (bounds z=80.59) and has bones Hips/Spine/... with no prefix.
+python3 - <<'EOF'  # in the editor's Python: physics asset + save
+import unreal
+m = unreal.EditorAssetLibrary.load_asset("/Game/HIImported/characters_dancer/idle")
+unreal.get_editor_subsystem(unreal.SkeletalMeshEditorSubsystem).create_physics_asset(m, True, 0)
+unreal.EditorAssetLibrary.save_loaded_asset(m)
+EOF
+tools/retarget-character.sh dancer martha woman01   # rebuilds the ten clips onto the new pair
+~/tools/ue-run-tests.sh /data/projects/HIUnreal/HIUnreal.uproject HI.   # 52/52
+```
 
-- **Renaming a skeletal mesh and its skeleton as separate assets can sever the mesh's skeleton
-  link**, and `skeleton` is read-only from Python. The only reliable way is to let the importer
-  create the pair, which means the FILE must be named `idle.glb` before import.
-- **Blender's FBX exporter is unusable in 5.0** (same `use_space_transform` failure the project
-  recorded months ago), which is why `tools/edit-glb-chest.py` edits the glb directly.
+**Two things worth knowing before touching this again:**
 
-**Rollback, used twice and proven:** `git checkout -- Content/HIImported/characters_dancer`
-(her content is TRACKED, 27 files, and restores mesh + skeleton + ten clips), then re-import
-`SourceAssets/models/woman01_original.glb` into `/Game/HIImported/models/woman01/SkeletalMeshes`
-as `woman01.glb` if the model folder was touched, then run the suite: expect 52/52.
+- `-HIModels=` art previews render THESE glb imports about 100x too large: the preview code derives
+  its scale from `Bounds.BoxExtent.Z`, and for an Interchange glTF import that bound is not the
+  rendered size. Candidate art from `import-assets.py` does not have this problem, so it is specific
+  to a character glb whose scale lives on the wrapper node rather than in the vertices. A visual A/B
+  of the chest was attempted this way, failed, and the numeric check above replaced it — the game's
+  camera only ever looks at her back, so there is no in-game angle that shows the chest anyway.
+- The screenshots that go with this: `shots/dancerdrive_01.png` (her on the driveway, in the game),
+  `shots/chestab5_02.png`. `shots/` is gitignored.
 
 ## Cleanup queue (for after the Dancer chest attempt)
 
-Collected 2026-11-04, not started. Ordered by how much it cleans for how little risk.
+Collected 2026-11-04. Item 4's Dancer half was done with the chest shipment on 2026-11-05; the rest
+is not started. Ordered by how much it cleans for how little risk.
 
 1. **962 tracked files under `Content/` show as modified.** 951 of them date from 2026-10-31 (an
    import run), the rest from the 2026-11-03/04 imports. The current on-disk state is what passes
@@ -260,8 +289,10 @@ Collected 2026-11-04, not started. Ordered by how much it cleans for how little 
 3. **Untracked art candidates**: `models/college_girlfriend`, `everyday_jane`,
    `girl_with_clothes_worker_set`, `miss_galaxy`, `woman01` (203 MB, none of them in the game).
 4. **Dead rigs** in `HIImported/mixamo/` (`IK_Female_Casual*`, `RTG_Female_Casual*`,
-   `Female_Casual_Skeleton1`) and `characters_dancer/idle/SkeletalMeshes/{IK_idle,RTG_idle}` — from
-   the GUI attempts, nothing references them. Note these are TRACKED, so deleting them is a commit.
+   `Female_Casual_Skeleton1`) — from the GUI attempts, nothing references them. Note these are
+   TRACKED, so deleting them is a commit. **Done for the Dancer 2026-11-05**: her
+   `characters_dancer/idle/SkeletalMeshes/{IK_idle,RTG_idle}` went with the whole nested pre-fix
+   folder when the chest shipped.
 5. **The brute's axe** — baked into his mesh (`Axe_GEO`, material slot 9 `phong4`). Hiding the slot
    with a zero-opacity material rendered it white instead of removing it. The fix is a model edit,
    the same in-place-glb trick that worked for the Dancer's chest.

@@ -162,3 +162,37 @@ so `FacingYawDeg` needs no row for her (she is a clean 90). `tools/blender-reexp
 to write a rig whose hips are outside 40-65% of height, which is the check that would have caught
 this on day one. Remaining work is clip-side only; see `NEXT.md`.
 
+
+## Re-importing a character glb: three things that cost days (2026-11-05)
+
+Written down after the Dancer Girl's chest edit shipped, because every one of them presented as a
+different bug -- a broken retarget, a flat pelvis, a missing physics asset -- and none of them was.
+
+1. **The wrapper in `tools/rename-glb-bones.py` is for the LEGACY glTF importer.** The Interchange
+   importer in this build does the Y-up -> Z-up conversion itself and scales glTF metres to
+   centimetres, so `GLB_WRAPPER=1 GLB_SCALE=1` applies both twice: the mesh arrives 100x too large
+   and lying down (bounds `(6278, 8059, 3706)` where her real half-extents are
+   `(62.79, 37.06, 80.59)`). Anything built from that -- a retarget pose especially -- is flat, which
+   reads as "the pelvis has no motion". **For a glb imported by this engine use
+   `GLB_WRAPPER=0 GLB_SCALE=0.01`.** The correct import is verified by the mesh's Z half-extent
+   (80.59 cm for her, 1.612 m tall).
+2. **The importer REUSES an existing skeleton of the same name at the destination.** A folder left
+   over from an older import layout (`characters_dancer/idle/SkeletalMeshes/idle_Skeleton`, bones
+   named `mixamorig11_Hips`) silently became the new mesh's skeleton. Check the bone names of the
+   mesh you just imported (`Hips`, not `mixamorig11_Hips`); empty the destination first if they are
+   wrong. `unreal.SkeletalMeshEditorSubsystem.get_bone_children` walks them from `_rootJoint`.
+3. **A skeletal mesh's bone space is part of its content, and clips do not survive changing it.** Her
+   old `_rootJoint` carried -90 deg X, so the Hips' parent space had UP on -Y; an Interchange import
+   bakes the same conversion into the vertex data and leaves `_rootJoint` at identity, UP on +Z.
+   Rendered geometry, facing (119.7 deg) and `hips->head` (39.1 cm) are IDENTICAL either way -- only
+   the clip's Hips track tells them apart, reading -7 cm against +98. So a mesh cannot be swapped
+   under an existing clip set: import the mesh and skeleton as ONE pair, then retarget the clips onto
+   them (`tools/retarget-character.sh <tag> martha woman01`). Confirmed working 2026-11-05: 21/21
+   chains, `Hips mean 98 cm standing, 48 cm crouching`, all ten clips bound to the new skeleton.
+
+Also, on Python: `mesh.set_editor_property("skeleton", ...)` refuses (VisibleAnywhere), but plain
+attribute assignment `mesh.skeleton = <USkeleton>` goes through the BlueprintSetter and works.
+`physics_asset` is settable either way, and `SkeletalMeshEditorSubsystem.create_physics_asset(mesh,
+True, 0)` is the way to get the asset the glTF import may skip. And `EditorAssetLibrary.delete_asset`
+followed by a same-session rename/import is unreliable -- the deleted asset stays in the live
+registry -- so delete in one editor run and import in the next.

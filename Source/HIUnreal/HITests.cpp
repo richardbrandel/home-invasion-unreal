@@ -1890,6 +1890,13 @@ bool FHIUnrealCast::RunTest(const FString& Parameters)
 			*FHICharAnim::ClipPathFor(Tag, FHICharAnim::ClipCrouchIdle())));
 		const float StandZ = MeanHipsZCm(StandSeq);
 		const float CrouchZ = MeanHipsZCm(CrouchSeq);
+		// LOGGED AS WELL AS ASSERTED (2026-11-05). Both numbers appear only inside the messages of
+		// assertions that PASS silently, so for a green run the pelvis height was invisible -- and
+		// one investigation (the Dancer's chest edit) needed exactly this number to tell "her hips
+		// are at 98 cm" from "her hips are at 0". A measurement the suite makes and then hides is
+		// not available to the next person; this line costs nothing and prints it every run.
+		AddInfo(FString::Printf(TEXT("%s: Hips mean %.0f cm standing, %.0f cm crouching (parent up)"),
+			Tag, StandZ, CrouchZ));
 		// The standing band is WIDE because the cast is not one size: louise, james and
 		// martha idle at ~96 cm and brute at 121 cm -- measured, first run of this check,
 		// which an 80-115 band rejected. What the band is for is "a pelvis, not the floor
