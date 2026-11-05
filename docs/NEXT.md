@@ -301,6 +301,51 @@ scaled rig its numbers are in that scale; `HI.Unreal.Cast` applies the Hips' par
 once, at the read (`HICastHipsParentScale`), instead of special-casing each assertion. Measured after:
 `Hips mean 98 cm standing, 48 cm crouching`, death drops 81 cm, and the suite is **52/52**.
 
+### The fourth pass: the bulge was aimed at her NECK (2026-11-05)
+
+The first in-game evaluation after the pipeline worked was Richard's: *"she is the right height, but
+the boobs seem like the same size as when we started."* Correct, and measurable.
+
+**What the tool actually moved.** Its Gaussian was centred on `(Spine1 + Neck) / 2` -- **76% of body
+height**, with sigma 9 cm -- so the blob covered the collar, the neckline and the inner arms while
+the bust (71-75%) sat on its falling edge. A height-by-height profile of the surface said it plainly:
+the midline bust moved **+0.2..+0.6 cm**, the largest single displacement (**7.4 cm**) sat at 78% of
+height, and of 203 moved vertices **143 were dominated by RightArm/RightForeArm**; the ones whose
+dominant weight is a spine bone averaged **0.5 cm**. The tool's own "apex 7.43 -> 12.40 cm" line had
+been measuring the top of the sternum -- a real number about the wrong landmark.
+
+**Two independent bugs, both in the targeting:**
+
+1. **The vertices were never in the bones' space.** This export keeps a translation on the mesh node
+   (`Object_7`, (-18.5, 0.99, -1.85)), so raw POSITION values are offset from every bone by ~18 cm.
+   Projected against the bones' axes without that transform, the "midline" band fell on the SIDE of
+   her body: the 62-74% slices held no vertices at all, and the front-most point in the 76-78%
+   slices won the apex contest.
+2. **The region was chosen by a bone midpoint and a lateral radius**, not by what the surface is
+   skinned to, which is how the arms and the neckline got pulled forward.
+
+**The fix** (`tools/edit-glb-chest.py`): work in skeleton space (apply the mesh node's matrix), find
+the bust line as the height of **maximum forward extent on the midline within 64-78% of height**
+(measured: 118.2 cm, 73%, apex 11.34 cm), and gate the eligible vertices on **dominant skin weight in
+Spine/Spine1/Spine2** -- which excludes the arms, shoulders and neck by construction. Narrower
+vertical sigma (4.5 cm), and the tool now **refuses to write** if any displacement above 78% of
+height exceeds 1.5 cm or any vertex beyond 14 cm laterally moves at all. It prints the forward
+profile before and after, so the failure that shipped cannot pass unnoticed again.
+
+**Result, measured on the glb:** bust apex **11.34 -> 17.54 cm (+6.20 cm, +55%)**; profile deltas
++0.35 at 66%, +3.44 at 70%, **+6.21 at 73%**, +3.83 at 75%, +0.29 at 80%, **0.00 above 82%**; 393
+vertices moved, symmetric (centroid 0.03 cm off the midline, 182 left / 161 right, lateral -11.1 ..
++10.1 cm); **zero** movement on the arms. Rendered A/B (same camera, same pose, original vs edited,
+front and profile): `shots/chest-ab.png` -- the difference is plain in both views. In-game front view
+of her: `shots/dancer-ingame-front.png`.
+
+Through the pipeline (which needed no changes): import `GLB_WRAPPER=0 GLB_SCALE=0.01`,
+`create_physics_asset`, `retarget-character.sh dancer martha woman01` (which bakes the rig scale),
+**suite 52/52**, `Hips mean 98 cm standing, 48 cm crouching`.
+
+Source assets refreshed to match: `SourceAssets/models/woman01_edited.glb` (raw edit) and
+`woman01_edited_renamed.glb` (renamed, `GLB_WRAPPER=0 GLB_SCALE=0.01`).
+
 **Two things worth knowing before touching this again:**
 
 - `-HIModels=` art previews render THESE glb imports about 100x too large: the preview code derives
