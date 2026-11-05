@@ -21,8 +21,26 @@ so recompute each one as inverse(composed node TRS). Then `jointMatrix * IBM == 
 pose by construction, and the skin renders exactly as authored. Verified after writing: every joint's
 recomputed IBM inverts back to its node world position.
 
-Only translation and rotation are handled; every node in this file has unit scale. A file with a
-non-uniform scale in the skeleton should be fixed at the source, not here.
+EXTENDED 2026-11-05 for the Dancer, whose `woman01_edited.glb` has the same defect but needed two
+things this tool refused at first:
+
+  * **A uniform SCALE on the rig.** Her `_rootJoint` carries 0.01 (the glTF -> cm import scale), and
+    the old guard rejected any node whose scale was not 1. Uniform scales compose fine, so they are
+    handled now; a NON-uniform scale is still refused, because the order of a scale against a
+    rotation is a question the file has to answer, not this tool.
+  * **A transform on the mesh node.** Her vertices live under `Object_7`, which sits 18.5 cm off the
+    skeleton's origin, so an IBM of `inverse(jointWorld)` alone binds the mesh 18.5 cm away from its
+    own bones. The skinning matrix is `jointWorld * IBM` *in mesh space*, so the bind is
+    `IBM = inverse(jointWorld) * meshNodeWorld`. For a model whose mesh node is at the origin --
+    Alina's is -- this is exactly the old behaviour, which is why adding it changed nothing there.
+
+Her defect is partial and the symptom is worth writing down, because it will be met again: twenty of
+sixty-six joints had an IBM that put the bone ~1.4 m from its parent (the whole thumb and every
+fingertip, both hands), while their node transforms put it 1-3 cm away. Both are invisible in the
+bind pose -- `IBM * bindPose == identity` either way -- so the mesh renders perfectly until one of
+those bones ROTATES, and then the vertices it drives swing on a 1.4 m radius. That is Richard's
+"her hands turn into what looks like long swords, sometimes": a few hand vertices flung a metre and a
+half along a thin sliver, only in the frames where a clip happens to turn a thumb or a fingertip.
 """
 import json
 import math
@@ -93,24 +111,26 @@ def main():
         for c in n.get("children", []):
             parent[c] = i
     for n in nodes:
-        s = n.get("scale")
-        if s and any(abs(v - 1.0) > 1e-6 for v in s):
-            raise SystemExit("FIXSKIN: node scale %s is not 1; refusing to guess" % s)
+        sc = n.get("scale")
+        if sc and (abs(sc[0] - sc[1]) > 1e-6 or abs(sc[1] - sc[2]) > 1e-6):
+            raise SystemExit("FIXSKIN: node scale %s is not uniform; refusing to guess" % (sc,))
 
     def world(i):
         chain, j = [], i
         while j is not None:
             chain.append(j)
             j = parent.get(j)
-        p, q = (0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 1.0)
+        p, q, s = (0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 1.0), 1.0
         for j in reversed(chain):
             n = nodes[j]
             t = n.get("translation") or (0.0, 0.0, 0.0)
             r = n.get("rotation") or (0.0, 0.0, 0.0, 1.0)
-            moved = qrot(q, t)
+            sc = n.get("scale") or (1.0, 1.0, 1.0)
+            moved = qrot(q, (t[0] * s, t[1] * s, t[2] * s))
             p = (p[0] + moved[0], p[1] + moved[1], p[2] + moved[2])
             q = qmul(q, r)
-        return p, q
+            s = s * sc[0]
+        return p, q, s
 
     skin = doc["skins"][0]
     acc = doc["accessors"][skin["inverseBindMatrices"]]
@@ -118,20 +138,37 @@ def main():
     base = view.get("byteOffset", 0) + acc.get("byteOffset", 0)
     stride = view.get("byteStride") or 64
 
+    def mat_from_trs(p, q, s):
+        r = rot_matrix(q)
+        m = [[r[i][j] * s for j in range(3)] + [p[i]] for i in range(3)]
+        m.append([0.0, 0.0, 0.0, 1.0])
+        return m
+
+    def mat_inv_trs(p, q, s):
+        """inverse of T(p) R(q) S(s):  S(1/s) R(q)^T T(-p)."""
+        r = rot_matrix(q)
+        inv = [[r[j][i] / s for j in range(3)] + [0.0] for i in range(3)]
+        for i in range(3):
+            inv[i][3] = -sum(inv[i][k] * p[k] for k in range(3))
+        inv.append([0.0, 0.0, 0.0, 1.0])
+        return inv
+
+    def mul(a, b):
+        return [[sum(a[i][k] * b[k][j] for k in range(4)) for j in range(4)] for i in range(4)]
+
+    # The skinning matrix is `jointWorld * IBM` in MESH space, so the bind this file must store is
+    # `inverse(jointWorld) * meshWorld`. Without that factor a mesh whose node is offset from the
+    # skeleton's origin binds away from its own bones: identity for Alina, 18.5 cm for the Dancer.
+    mesh_node = next(i for i, n in enumerate(nodes) if "mesh" in n)
+    mesh_world = mat_from_trs(*world(mesh_node))
+
     changed = 0
     for k, joint in enumerate(skin["joints"]):
-        p, q = world(joint)
-        # inverse of a rigid transform: R^T, and -R^T * p
-        r = rot_matrix(q)
-        rt = [[r[0][0], r[1][0], r[2][0]],
-              [r[0][1], r[1][1], r[2][1]],
-              [r[0][2], r[1][2], r[2][2]]]
-        t = tuple(-(rt[i][0] * p[0] + rt[i][1] * p[1] + rt[i][2] * p[2]) for i in range(3))
-        # column-major
-        mat = [rt[0][0], rt[1][0], rt[2][0], 0.0,
-               rt[0][1], rt[1][1], rt[2][1], 0.0,
-               rt[0][2], rt[1][2], rt[2][2], 0.0,
-               t[0], t[1], t[2], 1.0]
+        ibm = mul(mat_inv_trs(*world(joint)), mesh_world)
+        mat = [ibm[0][0], ibm[1][0], ibm[2][0], ibm[3][0],
+               ibm[0][1], ibm[1][1], ibm[2][1], ibm[3][1],
+               ibm[0][2], ibm[1][2], ibm[2][2], ibm[3][2],
+               ibm[0][3], ibm[1][3], ibm[2][3], ibm[3][3]]
         at = base + k * stride
         old = struct.unpack_from("<16f", bin_chunk, at)
         if max(abs(old[i] - mat[i]) for i in range(16)) > 1e-3:
@@ -140,16 +177,23 @@ def main():
 
     print("FIXSKIN: %d/%d inverse-bind matrices rewritten" % (changed, len(skin["joints"])))
 
-    # SELF-CHECK: the stored IBM must now invert back to the joint's world position.
-    worst = 0.0
+    # SELF-CHECK: `jointWorld * IBM` must reproduce the mesh node's transform for EVERY joint. That
+    # is the definition of the bind, and it is the identity that makes the bind pose render as
+    # authored -- which is why a bad IBM is invisible until a bone rotates.
+    worst, worst_bone = 0.0, ""
     for k, joint in enumerate(skin["joints"]):
         m = struct.unpack_from("<16f", bin_chunk, base + k * stride)
-        p, _ = world(joint)
-        back = (m[0] * p[0] + m[4] * p[1] + m[8] * p[2] + m[12],
-                m[1] * p[0] + m[5] * p[1] + m[9] * p[2] + m[13],
-                m[2] * p[0] + m[6] * p[1] + m[10] * p[2] + m[14])
-        worst = max(worst, math.sqrt(sum(v * v for v in back)))
-    print("FIXSKIN: self-check -- worst |IBM * bindPosition| = %.4f (0 is perfect)" % worst)
+        jibm = [[m[0], m[4], m[8], m[12]],
+                [m[1], m[5], m[9], m[13]],
+                [m[2], m[6], m[10], m[14]],
+                [m[3], m[7], m[11], m[15]]]
+        got = mul(mat_from_trs(*world(joint)), jibm)
+        d = max(abs(got[i][j] - mesh_world[i][j]) for i in range(4) for j in range(4))
+        if d > worst:
+            worst, worst_bone = d, nodes[joint].get("name", "?")
+    print("FIXSKIN: self-check -- worst |jointWorld*IBM - meshWorld| = %.5f (%s)" % (worst, worst_bone))
+    if worst > 1e-2:
+        raise SystemExit("FIXSKIN: self-check FAILED (%.3f at %s) -- refusing to write" % (worst, worst_bone))
     save(dst, version, doc, chunks)
     print("FIXSKIN: wrote %s" % dst)
 

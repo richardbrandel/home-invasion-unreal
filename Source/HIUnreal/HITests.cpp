@@ -6,6 +6,7 @@
 #include "Components/InstancedStaticMeshComponent.h"
 #include "Engine/SkeletalMesh.h"
 #include "HIAudio.h"
+#include "HIAnimTool.h"
 #include "MaterialShared.h"
 #include "HICharAnim.h"
 #include "HIGameMode.h"
@@ -1591,6 +1592,18 @@ bool FHIUnrealCast::RunTest(const FString& Parameters)
 		const FReferenceSkeleton& Ref = Mesh->GetRefSkeleton();
 		AddInfo(FString::Printf(TEXT("%s: %d bones, bone[0] is '%s'"),
 			Tag, Ref.GetNum(), Ref.GetNum() > 0 ? *Ref.GetBoneName(0).ToString() : TEXT("(none)")));
+
+		// ---- 1b. NO IMPOSSIBLE BONE. A bind whose joints sit far from their geometry draws
+		// correctly in the bind pose and explodes into spikes the moment a bone rotates -- the
+		// Dancer's "hands turn into long swords, sometimes" (2026-11-05). Every other check here
+		// read hips, height or facing, and all of those were fine while the hands were a metre and a
+		// half wrong.
+		{
+			const FString Proportions = UHIAnimTool::CheckBindProportions(Mesh);
+			AddInfo(FString::Printf(TEXT("%s bind: %s"), Tag, *Proportions));
+			TestTrue(*FString::Printf(TEXT("%s's bind has no impossible bone segment: %s"), Tag, *Proportions),
+				Proportions.Contains(TEXT(": OK")));
+		}
 
 		// ---- 4. the rig's named bones, all of them, present.
 		for (const TCHAR* Bone : RigBones)

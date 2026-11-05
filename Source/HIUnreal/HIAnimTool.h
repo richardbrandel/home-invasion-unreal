@@ -117,4 +117,17 @@ public:
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Home Invasion")
 	static FString BakeClipRootScale(const FString& PackagePath, USkeletalMesh* Mesh, float Factor);
+
+	/** Report bone segments that are impossibly long for the character's own height -- a bind whose
+	 *  joints sit far from where the geometry is. Such a bind renders correctly until a bone rotates,
+	 *  and then its vertices draw as spikes ("long swords" on the Dancer, 2026-11-05). */
+	UFUNCTION(BlueprintCallable, Category = "Home Invasion")
+	static FString CheckBindProportions(USkeletalMesh* Mesh, float MaxFractionOfHeight = 0.30f);
+
+	/** Report bones whose track translations disagree with the mesh's bind, as a fraction of the
+	 *  bone's bind length. An "OK" report is what a clean clip looks like; anything else names the
+	 *  bones, because a translation off the bind draws as a spike (see CheckBindTranslations). */
+	UFUNCTION(BlueprintCallable, Category = "Home Invasion")
+	static FString CheckBindTranslations(const FString& PackagePath, USkeletalMesh* Mesh,
+		float ToleranceFraction = 0.02f);
 };

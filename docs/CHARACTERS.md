@@ -190,7 +190,21 @@ different bug -- a broken retarget, a flat pelvis, a missing physics asset -- an
    them (`tools/retarget-character.sh <tag> martha woman01`). Confirmed working 2026-11-05: 21/21
    chains, `Hips mean 98 cm standing, 48 cm crouching`, all ten clips bound to the new skeleton.
 
-4. **A rig that carries an import SCALE makes retargeted clips 100x.** The Interchange glTF import
+4. **A rig whose inverse bind matrices disagree with its node hierarchy draws as SPIKES, and only
+   while animating.** `tools/fix-glb-skin.py` is for it, and the Dancer's glb needed it for thirteen
+   joints -- the whole thumb and every fingertip, both hands -- whose matrix put the bone 1.37 m from
+   its parent where the nodes put it 1.5 cm. The bind pose is unaffected (a bone's inverse cancels
+   its own transform, however wrong that transform is), so the mesh looks perfect until a bone
+   ROTATES and flings its vertices a metre and a half: *"her hands turn into what looks like long
+   swords, sometimes."* Two things made the tool refuse her file, and both are now handled: a
+   UNIFORM scale on the rig (`_rootJoint` 0.01 with 100x offsets below it) and a transform on the
+   MESH node (`Object_7`, 18.5 cm off the skeleton's origin -- the bind must be
+   `inverse(jointWorld) * meshNodeWorld`, in mesh space, or the mesh binds away from its own bones).
+   Its self-check now asserts `jointWorld * IBM == meshWorld` for every joint; a run that cannot
+   satisfy it refuses to write. `HI.Unreal.Cast` asserts `CheckBindProportions` for every character,
+   which is the cheap half: no bone segment may exceed 30% of the body's height.
+
+5. **A rig that carries an import SCALE makes retargeted clips 100x.** The Interchange glTF import
    of a wrapped glb keeps the wrapper's scale in the rig (`_rootJoint` scale 0.01, every other bone's
    local translation 100x, cancelling in component space). IK Retargeting copies those offsets and
    writes scale 1.0, so the cancellation is lost and the animated figure is ~100x -- measured: a

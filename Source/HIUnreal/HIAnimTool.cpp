@@ -469,6 +469,187 @@ FString UHIAnimTool::MeasureCharacterClip(const FString& PackagePath)
 #endif
 }
 
+namespace
+{
+	/** The reference skeleton's index for a track name, tolerating the importer's prefixes. */
+	int32 BoneIndexForTrack(const FReferenceSkeleton& Ref, const FName& Track)
+	{
+		const FString S = Track.ToString();
+		for (int32 i = 0; i < Ref.GetNum(); ++i)
+		{
+			const FString Bone = Ref.GetBoneName(i).ToString();
+			if (S == Bone || S.EndsWith(FString::Printf(TEXT(":%s"), *Bone))
+				|| S.EndsWith(FString::Printf(TEXT("_%s"), *Bone)))
+			{
+				return i;
+			}
+		}
+		return INDEX_NONE;
+	}
+}
+
+FString UHIAnimTool::CheckBindProportions(USkeletalMesh* Mesh, float MaxFractionOfHeight)
+{
+#if WITH_EDITOR
+	// IMPOSSIBLE BONE LENGTHS (2026-11-05). Richard: "the dancer, when she walks, sometimes her hands
+	// turn into what looks like long swords." The cause was thirteen joints -- the whole thumb and
+	// every fingertip, both hands -- whose bind put them ~1.4 m from their parent while the model's
+	// node hierarchy put them 1-3 cm away. A bad bind is INVISIBLE in the bind pose, because a bone's
+	// own transform cancels against its inverse, so the mesh renders perfectly right up until one of
+	// those bones ROTATES and swings its vertices on a metre-and-a-half radius.
+	//
+	// Nothing in the suite could see it: `HI.Unreal.Cast` reads the hips, the height and the facing,
+	// and all three were correct. This check is the missing one. A bone segment longer than a third
+	// of the character's own height cannot be right -- the longest legitimate segment in this cast is
+	// a shin at 42 cm in a 180 cm man (23%) -- and the threshold is derived from the mesh rather than
+	// being a magic number in centimetres.
+	if (Mesh == nullptr)
+	{
+		return TEXT("FAILED -- no mesh");
+	}
+	const FReferenceSkeleton& Ref = Mesh->GetRefSkeleton();
+	const int32 Num = Ref.GetNum();
+	if (Num == 0)
+	{
+		return TEXT("FAILED -- empty skeleton");
+	}
+	const FVector Extent = Mesh->GetBounds().BoxExtent;
+	const float HeightCm = static_cast<float>(Extent.Z) * 2.0f;
+	if (HeightCm < 50.0f)
+	{
+		return FString::Printf(TEXT("FAILED -- mesh height reads %.0f cm, too small to judge"), HeightCm);
+	}
+	// The rig's own scale, so every segment is compared in CENTIMETRES: the Dancer's import carries
+	// 0.01 on the root with 100x offsets beneath it.
+	float Scale = 1.0f;
+	const int32 RootIdx = Ref.FindBoneIndex(TEXT("_rootJoint"));
+	if (RootIdx != INDEX_NONE)
+	{
+		Scale = static_cast<float>(Ref.GetRefBonePose()[RootIdx].GetScale3D().X);
+	}
+	const float LimitCm = MaxFractionOfHeight * HeightCm;
+	FString Bad;
+	int32 WorstBone = INDEX_NONE;
+	float WorstCm = 0.0f;
+	for (int32 i = 1; i < Num; ++i)   // 0 is the root; its children carry the hip offset
+	{
+		// The pelvis offset is legitimately large -- a metre from the character's origin in a rig
+		// whose root sits at the feet -- so Hips is the one translation exempt from this test.
+		if (Ref.GetBoneName(i) == FName(TEXT("Hips")))
+		{
+			continue;
+		}
+		const int32 Parent = Ref.GetParentIndex(i);
+		if (Parent == 0)
+		{
+			continue;   // anything hanging directly off the root carries the same offset
+		}
+		const float LenCm = static_cast<float>(Ref.GetRefBonePose()[i].GetTranslation().Size()) * Scale;
+		if (LenCm > WorstCm)
+		{
+			WorstCm = LenCm;
+			WorstBone = i;
+		}
+		if (LenCm > LimitCm)
+		{
+			Bad += FString::Printf(TEXT("%s %.0f cm "), *Ref.GetBoneName(i).ToString(), LenCm);
+		}
+	}
+	if (Bad.IsEmpty())
+	{
+		return FString::Printf(TEXT("%s: OK (longest segment %.0f cm = %.0f%% of %.0f cm%s)"),
+			*Mesh->GetName(), WorstCm, 100.0f * WorstCm / HeightCm, HeightCm,
+			WorstBone != INDEX_NONE ? *FString::Printf(TEXT(", %s"), *Ref.GetBoneName(WorstBone).ToString()) : TEXT(""));
+	}
+	return FString::Printf(TEXT("%s: BAD -- bone segments over %.0f%% of a %.0f cm body: %s"),
+		*Mesh->GetName(), MaxFractionOfHeight * 100.0f, HeightCm, *Bad);
+#else
+	return TEXT("FAILED: editor only");
+#endif
+}
+
+FString UHIAnimTool::CheckBindTranslations(const FString& PackagePath, USkeletalMesh* Mesh,
+	float ToleranceFraction)
+{
+#if WITH_EDITOR
+	// THE SWORDS CHECK (2026-11-05). Richard: "the dancer, when she walks, sometimes her hands turn
+	// into what looks like long swords." A retargeted clip must animate ROTATIONS; a bone's
+	// translation is part of the bind, and the mesh's inverse bind matrix assumes it. When a clip
+	// carries a translation for a bone that differs from the bind, the difference is multiplied by
+	// that inverse bind -- so a finger offset authored in the wrong unit flings the hand's vertices
+	// metres away and they draw as a blade. It came and went because it depends on which bones the
+	// retarget chose to author in each clip.
+	//
+	// This reports the deviation per bone as a FRACTION of the bone's own bind length, so it is
+	// unit-agnostic: the Dancer's rig is in an "everything is 100x" encoding and the ratio is the
+	// only thing that means anything. `HI.Unreal.Cast` calls it for every clip of every character.
+	if (Mesh == nullptr)
+	{
+		return FString::Printf(TEXT("%s: FAILED -- no mesh"), *PackagePath);
+	}
+	UAnimSequence* Seq = LoadObject<UAnimSequence>(nullptr, *PackagePath);
+	if (Seq == nullptr)
+	{
+		return FString::Printf(TEXT("%s: MISSING"), *PackagePath);
+	}
+	const IAnimationDataModel* Model = Seq->GetDataModel();
+	if (Model == nullptr)
+	{
+		return FString::Printf(TEXT("%s: NO DATA MODEL"), *PackagePath);
+	}
+	const FReferenceSkeleton& Ref = Mesh->GetRefSkeleton();
+	const FTransform* RefPose = Ref.GetRefBonePose().GetData();
+	const int32 HipsIdx = Ref.FindBoneIndex(TEXT("Hips"));
+	const int32 RootIdx = Ref.FindBoneIndex(TEXT("_rootJoint"));
+
+	TArray<FName> Tracks;
+	Model->GetBoneTrackNames(Tracks);
+	FString Bad;
+	int32 WorstBone = INDEX_NONE;
+	float Worst = 0.0f;
+	for (const FName& Track : Tracks)
+	{
+		const int32 Idx = BoneIndexForTrack(Ref, Track);
+		if (Idx == INDEX_NONE || Idx == HipsIdx || Idx == RootIdx)
+		{
+			continue;   // the pelvis carries the root motion; the root carries the import scale
+		}
+		FHIKeySet Keys;
+		if (!CollectKeys(*Model, Track, Keys) || Keys.Pos.Num() == 0)
+		{
+			continue;
+		}
+		const FVector RefT = RefPose[Idx].GetTranslation();
+		const float RefLen = static_cast<float>(RefT.Size());
+		const float Denom = RefLen > 1.0f ? RefLen : 1.0f;
+		float LocalWorst = 0.0f;
+		for (const FVector3f& P : Keys.Pos)
+		{
+			LocalWorst = FMath::Max(LocalWorst,
+				static_cast<float>((FVector(P.X, P.Y, P.Z) - RefT).Size()) / Denom);
+		}
+		if (LocalWorst > Worst)
+		{
+			Worst = LocalWorst;
+			WorstBone = Idx;
+		}
+		if (LocalWorst > ToleranceFraction)
+		{
+			Bad += FString::Printf(TEXT("%s %.1f%% "), *Ref.GetBoneName(Idx).ToString(), LocalWorst * 100.0f);
+		}
+	}
+	if (Bad.IsEmpty())
+	{
+		return FString::Printf(TEXT("%s: OK (worst %.2f%% of bind length%s)"), *PackagePath, Worst * 100.0f,
+			WorstBone != INDEX_NONE ? *FString::Printf(TEXT(", %s"), *Ref.GetBoneName(WorstBone).ToString()) : TEXT(""));
+	}
+	return FString::Printf(TEXT("%s: BAD -- translations off the bind: %s| worst %.0f%% (%s)"),
+		*PackagePath, *Bad, Worst * 100.0f, WorstBone != INDEX_NONE ? *Ref.GetBoneName(WorstBone).ToString() : TEXT("?"));
+#else
+	return TEXT("FAILED: editor only");
+#endif
+}
+
 FString UHIAnimTool::BakeClipRootScale(const FString& PackagePath, USkeletalMesh* Mesh, float Factor)
 {
 #if WITH_EDITOR

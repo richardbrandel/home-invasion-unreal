@@ -357,6 +357,54 @@ Source assets refreshed to match: `SourceAssets/models/woman01_edited.glb` (raw 
 - The screenshots that go with this: `shots/dancerdrive_01.png` (her on the driveway, in the game),
   `shots/chestab5_02.png`. `shots/` is gitignored.
 
+## Her hands turned into long swords (2026-11-05)
+
+Richard: *"the dancer when she walks, sometimes her hands turn into what looks like long swords.
+Sometimes they are normal."*
+
+**What it was not.** Not the weights (no vertex is more than 41 cm from the joint that drives it, and
+658 of 9,509 hand-and-leg vertices are under 25 cm of theirs). Not a bone scale (only the root's
+0.01 import scale exists, and the mesh bounds stayed at 1-1.2 m while it happened). Not the translation
+curves (every bone's clip translation equals its bind to 0.00% -- `HIAnimTool::CheckBindTranslations`
+is what proves that, and it was written to test this theory, which failed).
+
+**What it was.** Thirteen joints -- the whole thumb and every fingertip, in both hands -- had an
+`inverseBindMatrix` that placed the bone **1.37-1.42 m from its parent**, while the model's node
+hierarchy placed it 1-3 cm away. Unreal's glTF importer builds the bind from those matrices, so the
+skeleton carried a fingertip a metre and a half from the hand. That is invisible in the bind pose,
+because `inverseBind * bindPose == identity` for every bone no matter how wrong it is -- the mesh
+renders exactly as authored. It appears the instant one of those bones **rotates**: its vertices
+swing on a 1.4 m radius instead of a 2 cm one, and a handful of hand vertices drawn as a thin sliver
+is the sword. "Sometimes" is whichever frames turned a thumb or a fingertip.
+
+**The fix** is `tools/fix-glb-skin.py` -- which already existed for exactly this defect (Alina,
+2026-11-01) and had two things that made it refuse her file:
+
+1. **A uniform scale on the rig.** Her `_rootJoint` carries 0.01 and everything beneath it is 100x;
+   the old guard rejected any node scale that was not 1. Uniform scales compose, so they are handled
+   now; a non-uniform scale is still refused, because the scale/rotation order is a question the
+   file has to answer.
+2. **A transform on the mesh node.** Her vertices live under `Object_7`, 18.5 cm off the skeleton's
+   origin, and the skinning matrix is `jointWorld * IBM` *in mesh space* -- so the bind is
+   `inverse(jointWorld) * meshNodeWorld`. For Alina's model (mesh node at the origin) that is the old
+   behaviour exactly, which is why the change is safe for her.
+
+Measured after the rewrite (self-check: `jointWorld * IBM` reproduces `meshWorld` to 0.00018 on all 66
+joints): the imported bind reads `LeftHandIndex4` **2.4 cm** (was 141.7), `LeftHandThumb1` **3.2 cm**
+(was 137.2), `HeadTop_End` **23 cm** (was 137). The mesh is byte-identical to the one that shipped
+apart from those 20 matrices: 9,595 verts, bounds `(62.79, 37.06, 80.59)`, facing **119.7 deg**,
+`hips->head` **39.3 cm**, `Hips mean 98 cm standing / 48 cm crouching`, suite **52/52**.
+
+Verified in game over twelve phases of the walk (5.6-10.0 s), including the four timestamps where the
+blades had appeared: `shots/swords-sweep-after.png`, all clean.
+
+**The check that would have caught it** is now in `HI.Unreal.Cast`: `UHIAnimTool::CheckBindProportions`
+reports any bone segment longer than 30% of the character's own height (the pelvis and the root's
+children exempt, because the hip offset is legitimately ~1 m). The cast's longest real segment is a
+shin at 26%; the broken fingertip was **88%**. Every other assertion in the Cast test read hips,
+height or facing and all three were correct while the hands were a metre and a half wrong -- which is
+the pattern worth remembering: a bind error is invisible until something rotates.
+
 ## The cast walked 90 degrees out (2026-11-05)
 
 Richard, from play: *"when they walk, they don't face where they are going, they are turned 90 degrees
