@@ -35,3 +35,12 @@ shots/
 # Listening samples: generated audio kept out of the repo, regenerate with
 # tools/make-voices-neural.sh
 voice-samples/
+
+# ART CANDIDATES, KEPT BUT IGNORED (2026-11-05). Imported characters that are not in the game. Their
+# SOURCE models are no longer in SourceAssets -- only these .uassets exist -- so deleting them would
+# throw away the only copy of four candidate meshes. Ignored instead, which is what the untracked
+# noise was for: 196 MB that `git status` reported on every run and that nobody was going to commit.
+Content/HIImported/models/college_girlfriend/
+Content/HIImported/models/everyday_jane/
+Content/HIImported/models/girl_with_clothes_worker_set/
+Content/HIImported/models/miss_galaxy/

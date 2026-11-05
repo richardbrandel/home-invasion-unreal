@@ -357,29 +357,41 @@ Source assets refreshed to match: `SourceAssets/models/woman01_edited.glb` (raw 
 - The screenshots that go with this: `shots/dancerdrive_01.png` (her on the driveway, in the game),
   `shots/chestab5_02.png`. `shots/` is gitignored.
 
-## Cleanup queue (for after the Dancer chest attempt)
+## Cleanup queue — DONE 2026-11-05
 
-Collected 2026-11-04. Item 4's Dancer half was done with the chest shipment on 2026-11-05; the rest
-is not started. Ordered by how much it cleans for how little risk.
+Collected 2026-11-04 after the chest attempt; worked through on 2026-11-05. The repo is clean:
+`git status` reports nothing except the two Config files below, and the suite is **52/52** before
+and after every step.
 
-1. **962 tracked files under `Content/` show as modified.** 951 of them date from 2026-10-31 (an
-   import run), the rest from the 2026-11-03/04 imports. The current on-disk state is what passes
-   52/52, so this is a decision, not a chore: either commit them (a large binary commit) or
-   `git checkout -- Content/` and re-verify. Do not "tidy" it without re-running the suite.
-2. **Untracked and referenced by nothing** (verified by grepping the folder name across every
-   `.uasset`): `characters_dancer_idle/`, `characters_dancer_idle_Anim/`,
-   `characters_martha_idle_Anim/` — 117 MB of strays from earlier import layouts. Safe to delete.
-3. **Untracked art candidates**: `models/college_girlfriend`, `everyday_jane`,
-   `girl_with_clothes_worker_set`, `miss_galaxy`, `woman01` (203 MB, none of them in the game).
-4. **Dead rigs** in `HIImported/mixamo/` (`IK_Female_Casual*`, `RTG_Female_Casual*`,
-   `Female_Casual_Skeleton1`) — from the GUI attempts, nothing references them. Note these are
-   TRACKED, so deleting them is a commit. **Done for the Dancer 2026-11-05**: her
-   `characters_dancer/idle/SkeletalMeshes/{IK_idle,RTG_idle}` went with the whole nested pre-fix
-   folder when the chest shipped.
-5. ~~**The brute's axe**~~ — **DONE 2026-11-05.** The recorded slot was wrong: the axe is material
-   slot **0 `blinn7`** (its textures are `axe_DIF2/NM2/SPEC`), not slot 9 `phong4`. It is hidden per
-   component by `FHICharAnim::HideBakedProp` via `ShowMaterialSection` — no re-import, no clip
-   rebuild, suite still 52/52. See REALISM-BACKLOG, "The brute's axe".
-6. **Daylight through the new window openings** — the openings are real and the glass is clear, but
-   nothing lights the rooms through them yet; two lighting attempts were reverted (see
-   REALISM-BACKLOG item 8).
+1. **964 tracked files under `Content/` showed as modified** — and it was almost all noise. 947 of
+   them were BYTE-SIZE-IDENTICAL re-saves (an import run re-serialised the packages without changing
+   what is in them); reverting those changed nothing: **suite 52/52**. The other 17 were the two
+   Config files below and 15 content files with real size differences (martha's `idle_Anim` 20 KB
+   smaller, shrub/tree3 textures +93/+418 bytes, six clips +/-1-2 bytes); those were reverted too and
+   the suite is still **52/52**, so HEAD is the passing state and the churn was a working-tree
+   artefact rather than uncommitted work. A tar of the
+   reverted versions was taken first (`/tmp/hi_modified_backup.tgz`, 325 MB) -- `git checkout --
+   Content/` was the whole operation once that existed.
+2. **117 MB of untracked strays deleted**: `characters_dancer_idle/` (3.1 MB),
+   `characters_dancer_idle_Anim/` (57 MB), `characters_martha_idle_Anim/` (57 MB). Re-verified by
+   grepping the folder names across every `.uasset`: the only references were between the first two,
+   and the game loads none of it.
+3. **Untracked art candidates**: `models/woman01/` (14 MB) deleted -- its source glb is in
+   `SourceAssets/models`. `college_girlfriend/`, `everyday_jane/`, `girl_with_clothes_worker_set/`,
+   `miss_galaxy/` (196 MB) are KEPT: their source models are not in `SourceAssets` any more, so these
+   `.uassets` are the only copy, and deleting the only copy of an art candidate is not cleanup. They
+   are now in `.gitignore`, which is what the untracked noise was for.
+4. **Dead rigs deleted**: `mixamo/{IK,RTG}_Female_Casual*` and `Female_Casual_Skeleton1` (they were
+   untracked, not tracked as this note said) plus the Dancer's `idle/SkeletalMeshes/{IK,RTG}_idle`,
+   which went with her nested folder when the chest shipped.
+5. **The brute's axe** — done; see REALISM-BACKLOG (the axe was material slot 0 `blinn7`, not slot 9).
+6. **Daylight through the window openings** is still open — it is a lighting task, not cleanup.
+
+**The one thing that will keep showing up:** `Config/DefaultEngine.ini` and `Config/DefaultInput.ini`
+are REWRITTEN BY THE ENGINE on a run. `DefaultEngine.ini` gains an `AndroidFileServer` block with a
+`SecurityToken`; `DefaultInput.ini` is re-serialised in the engine's canonical form, which drops the
+comment block explaining the deliberate legacy-input choice AND switches
+`DefaultPlayerInputClass`/`DefaultInputComponentClass` to the Enhanced Input classes. **Revert both
+with `git checkout -- Config/`; do not commit the rewrite** -- it discards the rationale and flips an
+architectural decision nobody made. The comment is preserved in HEAD, and the suite passes either way,
+which is exactly why it would slip through unnoticed.

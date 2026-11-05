@@ -27,6 +27,11 @@ fix it rather than recreating the mount.
 # even when a real compile would fail (see the alias note above).
 /data/UnrealEngine/Engine/Build/BatchFiles/Linux/Build.sh HIUnrealEditor Linux Development -project=/data/projects/HIUnreal/HIUnreal.uproject
 
+# TREE STATE. `git status` is expected to be clean. The two `Config/Default*.ini` files are rewritten
+# by the engine on a run (an AndroidFileServer block, and DefaultInput.ini re-serialised in a form that
+# drops the legacy-input rationale and switches the input classes) -- `git checkout -- Config/` after
+# a session, and never commit that rewrite. Art candidates that are not in the game are in .gitignore.
+
 # test. Exit 0 only when tests RAN and passed. The runner MASKS crashes -- after it, confirm
 # "tests run : N" AND grep -c 'Assertion failed' on the newest /tmp/ue_auto_*.log.
 # Filter is HI. (not HI.Sim): the game module carries its own tests, and a too-narrow filter is
