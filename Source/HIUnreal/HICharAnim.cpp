@@ -186,8 +186,75 @@ namespace
 
 // ---------------------------------------------------------------- driving
 
+/**
+ * Hide one BAKED-IN prop by its material slot name.
+ *
+ * WHY THIS EXISTS (2026-11-05). The brute's `idle.fbx` carries `Axe_GEO` as geometry inside the
+ * character mesh -- its own material slot (`phong4`) and therefore its own SECTION -- so an axe
+ * renders in his hand no matter what the sim has him carrying. Two cheaper fixes were already
+ * tried and are recorded in REALISM-BACKLOG: replacing the slot's material with a zero-opacity
+ * glass instance rendered it BRIGHT WHITE instead of hiding it, and there is no way to delete a
+ * section from the asset at runtime.
+ *
+ * `USkinnedMeshComponent::ShowMaterialSection(i, SectionIndex, bShow=false, LODIndex=0)` marks the
+ * material hidden ON THIS COMPONENT: the renderer skips every section using it, shadows included,
+ * and the asset, the rig, the physics asset and the material slots are untouched. That is the
+ * lever the backlog note said to pull, and it costs nothing per character that does not have a
+ * baked prop (the loop runs over ten slot names).
+ *
+ * A slot name that does not exist is NOT silent: a renamed or re-imported model would otherwise
+ * quietly bring the axe back, which is the same class of "looks fixed" as the white material.
+ */
+void FHICharAnim::HideBakedProp(USkeletalMeshComponent* Mesh, const TCHAR* SlotName)
+{
+	if (Mesh == nullptr || SlotName == nullptr)
+	{
+		return;
+	}
+	const USkeletalMesh* Asset = Mesh->GetSkeletalMeshAsset();
+	if (Asset == nullptr)
+	{
+		return;
+	}
+	const TArray<FSkeletalMaterial>& Mats = Asset->GetMaterials();
+	int32 Hidden = 0;
+	for (int32 i = 0; i < Mats.Num(); ++i)
+	{
+		const bool bName = Mats[i].MaterialSlotName.ToString().Equals(SlotName, ESearchCase::IgnoreCase);
+		const bool bAsset = Mats[i].MaterialInterface != nullptr
+			&& Mats[i].MaterialInterface->GetName().Equals(SlotName, ESearchCase::IgnoreCase);
+		if (bName || bAsset)
+		{
+			// SectionIndex is only used to route through LODMaterialMap; -1 is "no remap", so this
+			// hides the material index itself and every section that uses it.
+			Mesh->ShowMaterialSection(i, /*SectionIndex=*/-1, /*bShow=*/false, /*LODIndex=*/0);
+			++Hidden;
+			UE_LOG(LogTemp, Display, TEXT("HI: hid baked prop '%s' (material slot %d) on %s"),
+				SlotName, i, *Mesh->GetName());
+		}
+	}
+	if (Hidden == 0)
+	{
+		UE_LOG(LogTemp, Warning,
+			TEXT("HI: no material slot named '%s' on %s -- a baked prop was NOT hidden (renamed model?)"),
+			SlotName, *Asset->GetName());
+	}
+}
+
 void FHICharAnim::SetupCharacter(USkeletalMeshComponent* Mesh, const TCHAR* Tag)
 {
+	// BAKED PROPS ARE GEOMETRY, and they are hidden per component here so that every spawn path
+	// (player, intruder, soak, capture) gets the same character. The table is per tag because a
+	// slot name alone is not a promise about what the slot contains.
+	if (FCString::Strcmp(Tag, TEXT("brute")) == 0)
+	{
+		// `blinn7` IS THE AXE, and the recorded note had the wrong slot. Slot 9 (`phong4`) was
+		// carried over from REALISM-BACKLOG as "the axe", but hiding it changed nothing in game
+		// (checked: with all ten slots hidden he disappears, so the mechanism works). The axe's
+		// THREE textures are what identify it: slot 0's material instance points at `axe_DIF2`,
+		// `axe_NM2` and `axe_SPEC`, and `phong4` has no texture parameters at all.
+		HideBakedProp(Mesh, TEXT("blinn7"));
+	}
 	if (Mesh == nullptr || Mesh->GetSkeletalMeshAsset() == nullptr || Tag == nullptr)
 	{
 		return;

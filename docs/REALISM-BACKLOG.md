@@ -551,11 +551,23 @@ means deciding whether the sun's fixed yaw 216 should change, knowing it was cho
 is not backlit), a fill level that does not flatten the rooms, and probably auto-exposure limits.
 Numbers guessed between builds is how a scene ends up either flat or nuclear.
 
-### The brute's axe (2026-11-04)
+### The brute's axe (2026-11-04, RESOLVED 2026-11-05)
 
 `SourceAssets/characters/brute/idle.fbx` contains `Axe_GEO` with its own three textures, so the axe
-is geometry inside the character mesh, not a weapon we attach. The imported asset has 10 material
-slots; nine are body parts and slot 9 is `phong4`, the axe. Replacing that slot with a zero-opacity
-glass instance did NOT hide it -- it rendered bright white -- and was reverted. The real fix is to
-delete the axe geometry from the model (Blender, then re-import through the character pipeline) or
-to hide the material SECTION rather than the material. Not attempted further in that session.
+is geometry inside the character mesh, not a weapon we attach. **The slot recorded here was wrong.**
+"Slot 9 is `phong4`, the axe" is what this note said, but hiding slot 9 changes nothing in game: with
+all ten slots hidden the man disappears, so the mechanism works and the axe was elsewhere. The axe is
+identified by its TEXTURES -- `axe_DIF2`, `axe_NM2`, `axe_SPEC` -- and those are on **slot 0,
+`blinn7`**. `phong4` has no texture parameters at all.
+
+**Fix:** `FHICharAnim::HideBakedProp(Mesh, "blinn7")`, called from `SetupCharacter` for the `brute`
+tag. `USkinnedMeshComponent::ShowMaterialSection(slot, SectionIndex=-1, bShow=false, LODIndex=0)`
+marks the material hidden ON THE COMPONENT, which the scene proxy honours (it skips every section
+whose material is hidden, shadows included) -- the asset, the rig, the physics asset and the material
+slots are untouched, so nothing had to be re-imported and no clip was rebuilt. That is the "hide the
+material SECTION rather than the material" route this note proposed; the zero-opacity glass instance
+failed because it was a translucent material, not because the slot was wrong.
+
+Verified in game: `shots/brute-axe-ab.png` (before: axe over his shoulder; after: empty-handed apart
+from the pistol), suite 52/52. The geometry is still in the mesh (a few thousand dead triangles); a
+model-side deletion remains possible with an FBX edit, but it changes nothing visible.

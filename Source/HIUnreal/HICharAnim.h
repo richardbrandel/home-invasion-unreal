@@ -115,6 +115,9 @@ struct FHICharAnim
 	 */
 	static void SetupCharacter(USkeletalMeshComponent* Mesh, const TCHAR* Tag);
 
+	/** Hide one baked-in prop (a material slot with its own section) on this component. */
+	static void HideBakedProp(USkeletalMeshComponent* Mesh, const TCHAR* SlotName);
+
 	/**
 	 * Pick the clip by speed, crouch and weapon, and match its stride to the ground the
 	 * sim actually moves the body over. Selection thresholds are the mannequin era's, in

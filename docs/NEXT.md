@@ -376,9 +376,10 @@ is not started. Ordered by how much it cleans for how little risk.
    TRACKED, so deleting them is a commit. **Done for the Dancer 2026-11-05**: her
    `characters_dancer/idle/SkeletalMeshes/{IK_idle,RTG_idle}` went with the whole nested pre-fix
    folder when the chest shipped.
-5. **The brute's axe** — baked into his mesh (`Axe_GEO`, material slot 9 `phong4`). Hiding the slot
-   with a zero-opacity material rendered it white instead of removing it. The fix is a model edit,
-   the same in-place-glb trick that worked for the Dancer's chest.
+5. ~~**The brute's axe**~~ — **DONE 2026-11-05.** The recorded slot was wrong: the axe is material
+   slot **0 `blinn7`** (its textures are `axe_DIF2/NM2/SPEC`), not slot 9 `phong4`. It is hidden per
+   component by `FHICharAnim::HideBakedProp` via `ShowMaterialSection` — no re-import, no clip
+   rebuild, suite still 52/52. See REALISM-BACKLOG, "The brute's axe".
 6. **Daylight through the new window openings** — the openings are real and the glass is clear, but
    nothing lights the rooms through them yet; two lighting attempts were reverted (see
    REALISM-BACKLOG item 8).
