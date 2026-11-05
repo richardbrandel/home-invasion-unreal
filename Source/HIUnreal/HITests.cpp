@@ -1446,6 +1446,34 @@ namespace
 		return OutPos.Num() > 0;
 	}
 
+	/** The accumulated SCALE of the Hips' parent space.
+	 *
+	 * The Hips track is expressed in its PARENT's space, and an Interchange glTF import can keep
+	 * the import scale in the rig instead of the geometry: the Dancer's wrapper leaves `_rootJoint`
+	 * at scale 0.01 and every other bone's local translation 100x, so a track that reads 9755 is a
+	 * pelvis 97.55 cm up. Every measurement in this test is in centimetres, so the factor is applied
+	 * once, at the read, rather than special-cased in each assertion -- the numbers are logged in cm
+	 * and mean the same thing for an FBX rig (scale 1) and for this one.
+	 */
+	float HICastHipsParentScale(const FReferenceSkeleton& Ref)
+	{
+		const int32 HipsIdx = Ref.FindBoneIndex(TEXT("Hips"));
+		const int32 HipsParent = (HipsIdx != INDEX_NONE) ? Ref.GetParentIndex(HipsIdx) : INDEX_NONE;
+		if (HipsParent == INDEX_NONE)
+		{
+			return 1.0f;
+		}
+		TArray<FTransform> Comp;
+		Comp.SetNum(Ref.GetNum());
+		for (int32 i = 0; i < Ref.GetNum(); ++i)
+		{
+			const int32 Parent = Ref.GetParentIndex(i);
+			Comp[i] = (Parent != INDEX_NONE) ? Ref.GetRefBonePose()[i] * Comp[Parent]
+				: Ref.GetRefBonePose()[i];
+		}
+		return static_cast<float>(Comp[HipsParent].GetScale3D().GetMax());
+	}
+
 	/** Largest horizontal (component X/Y) distance any key sits from the first, in cm. */
 	float HICastHorizSpreadCm(const TArray<FVector3f>& Pos)
 	{
@@ -1698,6 +1726,15 @@ bool FHIUnrealCast::RunTest(const FString& Parameters)
 				AddError(FString::Printf(TEXT("%s/%s has no Hips track to check normalization against"), Tag, C.Name));
 				continue;
 			}
+			// Centimetres, whatever the rig's import scale (see HICastHipsParentScale).
+			const float HipsScale = HICastHipsParentScale(Ref);
+			if (!FMath::IsNearlyEqual(HipsScale, 1.0f))
+			{
+				for (FVector3f& P : HipPos)
+				{
+					P *= HipsScale;
+				}
+			}
 
 			if (FCString::Strcmp(C.Mode, TEXT("locomotion")) == 0)
 			{
@@ -1870,7 +1907,8 @@ bool FHIUnrealCast::RunTest(const FString& Parameters)
 				UpInHipsSpace = Comp[HipsParent].GetRotation().Inverse().RotateVector(FVector::UpVector);
 			}
 		}
-		auto MeanHipsZCm = [&UpInHipsSpace](UAnimSequence* S) -> float
+		const float HipsScaleCm = HICastHipsParentScale(Ref);
+		auto MeanHipsZCm = [&UpInHipsSpace, HipsScaleCm](UAnimSequence* S) -> float
 		{
 			TArray<FVector3f> Pos; TArray<FQuat4f> Rot;
 			if (S == nullptr || !HICastGetTrack(S, TEXT("Hips"), Pos, Rot))
@@ -1882,7 +1920,7 @@ bool FHIUnrealCast::RunTest(const FString& Parameters)
 			{
 				Sum += P.X * UpInHipsSpace.X + P.Y * UpInHipsSpace.Y + P.Z * UpInHipsSpace.Z;
 			}
-			return static_cast<float>(Sum / Pos.Num());
+			return static_cast<float>(Sum / Pos.Num()) * HipsScaleCm;
 		};
 		UAnimSequence* StandSeq = Cast<UAnimSequence>(LoadObject<UAnimationAsset>(nullptr,
 			*FHICharAnim::ClipPathFor(Tag, FHICharAnim::ClipIdle())));

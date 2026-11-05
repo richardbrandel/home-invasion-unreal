@@ -312,6 +312,30 @@ def retarget():
     if normalized < len(CLIPS):
         print("RT: FAILED -- some clips did not normalize; the game would skate")
 
+    # A RETARGETED CLIP IS NOT AUTOMATICALLY IN CENTIMETRES (2026-11-05). If the imported rig keeps
+    # the glTF wrapper's scale, the offsets the batch op copies are in that space while the pelvis
+    # op authors centimetres -- a mixture that skins as a 79 m intruder with a perfect 98 cm pelvis.
+    # Measured on the Dancer: `_rootJoint` scale 0.01, every other bone's local translation 100x.
+    # `bake_clip_root_scale` converts the one track that is in cm into the rig's space so the clips
+    # match the mesh's bind pose exactly; for an FBX rig (scale 1) it is a no-op.
+    _skel = target_mesh.get_editor_property("skeleton")
+    _factor = 1.0
+    if _skel is not None:
+        _root = _skel.get_reference_pose().get_bone_pose(unreal.Name("_rootJoint"))
+        _factor = _root.scale3d.x
+    print("RT: rig root scale %.4f" % _factor)
+    if abs(_factor - 1.0) > 1e-5:
+        scaled = 0
+        for clip in CLIPS:
+            pkg = "%s/%s.%s" % (DST_DIR, clip, clip)
+            if not lib.does_asset_exist(pkg):
+                continue
+            report = tool.bake_clip_root_scale(pkg, target_mesh, _factor)
+            print("RT: scale %s: %s" % (clip, report))
+            if "SAVED" in report:
+                scaled += 1
+        print("RT: baked the rig scale into %d/%d clip(s)" % (scaled, len(CLIPS)))
+
     # ASSERT THE BINDING, ON EVERY CLIP. A retarget that produces sequences still pointing at the
     # source's skeleton looks like success in every log line and fails only when the character
     # animates wrongly (or the Cast test reads the skeleton). Checking one clip was not enough:

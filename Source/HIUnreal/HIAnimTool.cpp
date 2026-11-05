@@ -149,6 +149,43 @@ FString UHIAnimTool::NormalizeCharacterClip(const FString& PackagePath, const FS
 	const float AuthoredMps = (Length > 0.0) ? (TravelCm / 100.0f) / static_cast<float>(Length) : 0.0f;
 	const float HipsRotDeg = RotationSpreadDeg(HipsKeys);
 
+	// ---- BAKED SCALE, reported because nothing else reads it (2026-11-05). A retargeted clip
+	// can carry per-bone SCALE keys, and every position and rotation assertion in the suite
+	// passes while the figure renders at the wrong size -- measured on the Dancer's retargeted
+	// clips, where a giant walked through the yard with a perfect 98 cm pelvis. Cheap to scan
+	// and the only place the number is visible.
+	float MaxScaleDev = 0.0f;
+	FString MaxScaleBone;
+	float MaxBoneTrans = 0.0f;
+	FString MaxTransBone;
+	for (const FName& Track : Tracks)
+	{
+		FHIKeySet K;
+		if (!CollectKeys(*Model, Track, K))
+		{
+			continue;
+		}
+		for (const FVector3f& T : K.Pos)
+		{
+			if (Track != Hips && T.Size() > MaxBoneTrans)
+			{
+				MaxBoneTrans = T.Size();
+				MaxTransBone = Track.ToString();
+			}
+		}
+		for (const FVector3f& S : K.Scale)
+		{
+			const float Dev = FMath::Max3(FMath::Abs(S.X - 1.0f), FMath::Abs(S.Y - 1.0f),
+				FMath::Abs(S.Z - 1.0f));
+			if (Dev > MaxScaleDev)
+			{
+				MaxScaleDev = Dev;
+				MaxScaleBone = Track.ToString();
+			}
+		}
+	}
+
+
 	// ---- THE UNIFORM-BAKE GUARD. `SetBoneTrackKeys` derives key times from the key
 	// index at the model's frame rate, so rewriting a track that is NOT a uniform bake
 	// would silently retime it. MEASURED on this content at the first normalization run
@@ -218,8 +255,10 @@ FString UHIAnimTool::NormalizeCharacterClip(const FString& PackagePath, const FS
 	}
 
 	FString Report = FString::Printf(
-		TEXT("%s: len=%.3fs travel=%.1fcm (authored %.2f m/s) hipsRotSpread=%.1fdeg mode=%s"),
-		*PackagePath, Length, TravelCm, AuthoredMps, HipsRotDeg, *Mode);
+		TEXT("%s: len=%.3fs travel=%.1fcm (authored %.2f m/s) hipsRotSpread=%.1fdeg mode=%s scaleDev=%.3f@%s maxBoneT=%.1fcm@%s"),
+		*PackagePath, Length, TravelCm, AuthoredMps, HipsRotDeg, *Mode, MaxScaleDev,
+		MaxScaleBone.IsEmpty() ? TEXT("-") : *MaxScaleBone, MaxBoneTrans,
+		MaxTransBone.IsEmpty() ? TEXT("-") : *MaxTransBone);
 
 	if (Pins.Num() == 0)
 	{
@@ -427,5 +466,239 @@ FString UHIAnimTool::MeasureCharacterClip(const FString& PackagePath)
 #else
 	return FString::Printf(
 		TEXT("%s: runtime build -- HIAnimTool is editor-only (nothing measured)"), *PackagePath);
+#endif
+}
+
+FString UHIAnimTool::BakeClipRootScale(const FString& PackagePath, USkeletalMesh* Mesh, float Factor)
+{
+#if WITH_EDITOR
+	// WHAT THIS IS FOR (2026-11-05). The Dancer's glb is imported with `GLB_WRAPPER=0
+	// GLB_SCALE=0.01`, and the importer keeps that scale OUT of the geometry: it lives in the bone
+	// offsets (a finger joint is 14183 cm from its parent) and is cancelled by a 0.01 somewhere in
+	// the rig. IK Retargeting copies those offsets into the clip and writes scale 1.0, which drops
+	// the cancellation: a 79 m intruder walked through the yard while the pelvis read a perfect
+	// 98 cm and every position/rotation assertion stayed green. Nothing in the suite reads scale.
+	//
+	// The factor is DERIVED, not assumed: the clip's own keys are posed against the skeleton's
+	// hierarchy to measure the Hips->Head distance it would produce, and the same measurement is
+	// taken from the MESH's reference skeleton -- the one that renders and that the Cast test
+	// measures. Their ratio is the correction. A clip that already has the right proportions
+	// reports "nothing to do", so running this twice is harmless.
+	if (Mesh == nullptr)
+	{
+		return FString::Printf(TEXT("%s: FAILED -- no mesh to measure the proportions against"), *PackagePath);
+	}
+	UAnimSequence* Seq = LoadObject<UAnimSequence>(nullptr, *PackagePath);
+	if (Seq == nullptr)
+	{
+		return FString::Printf(TEXT("%s: MISSING"), *PackagePath);
+	}
+	IAnimationDataModel* Model = Seq->GetDataModel();
+	if (Model == nullptr)
+	{
+		return FString::Printf(TEXT("%s: NO DATA MODEL"), *PackagePath);
+	}
+	TScriptInterface<IAnimationDataController> ControllerSI = Model->GetController();
+	IAnimationDataController* Controller = ControllerSI.GetInterface();
+	if (Controller == nullptr)
+	{
+		return FString::Printf(TEXT("%s: NO CONTROLLER"), *PackagePath);
+	}
+
+	const FReferenceSkeleton& Ref = Mesh->GetRefSkeleton();
+	const int32 Num = Ref.GetNum();
+	const int32 RootIdx = Ref.FindBoneIndex(TEXT("_rootJoint"));
+	const int32 HipsIdx = Ref.FindBoneIndex(TEXT("Hips"));
+	const int32 HeadIdx = Ref.FindBoneIndex(TEXT("Head"));
+	if (Num == 0 || HipsIdx == INDEX_NONE || HeadIdx == INDEX_NONE)
+	{
+		return FString::Printf(TEXT("%s: FAILED -- the mesh has no Hips/Head to measure"), *PackagePath);
+	}
+
+	TArray<FName> Tracks;
+	Model->GetBoneTrackNames(Tracks);
+
+	auto BoneForTrack = [&Ref](const FName& Track) -> int32
+	{
+		const FString S = Track.ToString();
+		for (int32 i = 0; i < Ref.GetNum(); ++i)
+		{
+			const FString Bone = Ref.GetBoneName(i).ToString();
+			if (S == Bone || S.EndsWith(FString::Printf(TEXT(":%s"), *Bone))
+				|| S.EndsWith(FString::Printf(TEXT("_%s"), *Bone)))
+			{
+				return i;
+			}
+		}
+		return INDEX_NONE;
+	};
+
+	// The clip's local transforms at its first key, per bone (the reference pose where it has no
+	// track -- a bone with no track cannot move).
+	TArray<FTransform> Local;
+	Local.SetNum(Num);
+	for (int32 i = 0; i < Num; ++i)
+	{
+		Local[i] = Ref.GetRefBonePose()[i];
+	}
+	TArray<int32> TrackOf;
+	TrackOf.Init(INDEX_NONE, Num);
+	for (const FName& Track : Tracks)
+	{
+		const int32 Idx = BoneForTrack(Track);
+		if (Idx == INDEX_NONE)
+		{
+			continue;
+		}
+		TrackOf[Idx] = Track != NAME_None ? 1 : 0;
+		FHIKeySet Keys;
+		if (CollectKeys(*Model, Track, Keys) && Keys.Pos.Num() > 0)
+		{
+			if (Keys.Scale.Num() == Keys.Pos.Num())
+			{
+				Local[Idx] = FTransform(
+					FQuat(Keys.Rot[0].X, Keys.Rot[0].Y, Keys.Rot[0].Z, Keys.Rot[0].W),
+					FVector(Keys.Pos[0].X, Keys.Pos[0].Y, Keys.Pos[0].Z),
+					FVector(Keys.Scale[0].X, Keys.Scale[0].Y, Keys.Scale[0].Z));
+			}
+			else
+			{
+				Local[Idx] = FTransform(
+					FQuat(Keys.Rot[0].X, Keys.Rot[0].Y, Keys.Rot[0].Z, Keys.Rot[0].W),
+					FVector(Keys.Pos[0].X, Keys.Pos[0].Y, Keys.Pos[0].Z),
+					FVector::OneVector);
+			}
+			TrackOf[Idx] = 1;
+		}
+	}
+
+	auto HipsHeadFrom = [&](const TArray<FTransform>& L) -> float
+	{
+		TArray<FTransform> Comp;
+		Comp.SetNum(Num);
+		for (int32 i = 0; i < Num; ++i)
+		{
+			const int32 Parent = Ref.GetParentIndex(i);
+			Comp[i] = (Parent != INDEX_NONE) ? L[i] * Comp[Parent] : L[i];
+		}
+		return static_cast<float>((Comp[HeadIdx].GetLocation() - Comp[HipsIdx].GetLocation()).Size());
+	};
+
+	if (FMath::IsNearlyEqual(Factor, 1.0f, 1.e-5f))
+	{
+		return FString::Printf(TEXT("%s: nothing to do (factor 1)"), *PackagePath);
+	}
+	// The clip as it stands, for the record: this is what the retarget baked.
+	const float HaveCm = HipsHeadFrom(Local);
+
+	// WHICH BONES HAVE NO TRACK AT ALL. The batch retarget exports only the bones it animated, and
+	// a bone with no track takes its transform from the rig's REFERENCE POSE -- which is the 100x
+	// encoding. Rescaling the tracks that exist then leaves the untracked bones (fingers, toes,
+	// twist joints) sticking out at 100x: measured, the pelvis sat at a perfect 0.91 m while the
+	// component's bounds were still 32 m wide. So every missing bone gets a constant track holding
+	// its reference transform in the SAME units as the rescaled tracks.
+	TArray<bool> HasTrack;
+	HasTrack.Init(false, Num);
+	for (const FName& Track : Tracks)
+	{
+		const int32 Idx = BoneForTrack(Track);
+		if (Idx != INDEX_NONE)
+		{
+			HasTrack[Idx] = true;
+		}
+	}
+
+	Seq->Modify();
+	Controller->OpenBracket(FText::FromString(TEXT("HI bake clip root scale")), /*bShouldTransact=*/false);
+	int32 Rescaled = 0;
+	int32 Added = 0;
+	FString Failed;
+	for (const FName& Track : Tracks)
+	{
+		const int32 Idx = BoneForTrack(Track);
+		if (Idx == INDEX_NONE)
+		{
+			continue;
+		}
+		// The pelvis is the one translation the retarget AUTHORED in centimetres; every other
+		// translation is a copy of the rig's, in whatever unit the import left it. Rescaling all
+		// of them would move the pelvis, and the pelvis is what the Cast test asserts.
+		const bool bPelvis = (Idx == HipsIdx);
+		FHIKeySet Keys;
+		if (!CollectKeys(*Model, Track, Keys) || Keys.Pos.Num() == 0)
+		{
+			continue;
+		}
+		if (bPelvis)
+		{
+			// The pelvis is the one translation the retarget authored in centimetres; the rig it
+			// must match is in the imported (1/F) unit, so this is the only track that needs
+			// converting. Everything else was already copied in the rig's unit.
+			const float Inv = 1.0f / Factor;
+			for (FVector3f& P : Keys.Pos)
+			{
+				P *= Inv;
+			}
+			++Rescaled;
+		}
+		// The root carries the import scale and every other bone is 1 -- the same encoding the
+		// mesh's bind pose uses, which is what makes the skinning line up.
+		const FVector3f Want = (Idx == RootIdx) ? FVector3f(Factor) : FVector3f(1.0f);
+		for (FVector3f& Sc : Keys.Scale)
+		{
+			Sc = Want;
+		}
+		if (!Controller->SetBoneTrackKeys(Track, Keys.Pos, Keys.Rot, Keys.Scale,
+			/*bShouldTransact=*/false))
+		{
+			Failed += Track.ToString() + TEXT(" ");
+		}
+	}
+	for (int32 i = 0; i < Num; ++i)
+	{
+		if (HasTrack[i])
+		{
+			continue;
+		}
+		const FTransform RefT = Ref.GetRefBonePose()[i];
+		const FVector T = (i == RootIdx)
+			? RefT.GetTranslation()
+			: RefT.GetTranslation();
+		const FTransform One(FQuat::Identity, T, FVector::OneVector);
+		const FName BoneName = Ref.GetBoneName(i);
+		if (!Controller->AddBoneCurve(BoneName, /*bShouldTransact=*/false))
+		{
+			Failed += BoneName.ToString() + TEXT("(add) ");
+			continue;
+		}
+		TArray<FVector3f> Pos{ FVector3f(T.X, T.Y, T.Z) };
+		TArray<FQuat4f> Rot{ FQuat4f(0.0f, 0.0f, 0.0f, 1.0f) };
+		TArray<FVector3f> Scale{ FVector3f(1.0f, 1.0f, 1.0f) };
+		if (Controller->SetBoneTrackKeys(BoneName, Pos, Rot, Scale, /*bShouldTransact=*/false))
+		{
+			++Added;
+		}
+		else
+		{
+			Failed += BoneName.ToString() + TEXT("(keys) ");
+		}
+	}
+	Controller->CloseBracket();
+
+	UPackage* Package = Seq->GetOutermost();
+	const FString PackageName = Package != nullptr ? Package->GetName() : FString();
+	const FString FileName = FPackageName::LongPackageNameToFilename(PackageName,
+		FPackageName::GetAssetPackageExtension());
+	FSavePackageArgs SaveArgs;
+	SaveArgs.TopLevelFlags = RF_Public | RF_Standalone;
+	const bool bSaved = UPackage::SavePackage(Package, Seq, *FileName, SaveArgs);
+
+	return FString::Printf(
+		TEXT("%s: Hips->Head was %.1f cm; factor %.5f on %d bone(s), %d constant track(s) added%s -- %s"),
+		*PackagePath, HaveCm, Factor, Rescaled, Added,
+		Failed.IsEmpty() ? TEXT("") : *FString::Printf(TEXT("; SET FAILED: %s"), *Failed),
+		bSaved ? TEXT("SAVED") : TEXT("SAVE FAILED"));
+#else
+	return TEXT("FAILED: editor only");
 #endif
 }

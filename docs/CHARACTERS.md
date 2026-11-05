@@ -190,6 +190,17 @@ different bug -- a broken retarget, a flat pelvis, a missing physics asset -- an
    them (`tools/retarget-character.sh <tag> martha woman01`). Confirmed working 2026-11-05: 21/21
    chains, `Hips mean 98 cm standing, 48 cm crouching`, all ten clips bound to the new skeleton.
 
+4. **A rig that carries an import SCALE makes retargeted clips 100x.** The Interchange glTF import
+   of a wrapped glb keeps the wrapper's scale in the rig (`_rootJoint` scale 0.01, every other bone's
+   local translation 100x, cancelling in component space). IK Retargeting copies those offsets and
+   writes scale 1.0, so the cancellation is lost and the animated figure is ~100x -- measured: a
+   79 m Dancer with a perfect 98 cm pelvis and every position/rotation assertion green. Fix:
+   `UHIAnimTool::BakeClipRootScale(clip, mesh, factor)` (already called by
+   `tools/retarget-character.py`, factor read from the skeleton's `_rootJoint`), and the Cast test
+   applies the Hips' parent scale so its numbers stay centimetres. If a character ever looks giant,
+   read the component extent and the bone world positions before touching anything else:
+   `HIAnimTool` reports `scaleDev=`/`maxBoneT=` per clip, and those are where it shows.
+
 Also, on Python: `mesh.set_editor_property("skeleton", ...)` refuses (VisibleAnywhere), but plain
 attribute assignment `mesh.skeleton = <USkeleton>` goes through the BlueprintSetter and works.
 `physics_asset` is settable either way, and `SkeletalMeshEditorSubsystem.create_physics_asset(mesh,

@@ -203,7 +203,8 @@ out of the tree for the run.
 
 Richard asked for her bust roughly doubled. Two attempts were rolled back on 2026-11-04 and the
 third shipped. **Both of the blockers recorded in the previous version of this section were
-symptoms of the same thing: the import.** The retarget was never broken.
+symptoms of the same thing: the import.** The retarget ran fine once the import was right -- but it
+then shipped a 79 m character, because it does not carry the import's scale (see "The giant" below).
 
 **Result, measured:** suite **52/52**, `HI.Unreal.Cast` green.
 `dancer: Hips mean 98 cm standing, 48 cm crouching (parent up)`; `facing 119.7 deg;
@@ -262,6 +263,43 @@ EOF
 tools/retarget-character.sh dancer martha woman01   # rebuilds the ten clips onto the new pair
 ~/tools/ue-run-tests.sh /data/projects/HIUnreal/HIUnreal.uproject HI.   # 52/52
 ```
+
+### The giant, same day: retargeted clips and the import scale (2026-11-05)
+
+The chest shipped and the Dancer came back **~100x too large** -- a 79 m figure, "three times the size
+of the house" -- while `HI.Unreal.Cast` stayed green and her pelvis read a perfect 98 cm. She is an
+INTRUDER (the player is louise), so this was visible from the yard on the first run after the ship.
+
+**What it was, measured.** The Interchange glTF import keeps the wrapper's scale in the RIG rather
+than baking it into the geometry: `_rootJoint` carries **scale 0.01** and every other bone's local
+translation is **100x** (Hips `(0.2, 603.2, 9808.1) cm`, a finger joint 14183 cm). The two cancel, so
+the component-space pose and the bind pose are exactly right -- which is why the mesh measured
+161 cm, the facing 119.7 deg and `hips->head` 39.1 cm all along. IK Retargeting copies those offsets
+into the clips and writes **scale 1.0**, dropping the cancellation: the bones then sit at 0.95 m
+(hips) but 14 m (Spine1) and 40 m (Head), and the component's bounds were 36 m. Nothing in the suite
+read scale, and the pelvis -- the one track the retarget authors in CENTIMETRES rather than copying --
+was the single number that looked right.
+
+**How it was found** -- recorded because a screenshot cannot tell "giant" from "close to the camera":
+`-HIDebugBodies` (a temporary switch, since removed) walked every skeletal body in the world and
+printed its component extent plus the world positions of Hips/Spine1/Head/LeftFoot. It named
+`HIIntruder_0` (the Dancer) with extent `(6264, 5263, 7344)` against alina's `(40, 25, 87)`, and the
+bone dump showed the pelvis sane at 0.948 m with the chain exploding above it. `HIAnimTool`'s report
+now also prints `scaleDev=` (the largest `|scale-1|` across a clip's keys) and `maxBoneT=` (the
+largest non-pelvis translation) -- those two numbers are the early warning, and both were 0/fine
+before the retarget and 14183 cm after it.
+
+**The fix, in the pipeline.** `UHIAnimTool::BakeClipRootScale(clip, mesh, factor)` converts the ONE
+track the retarget writes in centimetres (Hips) into the rig's space (x 1/factor), sets the root
+bone's scale keys to `factor` and every other bone's to 1, and saves. `tools/retarget-character.py`
+reads `factor` from the target skeleton's `_rootJoint` and runs it over all ten clips, so a re-run of
+`retarget-character.sh dancer martha woman01` reproduces this from scratch (verified: "baked the rig
+scale into 10/10 clip(s)"). For an FBX rig the factor is 1 and the step is a no-op.
+
+**And the test now measures in centimetres.** The Hips track lives in its parent's space, so with a
+scaled rig its numbers are in that scale; `HI.Unreal.Cast` applies the Hips' parent accumulated scale
+once, at the read (`HICastHipsParentScale`), instead of special-casing each assertion. Measured after:
+`Hips mean 98 cm standing, 48 cm crouching`, death drops 81 cm, and the suite is **52/52**.
 
 **Two things worth knowing before touching this again:**
 

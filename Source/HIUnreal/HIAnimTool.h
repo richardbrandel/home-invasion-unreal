@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Engine/SkeletalMesh.h"
 #include "Kismet/BlueprintFunctionLibrary.h"
 #include "HIAnimTool.generated.h"
 
@@ -94,4 +95,26 @@ public:
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Home Invasion")
 	static FString MeasureCharacterClip(const FString& PackagePath);
+
+	/**
+	 * Bake the imported wrapper's root scale into a clip's bone translations.
+	 *
+	 * WHY THIS EXISTS (2026-11-05), and it is the bug that shipped a 79-metre intruder. Her glb is
+	 * imported with `GLB_WRAPPER=0 GLB_SCALE=0.01`, and the importer does not bake that scale into
+	 * the geometry: it puts it on `_rootJoint` (scale 0.01) and leaves every OTHER bone's local
+	 * translation 100x too big (Hips (0.2, 603.2, 9808.1) cm, a finger 14183 cm). The component-space
+	 * pose is exactly right because the two cancel. IK Retargeting copies those offsets -- and writes
+	 * root scale 1.0 -- so the cancellation is lost and the animated figure is ~100x, while the pelvis
+	 * (which the pelvis op re-authors in centimetres) reads a perfect 98 cm and every position and
+	 * rotation assertion in the suite stays green. Nothing read scale, so nothing saw it.
+	 *
+	 * The fix is a change of basis, not a guess: with S the root's scale, dividing every non-pelvis
+	 * translation by S and setting the root scale to 1 leaves every component-space transform
+	 * identical. The pelvis is skipped because it is the one track that is authored in centimetres
+	 * rather than copied from the reference pose.
+	 *
+	 * @returns a report: the root scale, how many bones were rescaled, SAVED/FAILED / nothing to do.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Home Invasion")
+	static FString BakeClipRootScale(const FString& PackagePath, USkeletalMesh* Mesh, float Factor);
 };
