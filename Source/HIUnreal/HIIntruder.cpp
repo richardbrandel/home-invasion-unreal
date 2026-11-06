@@ -426,8 +426,11 @@ FVector AHIIntruder::HangStation(int32 Id)
 	// 2.44 m below the ground floor, x -6.1..6.1 and y -17.4..-8.0, with the lally columns at
 	// x -3.125 and the workbench against the north wall, so a line down x = 0 at y -11.2..-13.6
 	// is clear floor with nothing in front of it.
-	const float X = (Id % 2 == 0) ? -0.55f : 0.55f;
-	const float Y = -11.4f - 1.15f * float(Id / 2) - 1.15f * float(Id % 2 == 0 ? 0 : 1);
+	// INSIDE THE CELL (2026-11-05). The jail stands on the left of the basement: x -5.70..-3.90,
+	// y -11.40..-14.60, with its door on the east face. Three stations down the middle of it, 0.95 m
+	// apart so two men hanging side by side do not intersect.
+	const float X = -4.80f;
+	const float Y = -13.35f - 0.95f * float(Id);
 	return FVector(X, Y, FHISim::BasementZ);
 }
 

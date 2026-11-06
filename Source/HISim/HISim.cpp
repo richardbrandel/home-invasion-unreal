@@ -1481,6 +1481,28 @@ namespace
 			{  2.50f, -10.30f, 0.45f, 0.45f, 0.90f, false, TEXT("chair"), 0, 180.0f },
 			{  3.15f, -10.30f, 0.45f, 0.45f, 0.90f, false, TEXT("chair"), 0, 180.0f },
 			{  5.50f,  -9.60f, 0.55f, 1.60f, 0.90f, false, TEXT("sideboard"), 0 },
+			// ---- GROUND/BASEMENT: THE JAIL (Richard, 2026-11-05): "on the left side, put a jail with
+			// bars in it... just make it big enough to hold 3 prisoners. The door can just be an
+			// opening, not a real door yet." Five THIN rows make the cell -- west, north, south and
+			// two east stubs with a one-metre gap between them -- so the bars are the collision, the
+			// way a barred wall should be, and the doorway is simply the part with no row in it. The
+			// furnace is the right-hand side of the basement, so this is the left.
+			// Cell: x -5.70..-3.90, y -11.40..-14.60; door on the east face, y -12.40..-13.40.
+			// AS-BUILT: x -5.66..-3.90, y -12.44..-15.60. It is SOUTH of `baseOpen` (-3.80,-11.80)
+			// on purpose: the first attempt started at y -11.48 and the node's 0.42 m body disc
+			// reached into the east wall, which SelfCheck refuses ("body overlaps solid") -- and it
+			// was right to, since that is a man unable to stand at his own nav node. 0.04 m off the
+			// shelving (x -6.10..-5.70) so furniture does not touch furniture.
+			// TWO CENTIMETRES OF CLEARANCE AT EVERY JUNCTION. SelfCheck's `ReallyOverlaps` treats
+			// touching strips as overlapping, and it is right to: a corner where two boxes share an
+			// edge is two solids claiming the same space. So the walls stop 2 cm short of each other
+			// rather than meeting, and the cell reads as one barred box anyway.
+			{ -5.66f, -12.44f, 1.74f, 0.08f, 2.05f, false, TEXT("jail"), -1 },   // north
+			{ -5.66f, -15.60f, 1.74f, 0.08f, 2.05f, false, TEXT("jail"), -1 },   // south
+			{ -5.66f, -15.52f, 0.08f, 3.06f, 2.05f, false, TEXT("jail"), -1 },   // west
+			{ -3.98f, -13.40f, 0.08f, 0.94f, 2.05f, false, TEXT("jail"), -1 },   // east, north of the door
+			{ -3.98f, -15.50f, 0.08f, 1.10f, 2.05f, false, TEXT("jail"), -1 },   // east, south of it
+			// Doorway: the 1.00 m of east face between y -14.40 and y -13.40 is simply absent.
 			// ---- SECOND, bedroom 2 (front west)
 			{ -6.10f, -11.80f, 2.00f, 2.20f, 0.55f, false, TEXT("bed"), 1 },
 			{ -4.05f, -11.80f, 0.50f, 0.50f, 0.55f, false, TEXT("nightstand"), 1 },
@@ -4253,7 +4275,9 @@ void FHISim::SelfCheck()
 	checkf(House.Min.Equals(FVector2D(-6.35f, -17.39f)), TEXT("house min wrong (outer shell convention)"));
 	checkf(House.Max.Equals(FVector2D(6.35f, -7.75f)), TEXT("house max wrong (outer shell convention)"));
 	checkf(Stairs().Num() == 2, TEXT("expected 2 stair bands (G->2, B->G), got %d"), Stairs().Num());
-	checkf(FurnitureRects().Num() == 48, TEXT("expected 48 furniture rows (8 basement, 24 ground, 16 second), got %d"), FurnitureRects().Num());
+	// 48 + the five jail strips (2026-11-05): the cell is built from THIN rows so the bars are the
+	// collision -- west, north, south and two east stubs with a one-metre doorway between them.
+	checkf(FurnitureRects().Num() == 53, TEXT("expected 53 furniture rows (13 basement incl. the 5 jail strips, 24 ground, 16 second), got %d"), FurnitureRects().Num());
 	checkf(FurnitureFloors().Num() == FurnitureRects().Num(), TEXT("furniture floor/rect mismatch"));
 	checkf(NodeNames().Num() == 26, TEXT("expected 26 nav nodes (14 ground, 4 basement, 8 second), got %d"), NodeNames().Num());
 	checkf(NodePositions().Num() == NodeNames().Num(), TEXT("nav node pos/name mismatch"));

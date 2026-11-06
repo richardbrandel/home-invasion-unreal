@@ -592,8 +592,9 @@ FString UHIAnimTool::MakeHangClip(USkeletalMesh* Mesh, const FString& PackagePat
 				* FQuat(BodyFwd, FMath::DegreesToRadians(18.0f)));
 		}
 	}
-	// ---- legs hanging, bent: the basement is 2.05 m from slab to ceiling and a hanging man needs his
-	// feet off the floor, which straight legs cannot do in that headroom.
+	// ---- LEGS HANGING. They were folded up at 38/68 degrees to keep the feet off the slab, which
+	// read as a man squatting in mid-air; Richard: "have gravity pull their legs down". A chained man
+	// in a 2.05 m basement is on tiptoe instead, so the legs hang with only a token bend.
 	for (const TCHAR* ThighName : { TEXT("LeftUpLeg"), TEXT("RightUpLeg") })
 	{
 		const int32 Thigh = Ref.FindBoneIndex(ThighName);
@@ -602,7 +603,7 @@ FString UHIAnimTool::MakeHangClip(USkeletalMesh* Mesh, const FString& PackagePat
 		{
 			continue;
 		}
-		const FQuat CompNew = FQuat(BodyLat, FMath::DegreesToRadians(38.0f)) * CompRot[Thigh];
+		const FQuat CompNew = FQuat(BodyLat, FMath::DegreesToRadians(4.0f)) * CompRot[Thigh];
 		Base[Thigh].SetRotation(CompRot[Parent].Inverse() * CompNew);
 		CompRot[Thigh] = CompNew;
 	}
@@ -612,7 +613,7 @@ FString UHIAnimTool::MakeHangClip(USkeletalMesh* Mesh, const FString& PackagePat
 		if (Shin != INDEX_NONE)
 		{
 			Base[Shin].SetRotation(Base[Shin].GetRotation()
-				* FQuat(BodyLat, FMath::DegreesToRadians(-68.0f)));
+				* FQuat(BodyLat, FMath::DegreesToRadians(-10.0f)));
 		}
 	}
 

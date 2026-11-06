@@ -789,7 +789,8 @@ bool FHIUnrealFurniture::RunTest(const FString& Parameters)
 	const TArray<FBox2D>& Rects = FHISim::FurnitureRects();
 	const TArray<int32>& Floors = FHISim::FurnitureFloors();
 
-	TestEqual(TEXT("a label per furniture row"), Labels.Num(), 48);
+	// 53 = the 48 of the phase-2 house plus the five jail strips (2026-11-05).
+		TestEqual(TEXT("a label per furniture row"), Labels.Num(), 53);
 	TestEqual(TEXT("a height per furniture row"), Heights.Num(), Labels.Num());
 	TestEqual(TEXT("a flat flag per furniture row"), Flat.Num(), Labels.Num());
 	TestEqual(TEXT("a rect per furniture row"), Rects.Num(), Labels.Num());
@@ -811,7 +812,7 @@ bool FHIUnrealFurniture::RunTest(const FString& Parameters)
 				Idx, *Labels[Idx], Floors[Idx]));
 		}
 	}
-	TestEqual(TEXT("basement rows (\u00a74.2)"), Basement, 8);
+	TestEqual(TEXT("basement rows (\u00a74.2)"), Basement, 13);
 	TestEqual(TEXT("ground rows (\u00a74.3)"), Ground, 24);
 	TestEqual(TEXT("second rows (\u00a74.4)"), Second, 16);
 

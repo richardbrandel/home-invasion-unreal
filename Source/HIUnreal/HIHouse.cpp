@@ -1450,6 +1450,34 @@ void AHIHouse::BuildFurniture(const FString& Label, const FBox2D& Rect, float Ba
 		Part(FurnitureDarkDecorInstances, C.X + S.X * 0.5f - 0.05f, C.Y + S.Y * 0.5f - 0.05f,
 			Base - 0.04f, Top - 0.05f, 0.08f, 0.08f);
 	}
+	// --- THE JAIL: vertical bars with a top and bottom rail (2026-11-05). The row IS the collision --
+	// a barred wall you cannot walk through -- and the doorway is the part of the cell with no row in
+	// it, so "just an opening" costs nothing and blocks nothing.
+	else if (Label == TEXT("jail"))
+	{
+		const bool bAlongX = S.X >= S.Y;          // the long axis of this strip
+		const float Long = bAlongX ? S.X : S.Y;
+		const float Short = bAlongX ? S.Y : S.X;
+		const float Bar = 0.018f;                 // 18 mm of steel
+		// 0.20 m apart. The first pass used 0.13 and the cell read as a solid grid rather than a
+		// barred wall, because the near wall and the far wall lined up behind each other.
+		const int32 Count = FMath::Max(1, FMath::RoundToInt(Long / 0.20f));
+		for (int32 BarIdx = 0; BarIdx <= Count; ++BarIdx)
+		{
+			const float T = float(BarIdx) / float(Count);
+			const float Along = (bAlongX ? C.X - S.X * 0.5f : C.Y - S.Y * 0.5f) + Long * T;
+			Part(FurnitureDarkDecorInstances,
+				bAlongX ? Along : C.X, bAlongX ? C.Y : Along,
+				Base, Top, bAlongX ? Bar : Short, bAlongX ? Short : Bar);
+		}
+		// Rails at the floor and just under the ceiling, which is what makes a run of bars read as a
+		// barred WALL rather than a row of posts.
+		for (float RailZ : { Base + 0.05f, Top - 0.06f })
+		{
+			Part(FurnitureDarkDecorInstances, C.X, C.Y, RailZ, RailZ + 0.05f,
+				bAlongX ? S.X : Short + 0.02f, bAlongX ? Short + 0.02f : S.Y);
+		}
+	}
 	// --- chairs: a seat and a back over four legs
 	else if (Label == TEXT("chair") || Label == TEXT("desk_chair"))
 	{

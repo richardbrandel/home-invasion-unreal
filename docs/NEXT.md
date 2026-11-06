@@ -415,6 +415,32 @@ tick, and the clip renders.
 3. The chain anchors were stored once, in the captive's frame, which drew them converging on a point in
    the middle of the room; they are recomputed from each wrist every frame now.
 
+**The cell, and legs that hang (2026-11-05).** *"The right side of the basement has the furnace, and on the
+left side, put a jail with bars in it... big enough to hold 3 prisoners. The door can just be an opening,
+not a real door yet. Then hang the intruders in there... Also, have gravity pull their legs down."*
+
+The jail is **five thin furniture rows** -- north, south, west, and two east strips with a 1.00 m doorway
+between them -- so the bars ARE the collision and the doorway is simply the part with no row in it. The
+`jail` branch of `BuildFurniture` draws vertical bars (0.018 m steel, 0.20 m apart) plus a floor and a
+ceiling rail. As built: x -5.66..-3.90, y -12.44..-15.60.
+
+Three things the house's own `SelfCheck` caught, each a real error rather than a formality:
+1. The first cell started at y -11.48 and `baseOpen` (-3.80,-11.80) reached into the east wall with its
+   0.42 m body disc -- i.e. a man unable to stand at his own nav node.
+2. `Z` is the NEAR edge and `D` runs +Y, so two of the walls were laid out backwards and ran into the
+   house.
+3. `ReallyOverlaps` treats TOUCHING strips as overlapping, so the cell's own corners were rejected. Every
+   junction now has 2 cm of clearance.
+
+The stations moved inside the cell (x -4.80, y -13.35 / -14.30 / -15.25), and the legs stopped being
+folded: they were bent 38/68 degrees to keep the feet off a 2.05 m ceiling, which read as a man squatting
+in mid-air. Now 4 degrees of thigh and 10 of knee -- a chained man on tiptoe -- with the body hung 0.10 m
+up. Bars at 0.13 m apart read as a solid grid (the near and far walls line up behind each other); 0.20 m
+reads as a barred wall.
+
+Furniture row count guards updated: 53 rows (48 + the 5 jail strips), 13 basement, and the same in
+`HI.Furniture`. Suite 52/52.
+
 **Three more from play, same day.** *"Fix the brute... there is a dead brute in the basement when the game
 starts... can we put some life into her? A little bit of wiggling to know she is alive."*
 

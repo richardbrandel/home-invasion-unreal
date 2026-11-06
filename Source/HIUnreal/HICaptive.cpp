@@ -81,7 +81,11 @@ void AHICaptive::Hang(int32 InThiefId, const FString& InTag, const FVector& Stat
 	// two: `Body` is the ROOT, so a "relative" move on it is a move of the whole actor -- setting the
 	// station and then the relative offset left him at (0, 0, 23) cm, i.e. the world origin on the
 	// ground floor, which is why the first captive capture showed chains and no man.
-	SetActorLocation(Station + FVector(0.0f, 0.0f, 0.23f * HI_METERS_TO_UU));
+	// LEGS HANGING, NOT FOLDED (Richard, 2026-11-05: "have gravity pull their legs down"). With the
+	// knees nearly straight his toes sit just above the slab -- a man chained by the wrists in a
+	// 2.05 m basement is on tiptoe, and that is the honest shape. 0.10 m of lift leaves the toes
+	// clear without the feet going through the floor.
+	SetActorLocation(Station + FVector(0.0f, 0.0f, 0.10f * HI_METERS_TO_UU));
 	// A limp man is not a plumb line.
 	SetActorRotation(FRotator(7.0f, GetActorRotation().Yaw, 3.0f));
 
