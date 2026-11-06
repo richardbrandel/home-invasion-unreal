@@ -178,6 +178,12 @@ private:
 	// the ceiling and the body hangs off its own wrists -- shoulders up, knees bent, swaying, and
 	// genuinely limp instead of pretending.
 	float HangClock = 0.0f;
+	/** Where he was standing when the dart landed, and how far the scripted fall has got. */
+	FVector FallAnchor = FVector::ZeroVector;
+	float FallT = 0.0f;
+	/** True once the ragdoll has been abandoned for a by-hand fall (the Dancer's rig). */
+	bool bFallScripted = false;
+
 	/** The clip the hang evaluates by hand, because this actor does not tick. */
 	TObjectPtr<class UAnimationAsset> StandClip;
 	/** Seconds since the dart landed; the body falls for a beat before it disappears. */

@@ -1435,8 +1435,8 @@ namespace
 			// as the doc says -- HOUSE-DESIGN.md §4.2 to carry the correction.
 			{  5.30f, -14.20f, 0.70f, 0.70f, 1.00f, false, TEXT("washer"), -1 },
 			{  5.30f, -15.00f, 0.70f, 0.70f, 1.00f, false, TEXT("dryer"), -1 },
-			{ -3.125f, -12.725f, 0.25f, 0.25f, 2.29f, false, TEXT("lally_column"), -1 },
-			{ -3.125f, -15.525f, 0.25f, 0.25f, 2.29f, false, TEXT("lally_column"), -1 }, // ADDITION (2nd), veto-able
+			{ -3.125f, -12.725f, 0.25f, 0.25f, 3.29f, false, TEXT("lally_column"), -1 },
+			{ -3.125f, -15.525f, 0.25f, 0.25f, 3.29f, false, TEXT("lally_column"), -1 }, // ADDITION (2nd), veto-able
 			{ -6.10f, -13.50f, 0.40f, 2.40f, 1.80f, false, TEXT("shelving"), -1 },
 			{ -5.50f, -17.14f, 1.80f, 0.60f, 0.90f, false, TEXT("workbench"), -1 },
 			// ---- GROUND, living room (front west)
@@ -1497,11 +1497,17 @@ namespace
 			// touching strips as overlapping, and it is right to: a corner where two boxes share an
 			// edge is two solids claiming the same space. So the walls stop 2 cm short of each other
 			// rather than meeting, and the cell reads as one barred box anyway.
-			{ -5.66f, -12.44f, 1.74f, 0.08f, 2.05f, false, TEXT("jail"), -1 },   // north
-			{ -5.66f, -15.60f, 1.74f, 0.08f, 2.05f, false, TEXT("jail"), -1 },   // south
-			{ -5.66f, -15.52f, 0.08f, 3.06f, 2.05f, false, TEXT("jail"), -1 },   // west
-			{ -3.98f, -13.40f, 0.08f, 0.94f, 2.05f, false, TEXT("jail"), -1 },   // east, north of the door
-			{ -3.98f, -15.50f, 0.08f, 1.10f, 2.05f, false, TEXT("jail"), -1 },   // east, south of it
+			//
+			// WIDER AND DEEPER (Richard, 2026-11-05: "make the cell a meter wider and 1/2 meter
+			// deeper, it seems a little crowded"). x -5.66..-2.78, y -12.44..-16.10. The east wall
+			// sits at -2.86 because the lally columns are at x -3.125..-2.875 -- they are INSIDE the
+			// cell now, which is the only way to grow eastwards without moving a column. The bars
+			// run to the new 3.29 m ceiling.
+			{ -5.66f, -12.82f, 2.79f, 0.08f, 3.05f, false, TEXT("jail"), -1 },   // north
+			{ -5.66f, -16.50f, 2.79f, 0.08f, 3.05f, false, TEXT("jail"), -1 },   // south
+			{ -5.66f, -16.42f, 0.08f, 3.52f, 3.05f, false, TEXT("jail"), -1 },   // west
+			{ -2.86f, -13.40f, 0.08f, 0.50f, 3.05f, false, TEXT("jail"), -1 },   // east, north of the door
+			{ -2.86f, -16.42f, 0.08f, 2.02f, 3.05f, false, TEXT("jail"), -1 },   // east, south of it
 			// Doorway: the 1.00 m of east face between y -14.40 and y -13.40 is simply absent.
 			// ---- SECOND, bedroom 2 (front west)
 			{ -6.10f, -11.80f, 2.00f, 2.20f, 0.55f, false, TEXT("bed"), 1 },

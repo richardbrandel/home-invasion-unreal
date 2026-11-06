@@ -415,6 +415,32 @@ tick, and the clip renders.
 3. The chain anchors were stored once, in the captive's frame, which drew them converging on a point in
    the middle of the room; they are recomputed from each wrist every frame now.
 
+**Taller basement, bigger cell, and a fall for the Dancer (2026-11-05).** *"Make the basement higher add one
+meter to the height. When the Dancer gets tranquilized, she doesn't fall down and disappears in a couple of
+seconds... I want the Dancer to get 2 seconds or whatever it is for the other intruders. Also, make the
+cell a meter wider and 1/2 meter deeper."*
+
+* **The basement is 3.29 m** (was 2.29) and the slab is at -3.44. The deck did NOT move --
+  `BasementZ + BasementCeiling` is still -0.39 -- so anything about the basement ceiling reads
+  `BasementCeiling` now, not a literal. The stair band needed 18 risers instead of 14 (0.19 m each), the
+  lally columns reach the new deck, the jail bars reach the new ceiling, and the prisoners hang 0.80 m
+  off the floor with a visible run of chain (no more tiptoe). `FloorHeight(-1)` and the storey-height
+  bound in `HI.Furniture` were updated with it.
+* **The Dancer's fall**: her ragdoll has never worked -- `SetAllBodiesSimulatePhysics` throws the body
+  **18 m** (Alina: 20 m, the brute: fine) because of the glTF 100x rig encoding, so she vanished the
+  instant the dart landed. The capture branch now measures the body against where he stood and, if the
+  ragdoll has thrown it further than 3 m, abandons physics and falls by hand: 0.9 s ease onto his side,
+  then the same 2.2 s disappearance as everyone else. Both women take that path today; the log says so
+  in as many words ("ragdoll threw the body 18 m -- falling by hand instead").
+* **The cell** is x -5.66..-2.86 (2.80 m wide, +1.04) and y -12.82..-16.50 (3.68 m deep, +0.52). Growing
+  it east put the **lally columns inside the cell** (they are at x -3.125..-2.875), which is the only way
+  to widen without moving a column; the walls route around them, and the north wall moved to -12.82
+  because the `baseOpen`->`baseDoor` walk line's envelope fouled the old corner.
+
+**Still wrong, and known:** the brute's hang pose is horizontal -- his own rig's frame disagrees with the
+hips->head/foot->toe derivation somewhere. Richard deferred it ("we will adjust the Brute's chain next
+time"), so it is untouched here.
+
 **The cell, and legs that hang (2026-11-05).** *"The right side of the basement has the furnace, and on the
 left side, put a jail with bars in it... big enough to hold 3 prisoners. The door can just be an opening,
 not a real door yet. Then hang the intruders in there... Also, have gravity pull their legs down."*

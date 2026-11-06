@@ -81,11 +81,10 @@ void AHICaptive::Hang(int32 InThiefId, const FString& InTag, const FVector& Stat
 	// two: `Body` is the ROOT, so a "relative" move on it is a move of the whole actor -- setting the
 	// station and then the relative offset left him at (0, 0, 23) cm, i.e. the world origin on the
 	// ground floor, which is why the first captive capture showed chains and no man.
-	// LEGS HANGING, NOT FOLDED (Richard, 2026-11-05: "have gravity pull their legs down"). With the
-	// knees nearly straight his toes sit just above the slab -- a man chained by the wrists in a
-	// 2.05 m basement is on tiptoe, and that is the honest shape. 0.10 m of lift leaves the toes
-	// clear without the feet going through the floor.
-	SetActorLocation(Station + FVector(0.0f, 0.0f, 0.10f * HI_METERS_TO_UU));
+	// OFF THE FLOOR, NOW THAT THERE IS ROOM FOR IT. With the basement a metre taller the man hangs
+	// clear: wrists at the ceiling, feet 0.8 m up, a visible run of chain. Before the extra metre
+	// the ceiling forced him onto tiptoe.
+	SetActorLocation(Station + FVector(0.0f, 0.0f, 0.80f * HI_METERS_TO_UU));
 	// A limp man is not a plumb line.
 	SetActorRotation(FRotator(7.0f, GetActorRotation().Yaw, 3.0f));
 
@@ -110,7 +109,7 @@ void AHICaptive::Hang(int32 InThiefId, const FString& InTag, const FVector& Stat
 		FHIMaterials::Tint(CuffInstances, FLinearColor(0.34f, 0.35f, 0.38f));
 	}
 	// The ceiling of the basement: the underside of the ground floor's deck.
-	const float CeilingZ = (FHISim::BasementZ + 2.05f) * HI_METERS_TO_UU;
+	const float CeilingZ = (FHISim::BasementZ + FHISim::BasementCeiling) * HI_METERS_TO_UU;
 	ChainAnchor[0] = FVector(Station.X, Station.Y, CeilingZ);
 	ChainAnchor[1] = FVector(Station.X, Station.Y, CeilingZ);
 
@@ -180,7 +179,7 @@ void AHICaptive::UpdateChains()
 		// The anchor is the wrist's own column at the ceiling, recomputed every frame: the first
 		// version stored them once in Hang() and the drawn chains converged on a point in the middle
 		// of the room instead of hanging plumb over the two men.
-		const float CeilingZ = (FHISim::BasementZ + 2.05f) * HI_METERS_TO_UU;
+		const float CeilingZ = (FHISim::BasementZ + FHISim::BasementCeiling) * HI_METERS_TO_UU;
 		ChainAnchor[i] = FVector(Wrist.X, Wrist.Y, CeilingZ);
 		if (FVector::Dist(Wrist, GetActorLocation()) > 2.5f * HI_METERS_TO_UU)
 		{

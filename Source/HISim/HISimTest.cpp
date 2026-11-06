@@ -2951,7 +2951,9 @@ bool FHISimFloorModel::RunTest(const FString& Parameters)
 	// FloorHeight is the phase-2 TABLE now, not Floor*WallHeight -- and an unknown
 	// storey answers a loud 0, never a plausible extrapolation (the HISim.cpp comment
 	// records why a 6.0 here would hide an out-of-range caller).
-	TestEqual(TEXT("FloorHeight table: basement"), FHISim::FloorHeight(-1), -2.44f);
+	// -3.44, not -2.44: the basement gained a metre (Richard, 2026-11-05). The deck's
+	// underside did not move -- BasementZ + BasementCeiling is still -0.39.
+	TestEqual(TEXT("FloorHeight table: basement"), FHISim::FloorHeight(-1), -3.44f);
 	TestEqual(TEXT("FloorHeight table: ground"), FHISim::FloorHeight(0), 0.0f);
 	TestEqual(TEXT("FloorHeight table: second"), FHISim::FloorHeight(1), 2.74f);
 	TestEqual(TEXT("and an unknown storey degrades to 0, not a crash or a guess"),

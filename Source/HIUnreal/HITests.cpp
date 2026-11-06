@@ -818,9 +818,13 @@ bool FHIUnrealFurniture::RunTest(const FString& Parameters)
 
 	for (int32 Idx = 0; Idx < Labels.Num(); ++Idx)
 	{
-		// Nothing is a ceiling and nothing is inside out -- the column regression.
+		// Nothing is a ceiling and nothing is inside out -- the column regression. The bound is the
+		// storey the row stands in: the basement's ceiling is 3.29 m since it gained a metre, so a
+		// full-height basement item (the lally columns, the jail bars) legitimately exceeds the
+		// 3.0 m above-grade storey.
+		const float Ceiling = Floors[Idx] == -1 ? FHISim::BasementCeiling : FHISim::WallHeight;
 		TestTrue(*FString::Printf(TEXT("'%s' is a sane height (%.2f m)"), *Labels[Idx], Heights[Idx]),
-			Heights[Idx] > 0.0f && Heights[Idx] < FHISim::WallHeight);
+			Heights[Idx] > 0.0f && Heights[Idx] <= Ceiling + 0.001f);
 	}
 
 	// The RUG is the interesting one: it is flat, so it is not in `Solids()` and was never

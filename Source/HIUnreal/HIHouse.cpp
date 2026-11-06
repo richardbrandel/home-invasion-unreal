@@ -1889,7 +1889,9 @@ void AHIHouse::Build()
 	// hardcoded 16 (the slice's single flight) would have stretched both.
 	for (const FHISim::FHIStairBand& B : FHISim::Stairs())
 	{
-		const int32 Risers = B.FloorLow == -1 ? 14 : 15;
+		// 18 for the basement band, not 14: the basement gained a metre and a fixed 14 risers
+			// would put 0.246 m of rise in each one. 18 keeps them at the same 0.19.
+			const int32 Risers = B.FloorLow == -1 ? 18 : 15;
 		const bool bRunsY = FMath::Abs(B.Top.Y - B.Bottom.Y) >= FMath::Abs(B.Top.X - B.Bottom.X);
 		for (int32 I = 1; I <= Risers; ++I)
 		{

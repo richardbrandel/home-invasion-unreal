@@ -309,10 +309,49 @@ void AHIIntruder::SyncFromSim(const FHISim::FHIThief& T, float Dt)
 		{
 			bCapturedSeen = true;
 			CapturedT = 0.0f;
+			bFallScripted = false;
+			FallAnchor = GetActorLocation();
 			GoLimp();
 			UE_LOG(LogTemp, Display, TEXT("HI: %s darted -- down and out, alive"), *CastTag);
 		}
 		CapturedT += Dt;
+
+		// A RAGDOLL THAT THROWS THE BODY AWAY IS NOT A FALL. The Dancer's rig carries the glTF
+		// import's 100x encoding, so enabling physics rebuilds her bodies tens of metres from the
+		// actor -- measured at 90 m before -- and she vanished the instant the dart landed instead of
+		// dropping for the same two seconds as the others (Richard, 2026-11-05: "she disappears right
+		// away, I want the Dancer to get 2 seconds or whatever it is for the other intruders").
+		// Detect it and fall by hand: no physics, the body rotated onto its side where he stood.
+		if (!bHanging && !bFallScripted && Body != nullptr)
+		{
+			const float Off = FVector::Dist(Body->GetComponentLocation(), FallAnchor);
+			if (Off > 3.0f * HI_METERS_TO_UU)
+			{
+				bFallScripted = true;
+				FallT = 0.0f;
+				Body->SetAllBodiesSimulatePhysics(false);
+				Body->SetSimulatePhysics(false);
+				Body->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+				Body->SetAnimationMode(EAnimationMode::AnimationSingleNode);
+				Body->SetAnimation(nullptr);
+				Body->SetRelativeRotation(FRotator::ZeroRotator);
+				Body->SetWorldLocation(FallAnchor);
+				UE_LOG(LogTemp, Warning,
+					TEXT("HI: %s's ragdoll threw the body %.0f m -- falling by hand instead"),
+					*CastTag, Off / HI_METERS_TO_UU);
+			}
+		}
+		if (!bHanging && bFallScripted && Body != nullptr)
+		{
+			// Onto his side over 0.9 s and a little way down: the same beat the others get from
+			// physics, so the two-second disappearance reads the same for all three.
+			FallT += Dt;
+			const float A = FMath::Clamp(FallT / 0.9f, 0.0f, 1.0f);
+			const float Ease = A * A * (3.0f - 2.0f * A);
+			Body->SetRelativeRotation(FRotator(88.0f * Ease, 0.0f, 6.0f * Ease));
+			Body->SetWorldLocation(FallAnchor + FVector(0.0f, 0.0f, -0.42f * HI_METERS_TO_UU * Ease));
+		}
+
 		if (!bHanging && CapturedT > 2.2f)
 		{
 			// The beat between falling and disappearing is what separates the two events: the
@@ -430,7 +469,7 @@ FVector AHIIntruder::HangStation(int32 Id)
 	// y -11.40..-14.60, with its door on the east face. Three stations down the middle of it, 0.95 m
 	// apart so two men hanging side by side do not intersect.
 	const float X = -4.80f;
-	const float Y = -13.35f - 0.95f * float(Id);
+	const float Y = -13.35f - 1.15f * float(Id);
 	return FVector(X, Y, FHISim::BasementZ);
 }
 
@@ -591,7 +630,7 @@ void AHIIntruder::UpdateHangVisuals()
 	// The reference pose has both arms straight out, so the wrists are a fixed 0.62 m either side
 	// of the spine at shoulder height -- measured off the drawn body in shots/hung3_01.png.
 	const FVector Base = GetActorLocation();
-	const float CeilingZ = (FHISim::BasementZ + 2.05f) * HI_METERS_TO_UU;
+	const float CeilingZ = (FHISim::BasementZ + FHISim::BasementCeiling) * HI_METERS_TO_UU;
 	const int32 Links = 6;
 	static const TCHAR* const WristBones[2] = { TEXT("LeftHand"), TEXT("RightHand") };
 	for (int32 i = 0; i < 2; ++i)

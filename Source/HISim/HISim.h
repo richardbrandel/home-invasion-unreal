@@ -32,9 +32,16 @@ struct HISIM_API FHISim
 	static constexpr float WallHeight = 3.0f;
 	static constexpr float WallThickness = 0.25f;
 	// ---- storey geometry, phase 2 (HOUSE-DESIGN.md §2). Heights are metres above the
-	// ground floor's walking surface. The basement's 2.29 m ceiling + the 0.15 m deck
-	// give 2.44; the ground floor's 2.59 m ceiling + the 0.15 m slab give 2.74.
-	static constexpr float BasementZ = -2.44f;
+	// ground floor's walking surface. The ground floor's 2.59 m ceiling + the 0.15 m slab
+	// give 2.74.
+	//
+	// THE BASEMENT IS A METRE TALLER (Richard, 2026-11-05: "make the basement higher add one
+	// meter to the height"). It was 2.29 m of ceiling under the 0.15 m deck = 2.44; it is now
+	// 3.29 m of ceiling, so the slab is at -3.44 and the deck's underside has NOT moved
+	// (BasementZ + BasementHeight = -0.39 m, the same as before). Anything that talks about the
+	// basement ceiling should read BasementHeight, not a literal.
+	static constexpr float BasementCeiling = 3.29f;
+	static constexpr float BasementZ = -3.44f;
 	static constexpr float SecondZ = 2.74f;
 	static constexpr float SlabThickness = 0.15f;
 	/** Roof slab [5.18, 5.33]: the second floor's 2.44 m ceiling under a 0.15 m slab. */
