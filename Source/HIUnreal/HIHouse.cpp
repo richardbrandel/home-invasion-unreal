@@ -1040,10 +1040,17 @@ void AHIHouse::BuildDressing()
 		// defaulted to WHITE -- the texture went through untinted, which is the other half of
 		// "the van is a pale speckled slab". FHICharAnim's pistol had the same shape of bug the
 		// same day: a tint parameter nobody set.
+		// A WHITE VAN, not a khaki one (Richard, 2026-11-05: "the colors on the getaway van are a
+		// boring green. It doesn't look real. Try to color it the way you colored the other cars.
+		// Or, a white van is OK too."). The other street cars keep their own imported materials,
+		// and the van cannot: several of its slots import with no base colour at all, which is why
+		// it has an opaque override in the first place. So it takes the white, which is also what
+		// a getaway van actually looks like -- and the per-slot overrides below still give the
+		// glass, tyres, hubs and rims their own colours, so it does not flatten into a slab.
 		PlaceSketchfabModel(TEXT("van"), V.GetCenter(), V.GetSize().X, V.GetSize().Y,
 			0.0f, 2.5f, FRotator::ZeroRotator,
 			/*bCollide=*/false, /*bPerAxis=*/false, TEXT("van_texture_0"),
-			FLinearColor(0.19f, 0.25f, 0.20f));
+			FLinearColor(0.90f, 0.91f, 0.92f));
 	}
 }
 
@@ -2405,35 +2412,50 @@ void AHIHouse::BuildNeighborhood()
 	HedgeRun(FHISim::PlayerWestLimit, FHISim::PlayerSouthLimit,
 		FHISim::PlayerEastLimit, FHISim::PlayerSouthLimit, 1.70f);
 
+	// Our front elevation is at y -7.75; a near-side plot of depth 8 centred at -11.75 fronts on
+	// exactly that line, so the row reads as one street instead of two setbacks.
+	const float NEAR_PLOT_CY = -7.75f - 8.0f * 0.5f;
+
 	// Nice neighbor houses with 2m hedges
 	// KAYKIT BUILDINGS, NOT BOX SHELLS (2026-10-28). Imported CC0 from the Godot project's own
 	// asset pack (assets/kaykit/city in home-invasion-godot): building_A..D, one atlas,
 	// commercial use allowed. This is the "nice neighbor houses" the Godot version had -- the
 	// pack is the same one, so the neighbourhood finally matches the original instead of being
 	// grey boxes with a siding tint.
-	auto NiceHouse = [&](float CX, float CY, float W, float D, const TCHAR* Model)
+	// `FacingDeg` is which way the plot's FRONT faces: 180 puts it toward -Y (the far side of the
+	// street), 0 toward +Y (our side). It used to be decided by the sign of CY alone, which meant
+	// every plot across the street faced the road and every plot on OUR side faced the same way --
+	// away from it. Fixing the setback (below) without fixing that would have lined our side of the
+	// street with the backs of four houses.
+	auto NiceHouse = [&](float CX, float CY, float W, float D, const TCHAR* Model, float FacingDeg)
 	{
 		const float HalfW = W * 0.5f;
 		// bPerAxis fits the model to the row's footprint and a two-storey height.
 		PlaceSketchfabModel(Model, FVector2D(CX, CY), W, D, 0.0f, 7.2f,
-			FRotator(0.0f, 180.0f, 0.0f), /*bCollide=*/false, /*bPerAxis=*/true);
+			FRotator(0.0f, FacingDeg, 0.0f), /*bCollide=*/false, /*bPerAxis=*/true);
 		// SAME U AS OUR OWN HOUSE: nothing across the front, sides down the plot and a back run.
-		// The neighbour's front faces -Y (the street), so its U opens that way.
+		// The U opens toward the street, whichever side the plot is on.
 		{
 			// 9 m clear of the building, BUT NEVER INTO THE ROADWAY (2026-10-28). With the 9 m
 			// offset a plot at CY 26.5 put its front run at y 14 -- inside the 6.6..18 street --
 			// and the side runs crossed the road as a hedge wall. The clamp pins the run to the
 			// plot's own side of the kerb: far-side plots start behind the far sidewalk, our-side
 			// plots stop behind our own back hedge.
-			float Front = CY - D * 0.5f - 9.0f;
-			float Back = CY + D * 0.5f + 9.0f;
-			if (CY > 0.0f)
+			const float HalfD = D * 0.5f;
+			float Front = (FacingDeg > 90.0f)
+				? CY - HalfD - 9.0f                  // front toward -Y: the street is south
+				: CY + HalfD + 9.0f;                 // front toward +Y: the street is north
+			float Back = (FacingDeg > 90.0f)
+				? CY + HalfD + 9.0f
+				: CY - HalfD - 9.0f;
+			if (FacingDeg > 90.0f)
 			{
 				Front = FMath::Max(Front, 19.6f);      // behind the far sidewalk
 			}
 			else
 			{
-				Back = FMath::Min(Back, -28.5f);       // behind our back hedge
+				Front = FMath::Min(Front, 5.4f);       // behind our own sidewalk
+				Back = FMath::Max(Back, -28.5f);       // and the back run behind our back hedge
 			}
 			const float SideX = HalfW + 9.0f;
 			HedgeRun(CX - SideX, Front, CX - SideX, Back, 1.70f);
@@ -2441,10 +2463,12 @@ void AHIHouse::BuildNeighborhood()
 			HedgeRun(CX - SideX, Back, CX + SideX, Back, 1.70f);
 		}
 	};
-	NiceHouse(-13.0f, 26.5f, 9.0f, 7.0f, TEXT("building_A"));
-	NiceHouse(13.0f, 26.5f, 9.0f, 7.0f, TEXT("building_B"));
-	NiceHouse(0.0f, 32.0f, 10.0f, 7.0f, TEXT("building_C"));
-	NiceHouse(-26.0f, 27.0f, 8.0f, 6.0f, TEXT("building_D"));
+	// THE FAR SIDE (across the street) looked right from the start: fronts 5 m behind the far
+	// sidewalk, facing the road.
+	NiceHouse(-13.0f, 26.5f, 9.0f, 7.0f, TEXT("building_A"), 180.0f);
+	NiceHouse(13.0f, 26.5f, 9.0f, 7.0f, TEXT("building_B"), 180.0f);
+	NiceHouse(0.0f, 32.0f, 10.0f, 7.0f, TEXT("building_C"), 180.0f);
+	NiceHouse(-26.0f, 27.0f, 8.0f, 6.0f, TEXT("building_D"), 180.0f);
 	// THE STREET KEEPS GOING (2026-10-28, "scatter more KayKit buildings down the street"). The
 	// road runs 260 m each way and had nothing along it past the first five plots. These are the
 	// pack's other four shells, alternating between the far side and our own, 16 m apart.
@@ -2453,13 +2477,17 @@ void AHIHouse::BuildNeighborhood()
 			TEXT("building_G"), TEXT("building_H") };
 		for (int32 i = 0; i < 4; ++i)
 		{
-			NiceHouse(-42.0f - 16.0f * i, 26.5f, 10.0f, 8.0f, Extras[i]);
-			NiceHouse( 42.0f + 16.0f * i, 26.5f, 10.0f, 8.0f, Extras[(i + 2) % 4]);
-			NiceHouse(-42.0f - 16.0f * i, -30.0f, 10.0f, 8.0f, Extras[(i + 1) % 4]);
-			NiceHouse( 42.0f + 16.0f * i, -30.0f, 10.0f, 8.0f, Extras[(i + 3) % 4]);
+			NiceHouse(-42.0f - 16.0f * i, 26.5f, 10.0f, 8.0f, Extras[i], 180.0f);
+			NiceHouse( 42.0f + 16.0f * i, 26.5f, 10.0f, 8.0f, Extras[(i + 2) % 4], 180.0f);
+			// OUR SIDE, AT OUR OWN SETBACK (Richard, 2026-11-05: "the ones on the side of the home
+			// owner are offset too far from the street, they should be up to the street just like
+			// the owner's house"). Our house fronts at y -7.75; these stood at CY -30, i.e. 20 m
+			// further back, so the street had one row of houses on it and one row in a field.
+			NiceHouse(-42.0f - 16.0f * i, NEAR_PLOT_CY, 10.0f, 8.0f, Extras[(i + 1) % 4], 0.0f);
+			NiceHouse( 42.0f + 16.0f * i, NEAR_PLOT_CY, 10.0f, 8.0f, Extras[(i + 3) % 4], 0.0f);
 		}
 	}
-	NiceHouse(26.0f, 27.0f, 8.0f, 6.0f, TEXT("building_A"));
+	NiceHouse(26.0f, 27.0f, 8.0f, 6.0f, TEXT("building_A"), 180.0f);
 
 	// Cars and trees. The TREES pass an OpaqueTexture, and that is a fix rather than a choice:
 	// without it a tree wore its glb's own material, which has no base-colour texture bound in

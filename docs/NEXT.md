@@ -357,6 +357,40 @@ Source assets refreshed to match: `SourceAssets/models/woman01_edited.glb` (raw 
 - The screenshots that go with this: `shots/dancerdrive_01.png` (her on the driveway, in the game),
   `shots/chestab5_02.png`. `shots/` is gitignored.
 
+## Three from play: the carried load, the near-side street, the van (2026-11-05)
+
+**1. Loot slid along at the ankles instead of riding in a hand.** The carried item's position comes
+from the carrier's HAND BONE -- the original's comment is the specification: *"the hand bone moves with
+the animation, so taking the position from it is what makes the object look carried rather than glued
+to his middle."* The port asked for `hand_r`, which is the engine MANNEQUIN's bone. The cast is Mixamo:
+`RightHand`. So the lookup returned zero for every thief, `bHaveHand` stayed false, and every load took
+the chest fallback -- a fixed offset from the carrier's centre at 0.88 m, which from the player's eye
+line reads as something sliding along the floor between his legs.
+
+`FHICharAnim::HandBoneFor(Body)` already knew both rigs (it is what the pistol attaches with), so the
+fix is to ask the mesh which hand it has instead of naming one, and to LOG when a carrier has no hand
+bone at all -- the silent fallback is what hid this. Measured during a 45 s soak, the hand is found and
+the load rides at the hand: `hand=RightHand at (…, 160-163 cm)` for the brute mid-walk.
+
+**2. The near side of the street sat in a field.** Our house fronts at **y -7.75** and the far-side
+neighbours are 5 m behind their pavement, so the street looked right from the road -- but the four
+plots on OUR side were centred at **y -30**, i.e. their fronts 20 m further back than ours, and every
+one of them was rotated the same way as the far-side plots, which on our side means **facing away from
+the street**. `NiceHouse` now takes a facing, and our side uses **y -11.75** (fronts exactly on our own
+elevation) and **facing 0**, with the plot's hedge U computed from the facing rather than from the sign
+of `CY` -- otherwise moving the houses forward inverts the U (its back run would fall south of its
+front run), which is what the old `CY > 0` branch would have done.
+
+**3. The getaway van is white.** It was tinted `(0.19, 0.25, 0.20)` -- khaki. Unlike the street cars it
+cannot simply keep its imported materials: several of its slots import with no base colour, which is
+why it carries an opaque texture override at all. So it takes the white the note offered:
+`(0.90, 0.91, 0.92)`, with the existing per-slot overrides still giving the glass, tyres, hubs and rims
+their own colours so it does not flatten into a slab.
+
+Suite **52/52** throughout. Frames: `shots/van_01.png` (white van, far-side row intact),
+`shots/near_01.png` (our side, houses up to the street), `shots/near2_01.png` (looking down the street
+with both sides on it).
+
 ## The dining chairs faced the wrong way (2026-11-05)
 
 *"when entering the kitchen, the two kitchen chairs closer to the front are facing away from the table.

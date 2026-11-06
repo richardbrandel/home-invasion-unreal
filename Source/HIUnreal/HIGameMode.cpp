@@ -2316,11 +2316,26 @@ void AHIGameMode::Tick(float DeltaSeconds)
 				if (IntruderActors.IsValidIndex(Man) && IntruderActors[Man] != nullptr
 					&& IntruderActors[Man]->Body != nullptr)
 				{
-					const FVector Hand = IntruderActors[Man]->Body->GetSocketLocation(TEXT("hand_r"));
+					// ASK THE MESH which hand it has, rather than naming the mannequin's. The cast
+					// is Mixamo (`RightHand`), not the engine mannequin (`hand_r`), so the literal
+					// never matched anybody and `bHaveHand` was false for every thief -- which is
+					// why the carried load slid along at the CHEST FALLBACK's height instead of
+					// riding in a hand (Richard, 2026-11-05: "when the intruders grab the loot,
+					// they don't carry it out; it slides between their ankles").
+					const FName HandBone = FHICharAnim::HandBoneFor(IntruderActors[Man]->Body);
+					const FVector Hand = HandBone != NAME_None
+						? IntruderActors[Man]->Body->GetSocketLocation(HandBone)
+						: FVector::ZeroVector;
 					if (!Hand.IsNearlyZero())
 					{
 						HandCm = Hand;
 						bHaveHand = true;
+					}
+					else
+					{
+						UE_LOG(LogTemp, Warning,
+							TEXT("HI: %s is carrying %s but its mesh has no hand bone -- the load will hover"),
+							FHICharAnim::IntruderTagForId(Man), *Item.Label);
 					}
 				}
 				break;
