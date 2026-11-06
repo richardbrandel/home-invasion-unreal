@@ -100,6 +100,10 @@ void AHIGameMode::HandleCommandLine()
 
 	// Thieves first: the round cannot be started before its size is known.
 	int32 Thieves = 0;
+	// `-HITranqDemo=N`: dart the first N intruders a second into the round, so the basement
+	// hanging can be CAPTURED. Manual capture runs drive no input, so without this there is no
+	// way to photograph the one thing the tranquillizer produces.
+	FParse::Value(Cmd, TEXT("HITranqDemo="), TranqDemo);
 	if (FParse::Value(Cmd, TEXT("HIThieves="), Thieves) && Thieves > 0)
 	{
 		IntruderCount = Thieves;
@@ -1065,6 +1069,12 @@ FHISim::FHIInput AHIGameMode::ReadInput()
 	{
 		SwitchLatched = TEXT("shotgun");
 	}
+	else if (PC->WasInputKeyJustPressed(EKeys::Three))
+	{
+		// THE TRANQUILIZER, third weapon (2026-11-05). Its own key because the player must be able
+		// to choose it under pressure, and 3 is where a third tool belongs.
+		SwitchLatched = TEXT("tranq");
+	}
 	if (In.SwitchWeapon.IsEmpty())
 	{
 		In.SwitchWeapon = SwitchLatched;
@@ -1334,7 +1344,13 @@ void AHIGameMode::ResolvePlayerShot(const FHISim::FHIEvent& Shot)
 	// The player's own weapon, once per trigger pull rather than once per pellet: eight
 	// shotgun pellets are one bang.
 	const bool bShotgun = Round.Player.Weapon == TEXT("shotgun");
-	FHIAudio::PlayerGunshot(World, Origin, bShotgun);
+	// A DART, not a bullet (2026-11-05): no bang, no wound, no hole in the wall. It gets the
+	// cool tracer and the small flash so it is still legible as a shot.
+	const bool bTranq = Round.Player.Weapon == TEXT("tranq");
+	if (!bTranq)
+	{
+		FHIAudio::PlayerGunshot(World, Origin, bShotgun);
+	}
 
 	// THE MUZZLE, and the flash and tracers come from it rather than from the camera.
 	//
@@ -1348,12 +1364,13 @@ void AHIGameMode::ResolvePlayerShot(const FHISim::FHIEvent& Shot)
 	// invisible. The gun component stands in for the marker.
 	const FVector Muzzle = (Pawn->Gun != nullptr) ? Pawn->Gun->GetComponentLocation() : Origin;
 	// Godot's flash quad is 0.34 m and its colour is the original's own warm white.
-	FlashPoint(Muzzle, 0.34f, FLinearColor(1.0f, 0.92f, 0.55f));
+	FlashPoint(Muzzle, bTranq ? 0.16f : 0.34f,
+		bTranq ? FLinearColor(0.35f, 0.80f, 0.95f) : FLinearColor(1.0f, 0.92f, 0.55f));
 	// `game.gd`'s recoil: the kick lands on THIS frame, and ApplyLook hands it back over the
 	// next fraction of a second. Kicking the body pitch rather than a separate aim pitch,
 	// because with the cone off there is only one pitch.
 	{
-		const float Kick = bShotgun ? RecoilShotgun : RecoilPistol;
+		const float Kick = bTranq ? (RecoilPistol * 0.25f) : (bShotgun ? RecoilShotgun : RecoilPistol);
 		Round.Player.Pitch = FMath::Clamp(Round.Player.Pitch - Kick,
 			FHISim::PitchMin, FHISim::PitchMax);
 		// 65% of the kick comes back, not all of it: game.gd:1456 does
@@ -1381,19 +1398,29 @@ void AHIGameMode::ResolvePlayerShot(const FHISim::FHIEvent& Shot)
 		// One tracer PER PELLET, from the muzzle -- `game.gd:1545-1566`. 24 mm across in the
 		// original (a 0.012 m cylinder radius) against the intruders' 20 mm, and the same warm
 		// colour, so a shotgun's nine pellets are nine visible lines rather than one.
-		FlashLine(Muzzle, bHit ? Hit.ImpactPoint : End, 0.024f, FLinearColor(1.0f, 0.92f, 0.66f));
+		FlashLine(Muzzle, bHit ? Hit.ImpactPoint : End, bTranq ? 0.012f : 0.024f,
+			bTranq ? FLinearColor(0.45f, 0.85f, 1.0f) : FLinearColor(1.0f, 0.92f, 0.66f));
 
 		if (bHit)
 		{
 			if (AHIIntruder* HitIntruder = Cast<AHIIntruder>(Hit.GetActor()))
 			{
-				Round.DamageIntruder(HitIntruder->ThiefId, Shot.Damage);
+				if (bTranq)
+				{
+					// He goes down alive: the round marks him neutralised and the actor layer
+					// hangs him in the basement. Nothing to wound, so no damage call at all.
+					Round.Tranquilise(HitIntruder->ThiefId);
+				}
+				else
+				{
+					Round.DamageIntruder(HitIntruder->ThiefId, Shot.Damage);
+				}
 			}
 
 			// A mark wherever the pellet stopped: on a man or on the wall behind him. Godot's
 			// _add_impact does the same, and it is what makes a missed shot legible -- a
 			// tracer alone leaves nothing to aim the next one by.
-			if (!Marks.IsEmpty())
+			if (!Marks.IsEmpty() && !bTranq)
 			{
 				AHIMark* Mark = Marks[MarkCursor % Marks.Num()];
 				MarkCursor = (MarkCursor + 1) % Marks.Num();
@@ -2001,6 +2028,17 @@ void AHIGameMode::Tick(float DeltaSeconds)
 	// the second, in BOTH offscreen and windowed runs -- about 1x realtime, not a quarter. It
 	// had `tools/capture.sh` about to be designed around "windowed is ten times faster".
 	RoundSeconds += StepsThisFrame * SimFixedDt;
+
+	// The capture-only demonstration of the tranquillizer (see the flag's comment).
+	if (TranqDemo > 0 && !bTranqDemoDone && RoundSeconds >= 1.0f)
+	{
+		bTranqDemoDone = true;
+		for (int32 i = 0; i < TranqDemo && i < Round.Intruders.Num(); ++i)
+		{
+			Round.Tranquilise(Round.Intruders[i].Id);
+		}
+		UE_LOG(LogTemp, Display, TEXT("HI: -HITranqDemo darted %d intruder(s)"), TranqDemo);
+	}
 
 	// Drained ONCE for the whole frame rather than per sub-step: an event is an event, and
 	// resolving the same tracer twice because two sub-steps happened inside one frame would

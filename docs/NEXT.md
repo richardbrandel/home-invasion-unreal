@@ -357,6 +357,50 @@ Source assets refreshed to match: `SourceAssets/models/woman01_edited.glb` (raw 
 - The screenshots that go with this: `shots/dancerdrive_01.png` (her on the driveway, in the game),
   `shots/chestab5_02.png`. `shots/` is gitignored.
 
+## The tranquilizer, and what happens to the men it takes (2026-11-05)
+
+Third weapon, key **3**: a dart gun. One in the chamber, 24 darts in reserve, **no damage** -- a dart
+does not wound, it puts a man down. The round counts a captured intruder as **neutralised** without him
+being dead, so the tranquillizer is a non-lethal route to exactly the same win (the HUD's "intruders
+down" counter includes him), and the AI skips him like a corpse.
+
+**The sequence, as specified:** he falls where the dart lands (the same ragdoll a death uses), vanishes
+2.2 s later, and is found in the basement hanging from the ceiling by both wrists.
+
+Implementation notes that matter later:
+
+* **`FHIThief::bCaptured`** is a new state: alive, out of the fight, still in `Intruders`. Every place
+  that used to read `bAlive` alone for "still a threat" now reads both -- `AnyIntruderStanding` and the
+  AI step loop -- and `DamageIntruder`'s drop-the-loot logic is mirrored in `Tranquilise`.
+* **The capture branch runs BEFORE the actor is positioned from the sim.** The sim keeps the thief at
+  the spot where the dart landed, so applying that position after the hang teleported the hanging man
+  back up to the ground floor every frame -- the basement looked empty and the body was upstairs.
+* **The hanging is posed, not simulated.** The first design was a real suspension: two
+  `UPhysicsConstraintComponent`s pinning the hand BODIES to ceiling points, which is by far the best
+  answer because the body then hangs off its own arms. It works on Alina and fails on the Dancer, whose
+  rig carries the glTF import's 100x encoding: `RecreatePhysicsState` brings her bodies back ~90 m from
+  the actor (measured), so the constraints towed her across the map. She now hangs *posed*: physics
+  off, and the reference pose -- arms straight out, which is a man shackled by both wrists -- with
+  instanced-cube **chains** (alternating-roll links) from the ceiling to each wrist and a **cuff** box
+  at each wrist, redrawn every frame. He is lifted 0.23 m so his feet dangle, and the lean is 7 deg so
+  he does not read as a mannequin.
+* **This actor does not tick**, so a clip set on it is never evaluated and the bones stay in the world
+  space the ragdoll left them: the pose is driven by hand in `UpdateHangVisuals` (`TickPose` +
+  `TickAnimation`), which is also why the chain positions are taken from the drawn pose's wrist offsets
+  rather than from `GetSocketLocation` (those disagreed by a frame).
+* Three **stations** in the basement, along the clear floor at x +-0.55 and y -11.4 / -12.55.
+* `-HITranqDemo=N` darts the first N intruders a second into the round. It exists because a manual
+  capture drives no input, so without it there is no way to photograph the basement.
+
+**Known compromise:** a *limp* hang with the arms overhead would look better, and cannot be done by
+posing the reference skeleton -- it wants an authored `hang` AnimSequence (one key: ref pose with both
+arms rotated up), which the asset pipeline can make. That is the next step if the pose matters; the
+restraint reads correctly as it is (`shots/hung9_01.png`).
+
+Suite **52/52** with the new `HI.Sim.Round` assertions: a dart captures, he stays alive, he counts as
+down, darting twice does nothing, capturing every intruder wins the round, and a captured man drops what
+he was carrying.
+
 ## Three from play: the carried load, the near-side street, the van (2026-11-05)
 
 **1. Loot slid along at the ankles instead of riding in a hand.** The carried item's position comes

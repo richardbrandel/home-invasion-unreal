@@ -1,4 +1,9 @@
 #include "HIIntruder.h"
+#include "PhysicsEngine/PhysicsConstraintComponent.h"
+#include "PhysicsEngine/PhysicsAsset.h"
+#include "PhysicsEngine/SkeletalBodySetup.h"
+#include "PhysicsEngine/BodyInstance.h"
+#include "Components/InstancedStaticMeshComponent.h"
 
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
@@ -291,6 +296,33 @@ void AHIIntruder::SyncFromSim(const FHISim::FHIThief& T, float Dt)
 	// after the spawn returns, and the game mode calls this immediately after assigning it.
 	BuildVisuals();
 
+	// TAKEN ALIVE FIRST, AND BEFORE THE SIM MOVES HIM (2026-11-05). The sim's thief keeps the
+	// position where the dart landed, so applying it after the hang teleported the hanging man back
+	// up to the ground floor every frame -- measured: the actor was on the hook at (-55, -1140) in
+	// the basement and back at (-79, 278) a frame later, which is why the basement looked empty.
+	if (T.bCaptured)
+	{
+		if (!bCapturedSeen)
+		{
+			bCapturedSeen = true;
+			CapturedT = 0.0f;
+			GoLimp();
+			UE_LOG(LogTemp, Display, TEXT("HI: %s darted -- down and out, alive"), *CastTag);
+		}
+		CapturedT += Dt;
+		if (!bHanging && CapturedT > 2.2f)
+		{
+			// The beat between falling and disappearing is what separates the two events: the
+			// player sees him go down, then he is gone, and he is not a corpse either.
+			HangInBasement();
+		}
+		if (bHanging)
+		{
+			UpdateHangVisuals();
+		}
+		return;
+	}
+
 	if (Root != nullptr)
 	{
 		Root->SetWorldLocation(FVector(T.Pos.X * HI_METERS_TO_UU, T.Pos.Y * HI_METERS_TO_UU, T.Z * HI_METERS_TO_UU));
@@ -305,6 +337,9 @@ void AHIIntruder::SyncFromSim(const FHISim::FHIThief& T, float Dt)
 	// than pushed from the damage site. A dead man shows all five.
 	ShowWounds(T.bAlive ? WoundsForHealth(T.Hp) : MaxWounds);
 
+	// TAKEN ALIVE (2026-11-05). He is not dying -- a dart does not wound -- so this deliberately
+	// comes BEFORE the death branch: the same ragdoll takes him down, then he disappears and is
+	// found hanging in the basement.
 	if (!T.bAlive)
 	{
 		// Play it ONCE. Calling SetAnimation every frame restarts the death from frame 0
@@ -377,5 +412,170 @@ void AHIIntruder::SyncFromSim(const FHISim::FHIThief& T, float Dt)
 		// through the same pure helper, along his facing.
 		Gun->SetWorldRotation(AHIPlayerCharacter::WeaponAimRotation(
 			FHISim::AimDir(FHISim::YawFromBearing(T.Yaw), 0.0f)));
+	}
+}
+
+// ------------------------------------------------------------------ taken alive (2026-11-05)
+
+FVector AHIIntruder::HangStation(int32 Id)
+{
+	// Three stations in the basement's open floor, along the middle of the room. The basement is
+	// 2.44 m below the ground floor, x -6.1..6.1 and y -17.4..-8.0, with the lally columns at
+	// x -3.125 and the workbench against the north wall, so a line down x = 0 at y -11.2..-13.6
+	// is clear floor with nothing in front of it.
+	const float X = (Id % 2 == 0) ? -0.55f : 0.55f;
+	const float Y = -11.4f - 1.15f * float(Id / 2) - 1.15f * float(Id % 2 == 0 ? 0 : 1);
+	return FVector(X, Y, FHISim::BasementZ);
+}
+
+void AHIIntruder::HangInBasement()
+{
+	if (bHanging || Body == nullptr)
+	{
+		return;
+	}
+	bHanging = true;
+
+	// He is a prisoner now, not a threat: the pistol goes away and the hit capsule is switched off,
+	// so a dart or a pellet cannot kill a man who is already hanging in the basement.
+	if (Gun != nullptr)
+	{
+		Gun->SetVisibility(false);
+	}
+	SetActorEnableCollision(false);
+
+	// METRES -> CENTIMETRES. The sim speaks metres and the actor transform speaks centimetres; the
+	// first pass put him at (-0.6, -11.4, -2.4) CM -- a two-centimetre man -- and the wrist
+	// constraints then pulled his hands across the whole map.
+	const FVector Station = HangStation(ThiefId) * HI_METERS_TO_UU;
+
+	// STILL, NOT SIMULATED -- and that is a deliberate retreat. The hanging was first built as a
+	// real suspension: two physics constraints pinning the HAND BODIES to the ceiling, which is by
+	// far the best-looking answer because the body then hangs off its own arms. It works on Alina
+	// and fails on the Dancer, whose rig carries the glTF import's 100x encoding: her physics bodies
+	// come back from `RecreatePhysicsState` at ~90 m from the actor, so the constraints yank her
+	// across the map (measured: hands at (8999, -1946) cm against a station at (-55, -1140)). Debugging
+	// one rig's physics encoding is not worth the feature, so the body is FROZEN instead: the
+	// animation is released, which leaves him in the reference pose -- arms out, which is exactly a
+	// man shackled by both wrists -- and the chains are drawn to those wrists every frame.
+	Body->SetAllBodiesSimulatePhysics(false);
+	Body->SetSimulatePhysics(false);
+	Body->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+
+	// A POSE HAS TO BE EVALUATED AT THE NEW PLACE. A ragdoll's bones are cached in WORLD space
+	// wherever the simulation left them, so moving the component without re-evaluating leaves the
+	// mesh -- and the wrists the chains are drawn to -- on the ground floor where he fell.
+	// Playing a clip at the station rewrites them there, every frame, with no physics involved.
+	// THE MESH DOES NOT TICK. This actor is stepped by the game mode ("like the pawn it does not
+	// tick"), so a clip set here is never evaluated and the bones stay in the world space the
+	// ragdoll left them -- which is why the body and its chains drew on the ground floor while the
+	// actor sat in the basement. The evaluation is driven by hand, every frame, in
+	// UpdateHangVisuals; this only arms it.
+	const FString StandPath = FHICharAnim::ClipPathFor(*CastTag, FHICharAnim::ClipIdle());
+	StandClip = LoadObject<UAnimationAsset>(nullptr, *StandPath);
+	if (StandClip != nullptr)
+	{
+		Body->SetAnimationMode(EAnimationMode::AnimationSingleNode);
+		Body->SetAnimation(StandClip);
+		Body->Play(true);
+	}
+
+	// He hangs: feet clear of the floor, and a slight lean, which is what a limp body on two
+	// wrist chains looks like. The hang is deliberately still -- see the note in the header.
+		// 0.23 m, not "as high as he goes": the basement is 2.05 m to the ceiling and a reference-pose
+	// body puts its wrists 1.42 m above its feet, so 0.23 m of lift leaves a ~0.40 m chain and his
+	// feet dangling clear of the slab. Lifting him further put his shoulders into the ceiling and
+	// the chain length went to zero, which is why the chains vanished from the frame at 0.62 m.
+	const FVector Hanging = Station + FVector(0.0f, 0.0f, 0.23f * HI_METERS_TO_UU);
+	if (Root != nullptr)
+	{
+		Root->SetWorldLocation(Hanging);
+	}
+	// METRES -> CENTIMETRES: the sim speaks metres and actor transforms speak centimetres.
+	Body->SetWorldLocation(Hanging);
+	// THE COMPONENT KEEPS ITS OWN ROTATION, and the ragdoll left it lying wherever he fell -- so
+	// without this the "hanging" man floats horizontally, feet out, which is exactly what the
+	// first framed capture showed. The actor's small lean is what makes him look limp.
+	Body->SetRelativeRotation(FRotator::ZeroRotator);
+	SetActorRotation(FRotator(7.0f, GetActorRotation().Yaw, 3.0f));
+	// Chains and cuffs: instanced cubes, stamped every frame in UpdateHangVisuals.
+	const TCHAR* CubePath = TEXT("/Engine/BasicShapes/Cube.Cube");
+	UStaticMesh* Cube = LoadObject<UStaticMesh>(nullptr, CubePath);
+	if (Cube != nullptr)
+	{
+		ChainInstances = NewObject<UInstancedStaticMeshComponent>(this);
+		ChainInstances->SetStaticMesh(Cube);
+		ChainInstances->SetMobility(EComponentMobility::Movable);
+		ChainInstances->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		ChainInstances->RegisterComponent();
+		ChainInstances->SetWorldLocation(FVector::ZeroVector);
+		FHIMaterials::Tint(ChainInstances, FLinearColor(0.10f, 0.10f, 0.11f));
+
+		CuffInstances = NewObject<UInstancedStaticMeshComponent>(this);
+		CuffInstances->SetStaticMesh(Cube);
+		CuffInstances->SetMobility(EComponentMobility::Movable);
+		CuffInstances->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		CuffInstances->RegisterComponent();
+		CuffInstances->SetWorldLocation(FVector::ZeroVector);
+		FHIMaterials::Tint(CuffInstances, FLinearColor(0.34f, 0.35f, 0.38f));
+	}
+	UE_LOG(LogTemp, Display, TEXT("HI: %s taken alive -- hanging in the basement at (%.2f, %.2f)"),
+		*CastTag, HangStation(ThiefId).X, HangStation(ThiefId).Y);
+}
+
+void AHIIntruder::UpdateHangVisuals()
+{
+	if (!bHanging || Body == nullptr || ChainInstances == nullptr)
+	{
+		return;
+	}
+	ChainInstances->ClearInstances();
+	if (CuffInstances != nullptr)
+	{
+		CuffInstances->ClearInstances();
+	}
+
+	// THE CHAINS GO TO THE WRISTS, and the wrist offsets are taken from the POSE HE IS DRAWN IN
+	// rather than from the hand bones. Those two disagree here: he is drawn in the reference pose
+	// (arms out) because the animation is only ticked by hand, so `GetSocketLocation` reports a
+	// frame that is not the one on screen and the chains hung beside him instead of onto him.
+	// The reference pose has both arms straight out, so the wrists are a fixed 0.62 m either side
+	// of the spine at shoulder height -- measured off the drawn body in shots/hung3_01.png.
+	const FVector Base = GetActorLocation();
+	const float CeilingZ = (FHISim::BasementZ + 2.05f) * HI_METERS_TO_UU;
+	const float WristZ = Base.Z + 1.42f * HI_METERS_TO_UU;
+	const float WristOut = 0.76f * HI_METERS_TO_UU;
+	const int32 Links = 6;
+
+	for (int32 i = 0; i < 2; ++i)
+	{
+		const float Lean = (i == 0) ? -1.0f : 1.0f;
+		const FVector WristPos(Base.X + Lean * WristOut, Base.Y, WristZ);
+		const FVector Anchor(WristPos.X, WristPos.Y, CeilingZ);
+		const FVector Span = WristPos - Anchor;
+		const float Len = Span.Size();
+		if (Len < 2.0f)
+		{
+			continue;
+		}
+		const FVector Dir = Span / Len;
+		for (int32 L = 0; L < Links; ++L)
+		{
+			const float T = (float(L) + 0.5f) / float(Links);
+			const FVector At = Anchor + Dir * (Len * T);
+			// Alternating roll: what makes a run of boxes read as a chain rather than a stick.
+			const FRotator Rot = FRotationMatrix::MakeFromZ(Dir).Rotator()
+				+ FRotator(0.0f, (L % 2 == 0) ? 0.0f : 90.0f, 0.0f);
+			ChainInstances->AddInstance(FTransform(Rot, At,
+				FVector(0.022f, 0.022f, Len / float(Links) * 0.62f)));
+		}
+		if (CuffInstances != nullptr)
+		{
+			// The cuff is the thing round the wrist: a short, heavier box, and it is what makes
+			// "chained" read as restraint rather than as a rope tied to a hand.
+			const FRotator CuffRot = FRotationMatrix::MakeFromZ(Dir).Rotator();
+			CuffInstances->AddInstance(FTransform(CuffRot, WristPos,
+				FVector(0.085f, 0.085f, 0.070f)));
+		}
 	}
 }

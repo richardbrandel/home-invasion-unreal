@@ -2028,6 +2028,43 @@ bool FHISimRound::RunTest(const FString& Parameters)
 			W.State == FHISim::EHIRoundState::Won && W.ThievesDown == 3);
 	}
 
+	// ---- the tranquilizer: the third weapon, and the only non-lethal route to the same win
+	{
+		const FHISim::FHIWeapon Dart = FHISim::Weapon(TEXT("tranq"));
+		TestTrue(FString::Printf(TEXT("the tranquilizer is a weapon with no damage (damage=%.1f, mag=%d, reserve=%d)"),
+			Dart.Damage, Dart.Mag, FHISim::ReserveFor(TEXT("tranq"))),
+			Dart.Mag == 1 && Dart.Damage == 0.0f && FHISim::ReserveFor(TEXT("tranq")) > 0);
+
+		FHISim::FHIRound T = FHISim::FHIRound::Start(2);
+		const int32 Id = T.Intruders[0].Id;
+		TestTrue(TEXT("a dart captures him"), T.Tranquilise(Id));
+		TestTrue(TEXT("and he is ALIVE -- captured is not killed"), T.Intruders[0].bAlive);
+		// In a one-man round the captured man IS the whole squad, which is the only place
+		// `AnyIntruderStanding` can be read off a single capture.
+		{
+			FHISim::FHIRound One = FHISim::FHIRound::Start(1);
+			One.Tranquilise(One.Intruders[0].Id);
+			TestTrue(TEXT("a captured man does not count as standing"),
+				!One.AnyIntruderStanding() && One.State == FHISim::EHIRoundState::Won);
+		}
+		TestTrue(FString::Printf(TEXT("and he counts as down (%d)"), T.ThievesDown), T.ThievesDown == 1);
+		TestTrue(TEXT("one captured man does not win a round with two intruders"),
+			T.State == FHISim::EHIRoundState::Play);
+		TestTrue(TEXT("darting him again does nothing"), !T.Tranquilise(Id));
+		T.Tranquilise(T.Intruders[1].Id);
+		TestTrue(TEXT("capturing every intruder wins the round without a death"),
+			T.State == FHISim::EHIRoundState::Won);
+
+		// A captured man drops what he was carrying, for the same reason a dead one does.
+		FHISim::FHIRound C = FHISim::FHIRound::Start(1);
+		C.Intruders[0].Carry = TEXT("TV");
+		C.Intruders[0].Pos = FVector2D(3.0f, -12.0f);
+		C.Loot[0].bTaken = true;
+		C.Tranquilise(C.Intruders[0].Id);
+		TestTrue(TEXT("a darted man's loot falls where he does"),
+			!C.Loot[0].bTaken && C.Loot[0].Pos.Equals(C.Intruders[0].Pos, 0.001f));
+	}
+
 	// ---- a downed intruder drops what he was carrying, where he fell
 	{
 		FHISim::FHIRound D = FHISim::FHIRound::Start(1);

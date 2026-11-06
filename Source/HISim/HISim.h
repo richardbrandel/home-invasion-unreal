@@ -588,6 +588,12 @@ struct HISIM_API FHISim
 		float Reloading = 0.0f;
 		float Think = 2.0f;
 		FString Carry;
+		/**
+		 * Alive but out of the fight: a dart from the tranquilizer (2026-11-05). He drops where he
+		 * stands, and the game layer hangs him in the basement. The round counts him neutralised
+		 * without him being dead, which is why `AnyIntruderStanding` tests both flags.
+		 */
+		bool bCaptured = false;
 		FString Target;
 		TArray<FVector2D> Route;
 		FString Mode = TEXT("hunt");
@@ -818,6 +824,12 @@ struct HISIM_API FHISim
 		 *
 		 * @returns true when the damage was lethal.
 		 */
+		/**
+		 * A dart hit: he goes down ALIVE and out of the fight, counts as neutralised, and the game
+		 * layer hangs him in the basement. True when this one had not already been captured.
+		 */
+		bool Tranquilise(int32 Id);
+
 		bool DamageIntruder(int32 Id, float Damage);
 
 		/** Hand back this frame's events and start a fresh list. Call once per frame. */

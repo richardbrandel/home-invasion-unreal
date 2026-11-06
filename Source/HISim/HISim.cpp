@@ -30,6 +30,7 @@ int32 FHISim::ReserveFor(const FString& Weapon)
 {
 	if (Weapon == TEXT("pistol"))  return 36;
 	if (Weapon == TEXT("shotgun")) return 18;
+	if (Weapon == TEXT("tranq"))   return 24;
 	return 0;
 }
 
@@ -62,6 +63,26 @@ FHISim::FHIWeapon FHISim::Weapon(const FString& Key)
 		// 0.15 -> 0.1125, ~25% tighter (Richard, 2026-10-19): "the shotgun spread is a little
 		// bit wide, bring it in by about 25%."
 		W.Spread = 0.1125f;   // radians
+		return W;
+	}
+	if (Key == TEXT("tranq"))
+	{
+		// THE TRANQUILIZER (Richard, 2026-11-05): "if an intruder is shot with 3), they fall to
+		// the ground and then disappear. But they will reappear in the basement hanging from the
+		// ceiling by their wrists."
+		//
+		// Zero damage on purpose: a dart does not wound, it puts a man down. The round treats a
+		// captured intruder as NEUTRALISED (see Tranquilise), so the gun is a non-lethal route to
+		// the same win -- which is the whole point of carrying it. One dart in the chamber and a
+		// slow reload: a dart that missed costs a beat, and the mag is a physical thing.
+		FHIWeapon W;
+		W.Name = TEXT("Tranquilizer");
+		W.Damage = 0.0f;
+		W.Cd = 0.90f;
+		W.Mag = 1;
+		W.Reload = 1.40f;
+		W.Pellets = 1;
+		W.Spread = 0.008f;
 		return W;
 	}
 	// Unknown key: Godot would raise on WEAPONS[w] and crash. Returning a zeroed weapon
@@ -117,6 +138,7 @@ FHISim::FHIPlayer FHISim::CreatePlayer()
 	// player spending another's ammunition. The C++ equivalent is a fresh copy per player.
 	P.Reserve.Add(TEXT("pistol"), ReserveFor(TEXT("pistol")));
 	P.Reserve.Add(TEXT("shotgun"), ReserveFor(TEXT("shotgun")));
+	P.Reserve.Add(TEXT("tranq"), ReserveFor(TEXT("tranq")));
 	P.Cd = 0.0f;
 	P.Reloading = 0.0f;
 	return P;
@@ -643,7 +665,9 @@ FHISim::FHIThief* FHISim::FHIRound::NearestIntruder()
 	float BestDist = TNumericLimits<float>::Max();
 	for (FHIThief& T : Intruders)
 	{
-		if (!T.bAlive)
+		// A tranquilised man is still alive, so `bAlive` alone no longer means "still in the
+		// fight": he is lying on a basement floor with his wrists in cuffs.
+		if (!T.bAlive || T.bCaptured)
 		{
 			continue;
 		}
@@ -744,7 +768,8 @@ bool FHISim::FHIRound::AnyIntruderStanding() const
 {
 	for (const FHIThief& T : Intruders)
 	{
-		if (T.bAlive)
+		// Captured men do not stand. They are the non-lethal route to the same outcome.
+		if (T.bAlive && !T.bCaptured)
 		{
 			return true;
 		}
@@ -875,6 +900,40 @@ bool FHISim::FHIRound::DamageIntruder(int32 Id, float Damage)
 	// NOT over while any of them is still up. His death ending the round was right for one
 	// intruder and is wrong for three: shooting the first man through the door would hand
 	// you a win with two still inside the house.
+	if (!AnyIntruderStanding())
+	{
+		State = EHIRoundState::Won;
+	}
+	return true;
+}
+
+bool FHISim::FHIRound::Tranquilise(int32 Id)
+{
+	FHIThief* Who = FindIntruder(Id);
+	if (Who == nullptr || !Who->bAlive || Who->bCaptured)
+	{
+		return false;
+	}
+	Who->bCaptured = true;
+	// What he was carrying drops where he does, for the same reason it does when he is killed:
+	// the valuables stay findable and the sim never has a load owned by a man who is not acting.
+	if (!Who->Carry.IsEmpty())
+	{
+		for (FHILootItem& L : Loot)
+		{
+			if (L.Label == Who->Carry)
+			{
+				L.bTaken = false;
+				L.bDelivered = false;
+				L.Pos = Who->Pos;
+				L.Floor = Who->Floor;
+			}
+		}
+		Who->Carry.Empty();
+	}
+	// Counted as down: the HUD's "intruders down" is "no longer a threat", and the round is won
+	// the same way. The difference is that he is still alive in the basement.
+	++ThievesDown;
 	if (!AnyIntruderStanding())
 	{
 		State = EHIRoundState::Won;

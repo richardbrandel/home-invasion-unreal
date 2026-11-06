@@ -165,4 +165,39 @@ private:
 
 	/** Let go: simulate physics, so the man actually falls and settles on the floor. */
 	void GoLimp();
+
+	// ------------------------------------------------------- taken alive (2026-11-05)
+	//
+	// The tranquilizer's man does not die: he drops where he stands, vanishes the way Richard
+	// specified ("they fall to the ground and then disappear"), and is then found in the basement
+	// hanging from the ceiling by his wrists, ALIVE.
+	//
+	// The hanging is PHYSICS with two constraints rather than a posed animation, and that is the
+	// whole trick: there is no hanging clip in the cast's ten, and a hand-authored pose would have
+	// to fight the ragdoll that is already there. Constrain each hand's physics body to a point at
+	// the ceiling and the body hangs off its own wrists -- shoulders up, knees bent, swaying, and
+	// genuinely limp instead of pretending.
+	float HangClock = 0.0f;
+	/** The clip the hang evaluates by hand, because this actor does not tick. */
+	TObjectPtr<class UAnimationAsset> StandClip;
+	int32 DbgLeft = 4;
+	/** Seconds since the dart landed; the body falls for a beat before it disappears. */
+	float CapturedT = 0.0f;
+	bool bCapturedSeen = false;
+	/** Set once he is on the hook: stops the fall timer and starts the chain update. */
+	bool bHanging = false;
+
+	/** The two ceiling anchors the chains hang from (world space, centimetres). */
+	FVector HangAnchor[2] = { FVector::ZeroVector, FVector::ZeroVector };
+
+	/** Chains and cuffs, re-stamped every frame so they follow the wrists as he sways. */
+	TObjectPtr<class UInstancedStaticMeshComponent> ChainInstances;
+	TObjectPtr<class UInstancedStaticMeshComponent> CuffInstances;
+
+	/** Where in the basement this one hangs: three stations, one per intruder id. */
+	static FVector HangStation(int32 Id);
+	/** Move him to his station and pin both wrists to the ceiling. */
+	void HangInBasement();
+	/** Pose him, then redraw the chains and cuffs from the ceiling to the current wrists. */
+	void UpdateHangVisuals();
 };

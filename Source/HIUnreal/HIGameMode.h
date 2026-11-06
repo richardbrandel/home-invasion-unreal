@@ -468,6 +468,10 @@ private:
 	float ShotAfterSeconds = 1.5f;
 	bool bHideUIForShot = false;
 	float SoakSeconds = -1.0f;
+	/** `-HITranqDemo=N`: dart the first N intruders a second in, so a manual capture can
+	 *  photograph the basement hanging. Capture-only; nothing in play sets it. */
+	int32 TranqDemo = 0;
+	bool bTranqDemoDone = false;
 	bool bAuto = false;
 	/** Frames to wait after asking for a screenshot before quitting, so it can be written. */
 	int32 QuitCountdownFrames = INDEX_NONE;
