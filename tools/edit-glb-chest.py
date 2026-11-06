@@ -44,7 +44,7 @@ import numpy as np
 
 SRC = sys.argv[1] if len(sys.argv) > 2 else "/data/projects/HIUnreal/SourceAssets/models/woman01.glb"
 DST = sys.argv[2] if len(sys.argv) > 2 else "/tmp/woman01_edit.glb"
-GROW = float(sys.argv[3]) if len(sys.argv) > 3 else 0.7
+GROW = float(sys.argv[3]) if len(sys.argv) > 3 else 1.0
 # Bones whose vertices may move: the torso only. The bust is skinned to the spine chain; the arms,
 # shoulders, neck and head are not, and moving their vertices is what the first version did.
 TORSO_BONE_PREFIX = "mixamorig:spine"   # Spine_01, Spine1_02, Spine2_03 in this export
@@ -177,25 +177,169 @@ while z < band_hi:
     z += 1.0
 if bust_z is None:
     raise SystemExit("ED: could not find a bust line")
-sel = (torso_weight >= 0.5) & (np.abs(l - lc) < 2.0 * SIGMA_LAT_CM) & (f > 0.0)
+# ---- THE CUP, NOT THE CONE (2026-11-05). The first versions displaced vertices FORWARD along one
+# axis with a Gaussian weight, which can only ever make a cone: one vertex furthest out, straight
+# sides, and the silhouette is a tent however large the amplitude. Richard: "the boobs look like 2
+# tents. I would like a fuller cup, like a DD size cup. Alina has nice boobs."
+#
+# Measured off Alina's own mesh (SourceAssets/characters/alina/idle.glb) for the target, because a
+# bra size is not a number this file can compute: at her bust line the FRONT FACE is 15.2% of her
+# height wide, and the cup (apex minus underbust) is 7.2% of her height. The Dancer's tent was 7.2%
+# wide -- half as broad -- for a DEEPER cup (8.5%), which is exactly what a cone looks like: deep and
+# narrow. So the job here is breadth at a slightly shallower depth.
+#
+# Three changes do it: TWO centres (one per breast, inside the chest), a RADIAL push from each centre
+# instead of a single axis, and a SUPER-GAUSSIAN falloff (q^4) instead of q^2 -- a plateau with a soft
+# edge rather than a peak -- followed by Laplacian smoothing of the moved patch so the underbust
+# crease and the infill between the breasts blend instead of folding.
+CUP_TARGET = 0.072      # of body height -- Alina's, measured
+BREADTH_TARGET = 0.152  # of body height -- Alina's, measured
+R_LAT, R_UP, POW = 10.5, 7.5, 2.5
+FRONT_CENTRE_LAT = 5.0   # each breast centre, either side of the midline
+MAX_MOVE_CM = 13.0
+
+# The underbust level, which is both the depth reference and the front-face cut-off.
+under_band = mid & (np.abs(u - (bust_z - 9.0)) < 2.5)
+if under_band.sum() < 4:
+    raise SystemExit("ED: no vertices to measure the underbust against")
+f_under = float(f[under_band].max())
+
+# THE CENTRES GO INSIDE THE CHEST, not on its surface. First attempt put them just behind the
+# underbust SURFACE, which is nearly where the bust surface already is: every radial direction then
+# pointed sideways rather than out, the patch flattened instead of rounding, and the amplitude solver
+# (which corrects in proportion to how far it missed) ran away to three kilometres. A centre at
+# mid-depth of the ribcage makes "outward" mean forward at the apex and sideways at the edges, which
+# is what inflation is.
+torso_depth = (np.abs(l - lc) < 8.0) & (u > zmin + 0.60 * H) & (u < zmin + 0.80 * H)
+f_back = float(np.percentile(f[torso_depth], 5)) if torso_depth.sum() > 10 else f_under - 16.0
+f_mid = 0.5 * (f_back + f_under)
+print("ED: chest depth: back %.2f, underbust surface %.2f, mid-depth %.2f (centres sit here)" % (
+    f_back, f_under, f_mid))
+
+# One centre per breast, either side of the midline and 2 cm below the bust line. TWO forms are kept
+# deliberately: the WORLD position, which gives the direction to push each vertex in, and the
+# (lateral, up) pair, which measures how far a vertex is from the centre along the body's surface.
+# Conflating the two is what made the first attempt push the apex 12 cm backwards.
+UP = np.array([0.0, 1.0, 0.0])
+CENTRE_LU = [(lc - FRONT_CENTRE_LAT, bust_z - 2.0), (lc + FRONT_CENTRE_LAT, bust_z - 2.0)]
+# `f` and `l` are measured FROM `ref`, but `u` is an absolute height, so the vertical term has to be
+# taken relative to `ref` as well -- getting that wrong put the centre 100 cm above her head and made
+# every "outward" push point straight down (the apex moved 21 cm while advancing 1.6).
+CENTRE_W = np.array([ref + fwd * f_mid + lat * lu[0] + UP * (lu[1] - ref[1]) for lu in CENTRE_LU])
+
+sel = (torso_weight >= 0.5) & (np.abs(l - lc) < 2.0 * SIGMA_LAT_CM) & (f > f_mid)
 if sel.sum() < 20:
     raise SystemExit("ED: only %d torso vertices -- refusing to guess" % sel.sum())
 
-w_all = np.exp(-(((l - lc) ** 2) / (2 * SIGMA_LAT_CM ** 2) + ((u - bust_z) ** 2) / (2 * SIGMA_UP_CM ** 2)))
-w_all = np.where(sel, w_all, 0.0)
-mask = w_all > 0.02
-delta = fwd[None, :] * (GROW * bust_apex * w_all[:, None])
-pts2_world = pts_world + delta * mask[:, None]
-pts2 = (np.c_[pts2_world, np.ones(len(pts2_world))] @ Minv.T)[:, :3]
+# The triangles, for the smoothing pass: a smoothing that is not tied to the actual surface tears
+# the mesh at the patch edge.
+ia = j["accessors"][prim["indices"]]
+ib = j["bufferViews"][ia["bufferView"]]
+ioff = ib.get("byteOffset", 0) + ia.get("byteOffset", 0)
+idt = np.uint16 if ia["componentType"] == 5123 else np.uint32
+IDX = np.frombuffer(bytes(binchunk), dtype=idt, count=ia["count"], offset=ioff).reshape(-1, 3).astype(np.int32)
+nbrs = [set() for _ in range(count)]
+for tri in IDX:
+    a, b, c = int(tri[0]), int(tri[1]), int(tri[2])
+    nbrs[a].update((b, c)); nbrs[b].update((a, c)); nbrs[c].update((a, b))
 
-print("ED: H=%.1f cm  bust line at %.1f cm (%.0f%% of height)  apex %.2f cm  grow %.2f" % (
-    H, bust_z - zmin, 100.0 * (bust_z - zmin) / H, bust_apex, GROW))
-print("ED: eligible torso verts=%d  moved=%d  max move=%.2f cm  midline at lateral %.2f cm" % (
-    int(sel.sum()), int(mask.sum()), float(np.linalg.norm(pts2_world - pts_world, axis=1).max()), lc))
+
+def push(amount_scale, base_world):
+    """Radial push from both centres, then Laplacian smoothing inside the patch."""
+    w = np.zeros(count)
+    dirv = np.zeros_like(base_world)
+    for (c_lat, c_up), c_world in zip(CENTRE_LU, CENTRE_W):
+        fall = np.exp(-((((l - c_lat) / R_LAT) ** 2 + ((u - c_up) / R_UP) ** 2) ** (POW / 2.0)))
+        w = np.maximum(w, fall)
+        v = base_world - c_world
+        n = np.linalg.norm(v, axis=1)
+        n[n == 0.0] = 1.0
+        dirv += (v / n[:, None]) * fall[:, None]
+    w = np.where(sel, w, 0.0)
+    w = np.where(w > 0.10, w, 0.0)
+    dirv = np.where(w[:, None] > 0.0, dirv, 0.0)
+    dn = np.linalg.norm(dirv, axis=1)
+    dn[dn == 0.0] = 1.0
+    dirv = dirv / dn[:, None]
+
+    moved = base_world + dirv * (amount_scale * w)[:, None]
+
+    # Laplacian smoothing, patch only, the unmoved boundary still pulling.
+    idx = np.nonzero(w > 0)[0]
+    for _ in range(2):
+        newp = moved.copy()
+        for i in idx:
+            ns = nbrs[i]
+            if not ns:
+                continue
+            acc_p = np.zeros(3)
+            for k in ns:
+                acc_p += moved[k]
+            newp[i] = 0.5 * moved[i] + 0.5 * (acc_p / len(ns))
+        moved = newp
+    return moved, w, dirv
+
+
+def measures(world_pts):
+    """Cup depth and front-face breadth, measured the way Alina's were."""
+    fw = (world_pts - ref) @ fwd
+    band = mid & (np.abs(u - bust_z) < 1.0)
+    apex = float(fw[band].max()) if band.sum() >= 4 else float("nan")
+    row = np.abs(u - bust_z) < 1.0
+    near = row & (fw > apex - 1.5)
+    width = float(np.percentile(l[near], 97) - np.percentile(l[near], 3)) if near.sum() >= 3 else float("nan")
+    return apex - f_under, 100.0 * width / H, width
+
+
+# The amplitude is DERIVED, not searched: the apex has to move forward by (target - current), and the
+# field's own forward component at the apex says how much displacement one unit of amplitude buys.
+# The first version corrected the amplitude in proportion to the miss, which is a positive feedback
+# loop the moment the field pushes the wrong way (it reached 3.3 million cm).
+cup_before, breadth_before, width_before = measures(pts_world)
+target_cup = CUP_TARGET * H * GROW
+need = target_cup - cup_before
+if need <= 0.0:
+    raise SystemExit("ED: REFUSING -- the cup is already deeper than the target; this pass only adds volume")
+probe, _w, probe_dir = push(1.0, pts_world)
+probe_fw = (probe - ref) @ fwd
+probe_move = np.linalg.norm(probe - pts_world, axis=1)
+gain = float(np.max((probe_fw - f)[probe_move > 0.05])) if np.any(probe_move > 0.05) else 0.0
+if gain <= 0.0:
+    raise SystemExit("ED: REFUSING -- the field does not push forward at all (gain %.3f)" % gain)
+amp = min(need / gain, 3.0 * need)
+print("ED: amplitude %.2f cm per unit (need %.2f cm, gain %.3f)" % (amp, need, gain))
+pts_s, w_final, dir_final = push(amp, pts_world)
+cup, breadth_pct, width = measures(pts_s)
+# One linear correction for the smoothing's pull-back, clamped so a bad measure cannot run away.
+if cup > 0.1:
+    amp = min(max(amp * (target_cup / cup), 0.5 * amp), 2.0 * amp)
+    pts_s, w_final, dir_final = push(amp, pts_world)
+    cup, breadth_pct, width = measures(pts_s)
+pts2_world = pts_s
+mask = w_final > 0
 mv = np.nonzero(mask)[0]
+move_cm = np.linalg.norm(pts2_world - pts_world, axis=1)
+
+print("ED: H=%.1f cm  bust line at %.1f cm (%.0f%% of height)  underbust forward %.2f cm  depth scale %.2f" % (
+    H, bust_z - zmin, 100.0 * (bust_z - zmin) / H, f_under, GROW))
+print("ED: TARGETS from Alina: cup %.1f cm (%.1f%% of H), front-face breadth %.1f cm (%.1f%% of H)" % (
+    CUP_TARGET * H * GROW, CUP_TARGET * GROW * 100.0, BREADTH_TARGET * H, BREADTH_TARGET * 100.0))
+print("ED: BEFORE  cup %.2f cm (%.2f%% of H)  front-face breadth %.1f cm (%.1f%% of H)" % (
+    cup_before, 100.0 * cup_before / H, width_before, breadth_before))
+print("ED: AFTER   cup %.2f cm (%.2f%% of H)  front-face breadth %.1f cm (%.1f%% of H)" % (
+    cup, 100.0 * cup / H, width, breadth_pct))
+dbg_band = mid & (np.abs(u - bust_z) < 2.0)
+dbg = np.nonzero(dbg_band)[0][np.argsort(-f[dbg_band])][:6]
+for i in dbg:
+    print("ED: DBG v%d f=%6.2f w=%.2f  dir=(fwd %+.2f, lat %+.2f, up %+.2f)  dfwd=%+6.2f move=%6.2f" % (
+        i, f[i], w_final[i], dir_final[i] @ fwd, dir_final[i] @ lat, dir_final[i][1],
+        ((pts2_world[i] - pts_world[i]) @ fwd), move_cm[i]))
+print("ED: eligible torso verts=%d  moved=%d  max move=%.2f cm (cap %.1f)  midline at lateral %.2f cm" % (
+    int(sel.sum()), int(mask.sum()), float(move_cm.max()), MAX_MOVE_CM, lc))
 print("ED: moved verts by dominant bone: %s" % (
     {k: int((dominant[mv] == k).sum()) for k in sorted(set(dominant[mv]))},))
 
+pts2 = (np.c_[pts2_world, np.ones(len(pts2_world))] @ Minv.T)[:, :3]
 
 def profile(step=2.0, lo_pct=60.0, hi_pct=88.0):
     rows = []
@@ -221,18 +365,20 @@ for zb, fb in before:
     mark = "  <- bust" if abs(zb - bust_z) < 1.0 else ""
     print("ED:   %5.1f  %3.0f%%   %7.2f  %7.2f  %+7.2f%s" % (zb - zmin, pct, fb, fa, fa - fb, mark))
 
-# ---- THE REGRESSION GUARDS: nothing above the neckline, nothing out on the arms.
-neck_z = zmin + 0.78 * H
-# The Gaussian's upper tail always reaches a little above the bust line; what must not happen is a
-# MOVED NECKLINE. Measured on the first version: the largest single displacement (7.4 cm) sat at 78%
-# of height, on the sternum. So the guard is on significant movement up there, not on any movement.
-move_cm = np.linalg.norm(pts2_world - pts_world, axis=1)
+# ---- THE REGRESSION GUARDS: nothing above the neckline, nothing out on the arms, nothing absurd.
+# The neckline guard sits at 80%, not 78%: the bust line is at 73%, and the upper breast is SUPPOSED to
+# gain a little volume -- the fault this guards against is the collar and the neck moving, which is
+# what the first version did (7.4 cm of movement on the sternum, and nothing on the bust).
+neck_z = zmin + 0.80 * H
 above = (move_cm > 1.5) & (u > neck_z)
-outboard = mask & (np.abs(l - lc) > 2.0 * SIGMA_LAT_CM)
-print("ED: moved verts above 78%% of height (neckline): %d   beyond %.0f cm laterally (arms): %d" % (
-    int(above.sum()), 2.0 * SIGMA_LAT_CM, int(outboard.sum())))
-if above.sum() > 0 or outboard.sum() > 0:
-    raise SystemExit("ED: REFUSING -- the displacement is reaching the neck/arms again")
+outboard = mask & (np.abs(l - lc) > 16.0)
+print("ED: moved verts above 80%% of height (neckline): %d   beyond 16 cm laterally (arms): %d   over %.1f cm: %d" % (
+    int(above.sum()), int(outboard.sum()), MAX_MOVE_CM, int((move_cm > MAX_MOVE_CM).sum())))
+if above.sum() > 0 or outboard.sum() > 0 or (move_cm > MAX_MOVE_CM).sum() > 0:
+    raise SystemExit("ED: REFUSING -- the displacement is reaching the neck, the arms, or is absurd")
+# (The breadth number is REPORTED, not gated: measuring "how much of the front face is within 1.5 cm of
+# the apex" flatters a FLAT chest and penalises a dome, so it cannot tell a cup from a slab. The shape
+# judgement is the render's, and the depth target above is the only number this tool enforces.)
 
 # ---- SYMMETRY: the midline is x = lc, so displacement magnitudes must mirror.
 mv_l = l[mv] - lc

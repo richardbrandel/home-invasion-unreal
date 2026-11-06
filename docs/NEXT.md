@@ -357,6 +357,55 @@ Source assets refreshed to match: `SourceAssets/models/woman01_edited.glb` (raw 
 - The screenshots that go with this: `shots/dancerdrive_01.png` (her on the driveway, in the game),
   `shots/chestab5_02.png`. `shots/` is gitignored.
 
+## The chest, third shape: a cup instead of a cone (2026-11-05)
+
+*"The Dancers boobs look like 2 tents. I would like a fuller cup, like a DD size cup. Alina has nice
+boobs."* Right on both counts, and the measurement says why: a bra size is not a number this file can
+compute, but Alina's own mesh can supply the targets. Measured off `SourceAssets/characters/alina/idle.glb`
+with the same code that measures hers: at the bust line her **cup is 7.2% of her height** and the
+front face at the apex is **15.2% of her height wide**. The Dancer's tent was *deeper* than Alina's
+(8.5%) and **half as broad** (7.2%): deep and narrow is what a cone looks like. The job was breadth at
+a slightly shallower depth, not more amplitude.
+
+**What changed in `tools/edit-glb-chest.py`** -- the displacement, not the pipeline:
+
+* **Two centres, one per breast**, 5 cm either side of the midline and 2 cm below the bust line, at the
+  **mid-depth of the ribcage** (measured: back -6.62, underbust surface +10.36, so the centres sit at
+  +1.87). The first attempt put them just inside the underbust *surface*, which is nearly where the
+  bust surface already is: every direction then pointed sideways, the patch flattened instead of
+  rounding, and the amplitude solver ran away to 3.3 million cm.
+* **A radial push from each centre** instead of one axis, so a vertex at the apex moves forward and
+  one at the edge moves sideways -- inflation rather than a poke.
+* **A super-Gaussian falloff** (`exp(-q^2.5)`, radii 10.5 cm across and 7.5 cm up) so the top is a
+  plateau with a soft edge rather than a peak.
+* **Two Laplacian smoothing passes** over the moved patch, using the mesh's actual triangles, so the
+  underbust crease and the inter-breast fold blend instead of creasing.
+* The amplitude is DERIVED: the field's own forward component at the apex says how much displacement
+  one unit buys, so the solver lands the cup depth on the target in one step (the first version
+  corrected in proportion to the miss, which is positive feedback the moment the field pushes the
+  wrong way).
+* The neckline guard moved from 78% to **80% of height**: the bust line is at 73% and the upper
+  breast is *supposed* to gain a little. What must not move is the collar, which is what the first
+  version did.
+
+**Shipped depth: `grow` 0.55** -- cup **0.98 -> 6.19 cm**, front face **16.3 -> 14.7 cm** (a dome
+scores *narrower* than a slab on that measure, which is why it is reported and not gated). Rendered at
+0.55 / 0.75 / 1.0 against Alina and the previous asset: **0.55** is fuller and rounded without the
+shelf that 1.0 gives. `shots/chest-cup-compare.png` is that sheet: Alina, the old tent, then the three
+depths, front and profile, one camera derived from the mesh (`tools/render-chest.py`).
+
+Through the pipeline unchanged: import, pair into the flat layout, `create_physics_asset`, retarget
+(21/21 chains, 10/10 clips, rig scale baked), suite **52/52**, `dancer bind: OK (longest segment 42 cm
+= 26% of 161 cm)`, facing **119.7 deg**, `hips->head` **39.3 cm**, `Hips mean 98 cm standing / 48 cm
+crouching`. In game: `shots/cup-ingame.png`.
+
+**Rollback points, deliberately kept:** git tag **`dancer-chest-good-2026-11-05`** (commit 14a8a80) and
+a tarball of the exact assets, `Saved/snapshots/dancer-chest-good-2026-11-05.tgz` -- her mesh,
+skeleton, physics asset, all ten clips and both source glbs. Restore with
+`git checkout dancer-chest-good-2026-11-05 -- Content/HIImported/characters_dancer` or untar the
+snapshot over the folder. **One word moves the size:** `tools/edit-glb-chest.py <src> <dst> 0.75`
+(or 1.0) and re-run the pipeline -- the shape stays, the cup deepens.
+
 ## Her hands turned into long swords (2026-11-05)
 
 Richard: *"the dancer when she walks, sometimes her hands turn into what looks like long swords.
