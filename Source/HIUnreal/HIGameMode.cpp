@@ -104,7 +104,21 @@ void AHIGameMode::HandleCommandLine()
 	// `-HITranqDemo=N`: dart the first N intruders a second into the round, so the basement
 	// hanging can be CAPTURED. Manual capture runs drive no input, so without this there is no
 	// way to photograph the one thing the tranquillizer produces.
-	FParse::Value(Cmd, TEXT("HITranqDemo="), TranqDemo);
+	{
+		// `-HITranqDemo=N` or `-HITranqDemo=N@seconds`, so a capture can dart them when they are
+		// actually carrying something rather than a second in.
+		FString DemoArg;
+		if (FParse::Value(Cmd, TEXT("HITranqDemo="), DemoArg))
+		{
+			FString CountPart = DemoArg;
+			FString TimePart;
+			if (DemoArg.Split(TEXT("@"), &CountPart, &TimePart))
+			{
+				TranqDemoAt = FCString::Atof(*TimePart);
+			}
+			TranqDemo = FCString::Atoi(*CountPart);
+		}
+	}
 	if (FParse::Value(Cmd, TEXT("HIThieves="), Thieves) && Thieves > 0)
 	{
 		IntruderCount = Thieves;
@@ -2041,7 +2055,7 @@ void AHIGameMode::Tick(float DeltaSeconds)
 	RoundSeconds += StepsThisFrame * SimFixedDt;
 
 	// The capture-only demonstration of the tranquillizer (see the flag's comment).
-	if (TranqDemo > 0 && !bTranqDemoDone && RoundSeconds >= 1.0f)
+	if (TranqDemo > 0 && !bTranqDemoDone && RoundSeconds >= TranqDemoAt)
 	{
 		bTranqDemoDone = true;
 		for (int32 i = 0; i < TranqDemo && i < Round.Intruders.Num(); ++i)

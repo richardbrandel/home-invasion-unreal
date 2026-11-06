@@ -858,11 +858,26 @@ void FHISim::FHIRound::ApplyRoundRules()
 		{
 			++Downs;
 		}
-		if (Ev.Type == TEXT("allStolen") || Ev.Type == TEXT("escaped")
-			|| Ev.Type == TEXT("playerDown"))
+		// A CHAINED MAN KEEPS THE ROUND OPEN (Richard, 2026-11-05): "the game shouldn't end if there
+		// is an intruder in the basement chained up." The loot going out the door used to end it on
+		// the spot, which is how a player who had darted all three never got to walk down and look at
+		// them. So `allStolen` is recorded as a CONSEQUENCE and the round runs on while anybody is
+		// still alive -- including men hanging in the basement. It stays a loss the moment nobody is
+		// left alive to be caught: see the deferred check in `DamageIntruder`'s win test.
+		if (Ev.Type == TEXT("allStolen"))
 		{
-			// Three different ways to lose, and the text has to say which one happened,
-			// but the round state is the same for all of them.
+			bAllLootDelivered = true;
+			if (!AnyIntruderStanding())
+			{
+				State = EHIRoundState::Lost;
+			}
+			continue;
+		}
+		if (Ev.Type == TEXT("escaped") || Ev.Type == TEXT("playerDown"))
+		{
+			// An intruder who got out, or the homeowner down: those still end it there. A man who got
+			// away cannot be caught in the basement, and the player's own death is the player's own
+			// death.
 			State = EHIRoundState::Lost;
 		}
 	}
@@ -909,7 +924,9 @@ bool FHISim::FHIRound::DamageIntruder(int32 Id, float Damage)
 	// you a win with two still inside the house.
 	if (!AnyIntruderStanding())
 	{
-		State = EHIRoundState::Won;
+		// ... but not a win if the loot is already gone: killing the last man after everything was
+		// carried out is a loss with a body count, which is what the deferred `allStolen` above means.
+		State = bAllLootDelivered ? EHIRoundState::Lost : EHIRoundState::Won;
 	}
 	return true;
 }
@@ -3417,6 +3434,14 @@ bool FHISim::StepThief(FHIThief& Thief, FHIPlayer& Player, TArray<FHILootItem>& 
 	TArray<FHIEvent>& Events, float Dt, bool bSeparate)
 {
 	if (!Thief.bAlive)
+	{
+		return false;
+	}
+	// A CHAINED MAN DOES NOT ACT. He is alive, so `bAlive` alone let him keep walking: a man darted
+	// on the drop point went on to DELIVER his loot from the basement (Richard, 2026-11-05: "if they
+	// get tranquilized while carrying loot, it is counted that they got away with the loot" -- which
+	// is exactly what the test in HI.Sim.Round reproduced). Captured is inert, here and everywhere.
+	if (Thief.bCaptured)
 	{
 		return false;
 	}

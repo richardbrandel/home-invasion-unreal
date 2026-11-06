@@ -2069,6 +2069,43 @@ bool FHISimRound::RunTest(const FString& Parameters)
 			T.ThievesDown, T.ThievesCaptured),
 			T.State == FHISim::EHIRoundState::Won && T.ThievesDown == 2);
 
+		// DARTING A CARRIER MUST NOT COUNT AS A DELIVERY (Richard, 2026-11-05: "if they get
+		// tranquilized while carrying loot, it is counted that they got away with the loot"). He is
+		// darted standing ON the drop point, i.e. the frame before the loot would have gone.
+		{
+			FHISim::FHIRound D2 = FHISim::FHIRound::Start(1);
+			D2.Intruders[0].Carry = TEXT("TV");
+			D2.Intruders[0].Mode = TEXT("carry");
+			D2.Intruders[0].Pos = FHISim::Drop;
+			D2.Loot[0].bTaken = true;
+			D2.Loot[0].bKnown = true;
+			D2.Tranquilise(D2.Intruders[0].Id);
+			FHISim::FHIInput Idle;
+			for (int32 Step = 0; Step < 120; ++Step)
+			{
+				D2.Step(Idle, 1.0f / 60.0f);
+			}
+			TestTrue(FString::Printf(TEXT("the darted carrier's loot is still in the house (delivered=%d, remaining=%d)"),
+				D2.Loot[0].bDelivered ? 1 : 0, D2.Remaining()),
+				!D2.Loot[0].bDelivered && D2.Remaining() == 3);
+			TestTrue(TEXT("and the round is still running with him hanging"),
+				D2.State == FHISim::EHIRoundState::Play);
+		}
+
+		// ALL THE LOOT GONE DOES NOT END THE ROUND WHILE A MAN IS STILL ALIVE TO BE DEALT WITH.
+		{
+			FHISim::FHIRound G = FHISim::FHIRound::Start(2);
+			G.bAllLootDelivered = true;
+			G.Tranquilise(G.Intruders[0].Id);
+			G.Tranquilise(G.Intruders[1].Id);
+			TestTrue(TEXT("loot gone + everyone chained: still playing"),
+				G.State == FHISim::EHIRoundState::Play);
+			G.DamageIntruder(G.Intruders[0].Id, 1000.0f);
+			G.DamageIntruder(G.Intruders[1].Id, 1000.0f);
+			TestTrue(TEXT("killing the last chained man with the loot gone is a LOSS, not a win"),
+				G.State == FHISim::EHIRoundState::Lost);
+		}
+
 		// A captured man drops what he was carrying, for the same reason a dead one does.
 		FHISim::FHIRound C = FHISim::FHIRound::Start(1);
 		C.Intruders[0].Carry = TEXT("TV");

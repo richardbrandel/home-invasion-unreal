@@ -415,6 +415,28 @@ tick, and the clip renders.
 3. The chain anchors were stored once, in the captive's frame, which drew them converging on a point in
    the middle of the room; they are recomputed from each wrist every frame now.
 
+**Two more from play, same day.** *"I tranquilized all 3, but the message said that they got away with the
+loot and the game ended... One of the problems is if they get tranquilized while carrying loot, it is
+counted that they got away with the loot."*
+
+The cause was a missing guard, not a bookkeeping slip: **`StepThief` only refused the dead**
+(`if (!Thief.bAlive) return false`), so a man darted on the drop point went on walking to the van and
+DELIVERING from the basement. `HI.Sim.Round` reproduces it exactly -- the new test darts a carrier
+standing on the drop point and asserts his loot stays in the house -- and the fix is the second line of
+that function: `if (Thief.bCaptured) return false`. (The earlier "AI skips captured" edit had landed on
+a different loop, the perception one, which is why captures looked inert in playtests that never had a
+carrier.)
+
+And the loss itself is now deferred: **`allStolen` no longer ends the round while anybody is alive.**
+It sets `bAllLootDelivered` and the round runs on, which is what lets the player walk down and look at
+the men they took; when the last of them is killed the round resolves to **Lost** if the loot was gone
+(a win with an empty house is not a win) and **Won** if it was not. An intruder who ESCAPES and the
+player going down still end it on the spot -- neither can be caught in the basement.
+
+`-HITranqDemo=N@seconds` darts the first N that far into the round, which is how the carrier case is
+photographed: `shots/tranqrules_02.png` shows **LOOT STOLEN 0/3**, **INTRUDERS DOWN 0/3**,
+**CHAINED 3** and the round still running with all three hanging.
+
 **The round no longer ends on a capture.** Richard: *"once you tranquilize all 3 intruders, the game
 ends. The game shouldn't end if there is an intruder in the basement chained up. The game will end when
 all chained up intruders are killed."* `AnyIntruderStanding` reads `bAlive` again -- a chained man is

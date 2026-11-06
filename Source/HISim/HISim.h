@@ -834,6 +834,10 @@ struct HISIM_API FHISim
 		 *  a chained man is still alive, so the round is not over while he is. */
 		int32 ThievesCaptured = 0;
 
+		/** Every valuable went out the door. It does NOT end the round on its own any more -- see
+		 *  the note in ConsumeEvents -- because a chained man is still alive to be dealt with. */
+		bool bAllLootDelivered = false;
+
 		bool DamageIntruder(int32 Id, float Damage);
 
 		/** Hand back this frame's events and start a fresh list. Call once per frame. */
