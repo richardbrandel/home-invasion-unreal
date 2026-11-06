@@ -392,6 +392,29 @@ Implementation notes that matter later:
 * `-HITranqDemo=N` darts the first N intruders a second into the round. It exists because a manual
   capture drives no input, so without it there is no way to photograph the basement.
 
+**Later the same day (2026-11-05), from play:** *"the restraint, they should be hanging by their wrists
+meaning that their wrists are above their heads"* and *"when I shoot the dart gun, nothing is fired."*
+
+The firing bug is fixed: `CreatePlayer` banked pistol and shotgun magazines in `mags` but not the
+tranquilizer's, and `SwitchWeapon` takes `Mag` from `mags[key]` -- so the dart came up 0 and the gun
+could not fire at all. One dart is banked now, and `HI.Sim.Round` asserts it.
+
+**The wrists-over-head pose is authored and NOT working.** `HIAnimTool::MakeHangClip` writes a one-key
+clip per character from that mesh's own reference pose (both arms swung to overhead, thighs forward,
+knees bent, elbows softened), the clip is a duplicate of the character's own `idle_Anim` so it is bound
+to the right skeleton, and it is loaded and played by the hang. Verified at runtime: the clip's
+`LeftArm` key IS the raised rotation (`q=(0.022,-0.019,-0.865,0.502)`) and the hand sockets report the
+arm overhead. **The rendered mesh stays in the reference pose.** Ruled out, one at a time: the clip's
+contents, the load path (no fallback warning), the actor's tick (enabled and its tick functions
+registered after spawn), driving the pose by hand (`TickPose` + `TickAnimation` + `RefreshBoneTransforms`),
+`SetAnimationMode(AnimationSingleNode)` ordering, and the component's own rotation.
+
+The suspicion worth following: this actor is stepped by the game mode and never ticks, and the player's
+pawn -- which renders its clips correctly -- does tick. The clean next step is a **dedicated captive
+actor** with a normal tick and its own skeletal mesh (built like the pawn's), instead of reusing the
+intruder body and hand-feeding its animation. That is a small class, and it removes the whole class of
+"the data is right, the renderer disagrees" from this feature.
+
 **Known compromise:** a *limp* hang with the arms overhead would look better, and cannot be done by
 posing the reference skeleton -- it wants an authored `hang` AnimSequence (one key: ref pose with both
 arms rotated up), which the asset pipeline can make. That is the next step if the pose matters; the
