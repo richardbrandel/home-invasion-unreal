@@ -773,8 +773,10 @@ bool FHISim::FHIRound::AnyIntruderStanding() const
 {
 	for (const FHIThief& T : Intruders)
 	{
-		// Captured men do not stand. They are the non-lethal route to the same outcome.
-		if (T.bAlive && !T.bCaptured)
+		// A CHAINED MAN IS STILL ALIVE, so he still stands: the round is not over while somebody is
+		// hanging in the basement to be finished (Richard, 2026-11-05: "the game will end when all
+		// chained up intruders are killed"). Capturing is a step, not an outcome.
+		if (T.bAlive)
 		{
 			return true;
 		}
@@ -936,13 +938,10 @@ bool FHISim::FHIRound::Tranquilise(int32 Id)
 		}
 		Who->Carry.Empty();
 	}
-	// Counted as down: the HUD's "intruders down" is "no longer a threat", and the round is won
-	// the same way. The difference is that he is still alive in the basement.
-	++ThievesDown;
-	if (!AnyIntruderStanding())
-	{
-		State = EHIRoundState::Won;
-	}
+	// COUNTED SEPARATELY, and the round keeps going. `ThievesDown` means dead -- the HUD's
+	// "intruders down" and the win condition both read it -- while a chained man is alive, out of the
+	// fight, and waiting to be finished in the basement. Capturing all three does NOT win.
+	++ThievesCaptured;
 	return true;
 }
 

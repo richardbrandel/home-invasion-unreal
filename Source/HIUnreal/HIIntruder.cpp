@@ -15,6 +15,7 @@
 #include "Animation/AnimSingleNodeInstance.h"
 #include "TimerManager.h"
 #include "HICharAnim.h"
+#include "HICaptive.h"
 #include "HIMaterials.h"
 #include "HIPlayerCharacter.h"
 #include "HIUnits.h"
@@ -540,6 +541,30 @@ void AHIIntruder::HangInBasement()
 		CuffInstances->SetWorldLocation(FVector::ZeroVector);
 		FHIMaterials::Tint(CuffInstances, FLinearColor(0.34f, 0.35f, 0.38f));
 	}
+	// HAND HIM OVER TO THE CAPTIVE ACTOR, which is the whole reason it exists: this actor never ticks,
+	// so its mesh cannot render an animation (measured -- the hang clip's keys were right and the
+	// drawn body stayed in the reference pose). The captive has an ordinary tick and builds the same
+	// mesh, so the character looks identical and the pose finally renders.
+	const FVector Cell = HangStation(ThiefId) * HI_METERS_TO_UU;
+	if (UWorld* World = GetWorld())
+	{
+		FActorSpawnParameters Params;
+		Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+		if (AHICaptive* Chained = World->SpawnActor<AHICaptive>(
+			AHICaptive::StaticClass(), FTransform::Identity, Params))
+		{
+			Chained->Hang(ThiefId, CastTag, Cell);
+		}
+		else
+		{
+			UE_LOG(LogTemp, Warning, TEXT("HI: could not spawn the captive for %s"), *CastTag);
+		}
+	}
+	// The fallen body is retired: one man, one body. Collision and the tick go with it so a pellet
+	// cannot hit a ghost and nothing keeps evaluating a mesh nobody can see.
+	SetActorHiddenInGame(true);
+	SetActorEnableCollision(false);
+	SetActorTickEnabled(false);
 	UE_LOG(LogTemp, Display, TEXT("HI: %s taken alive -- hanging in the basement at (%.2f, %.2f)"),
 		*CastTag, HangStation(ThiefId).X, HangStation(ThiefId).Y);
 }

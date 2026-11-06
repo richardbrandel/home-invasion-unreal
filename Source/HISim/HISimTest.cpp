@@ -2048,21 +2048,26 @@ bool FHISimRound::RunTest(const FString& Parameters)
 		const int32 Id = T.Intruders[0].Id;
 		TestTrue(TEXT("a dart captures him"), T.Tranquilise(Id));
 		TestTrue(TEXT("and he is ALIVE -- captured is not killed"), T.Intruders[0].bAlive);
-		// In a one-man round the captured man IS the whole squad, which is the only place
-		// `AnyIntruderStanding` can be read off a single capture.
-		{
-			FHISim::FHIRound One = FHISim::FHIRound::Start(1);
-			One.Tranquilise(One.Intruders[0].Id);
-			TestTrue(TEXT("a captured man does not count as standing"),
-				!One.AnyIntruderStanding() && One.State == FHISim::EHIRoundState::Won);
-		}
-		TestTrue(FString::Printf(TEXT("and he counts as down (%d)"), T.ThievesDown), T.ThievesDown == 1);
-		TestTrue(TEXT("one captured man does not win a round with two intruders"),
-			T.State == FHISim::EHIRoundState::Play);
+		TestTrue(FString::Printf(TEXT("he is counted as captured (%d), not as down (%d)"),
+			T.ThievesCaptured, T.ThievesDown), T.ThievesCaptured == 1 && T.ThievesDown == 0);
+		TestTrue(TEXT("he still counts as standing, so the round is not won"),
+			T.AnyIntruderStanding() && T.State == FHISim::EHIRoundState::Play);
 		TestTrue(TEXT("darting him again does nothing"), !T.Tranquilise(Id));
+
+		// CAPTURING EVERYBODY DOES NOT END THE ROUND (Richard, 2026-11-05: "the game shouldn't end
+		// if there is an intruder in the basement chained up. The game will end when all chained up
+		// intruders are killed.").
 		T.Tranquilise(T.Intruders[1].Id);
-		TestTrue(TEXT("capturing every intruder wins the round without a death"),
-			T.State == FHISim::EHIRoundState::Won);
+		TestTrue(FString::Printf(TEXT("all captured: %d chained, still playing"), T.ThievesCaptured),
+			T.ThievesCaptured == 2 && T.ThievesDown == 0 && T.State == FHISim::EHIRoundState::Play);
+
+		// ... and killing the chained men DOES end it.
+		TestTrue(TEXT("the first chained man can be killed"), T.DamageIntruder(T.Intruders[0].Id, 1000.0f));
+		TestTrue(TEXT("and the round is still going with one chained"), T.State == FHISim::EHIRoundState::Play);
+		T.DamageIntruder(T.Intruders[1].Id, 1000.0f);
+		TestTrue(FString::Printf(TEXT("killing the last one wins (%d down, %d captured)"),
+			T.ThievesDown, T.ThievesCaptured),
+			T.State == FHISim::EHIRoundState::Won && T.ThievesDown == 2);
 
 		// A captured man drops what he was carrying, for the same reason a dead one does.
 		FHISim::FHIRound C = FHISim::FHIRound::Start(1);

@@ -19,6 +19,7 @@
 #include "HIHouse.h"
 #include "HIHUD.h"
 #include "HIIntruder.h"
+#include "HICaptive.h"
 #include "HILootProp.h"
 #include "HIMarks.h"
 #include "HIMaterials.h"
@@ -1403,7 +1404,17 @@ void AHIGameMode::ResolvePlayerShot(const FHISim::FHIEvent& Shot)
 
 		if (bHit)
 		{
-			if (AHIIntruder* HitIntruder = Cast<AHIIntruder>(Hit.GetActor()))
+			if (AHICaptive* HitCaptive = Cast<AHICaptive>(Hit.GetActor()))
+			{
+				// KILLING THE CHAINED (2026-11-05). A captured man is still alive, so the round is not
+				// over while he hangs -- Richard: "the game will end when all chained up intruders are
+				// killed". Damage goes through the same sim path; a lethal hit lets the body go.
+				if (Round.DamageIntruder(HitCaptive->ThiefId, Shot.Damage))
+				{
+					HitCaptive->GoLimp();
+				}
+			}
+			else if (AHIIntruder* HitIntruder = Cast<AHIIntruder>(Hit.GetActor()))
 			{
 				if (bTranq)
 				{

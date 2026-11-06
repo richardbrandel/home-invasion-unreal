@@ -99,6 +99,14 @@ TArray<FString> AHIHUD::RoundLines(const FHISim::FHIRound& Round)
 	Lines.Add(FString::Printf(TEXT("INTRUDERS DOWN  %d / %d"),
 		Round.ThievesDown, Round.Intruders.Num()));
 
+	// CHAINED: men taken alive and hanging in the basement. They are NOT counted as down -- they are
+	// still alive, so the round is not over until they are killed -- and a line is what tells the
+	// player why three darts did not win the game.
+	if (Round.ThievesCaptured > 0)
+	{
+		Lines.Add(FString::Printf(TEXT("CHAINED  %d"), Round.ThievesCaptured));
+	}
+
 	// The stance, which is worth a line because crouching now genuinely changes the view --
 	// see AHIPlayerCharacter::EyePivot. Before that fix this would have read STANDING
 	// forever, and a readout that never changes is worse than none. DOWN heads the list for

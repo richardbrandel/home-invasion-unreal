@@ -830,6 +830,10 @@ struct HISIM_API FHISim
 		 */
 		bool Tranquilise(int32 Id);
 
+		/** How many have been taken alive and are hanging in the basement. Not part of `down`:
+		 *  a chained man is still alive, so the round is not over while he is. */
+		int32 ThievesCaptured = 0;
+
 		bool DamageIntruder(int32 Id, float Damage);
 
 		/** Hand back this frame's events and start a fresh list. Call once per frame. */

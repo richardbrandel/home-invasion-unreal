@@ -527,11 +527,18 @@ FString UHIAnimTool::MakeHangClip(USkeletalMesh* Mesh, const FString& PackagePat
 	// The reference pose, and the component-space rotation of every bone in it.
 	TArray<FTransform> Local = Ref.GetRefBonePose();
 	TArray<FQuat> CompRot;
+	TArray<FVector> CompPos;
 	CompRot.SetNum(Num);
+	CompPos.SetNum(Num);
 	for (int32 i = 0; i < Num; ++i)
 	{
 		const int32 Parent = Ref.GetParentIndex(i);
 		CompRot[i] = Local[i].GetRotation() * ((Parent != INDEX_NONE) ? CompRot[Parent] : FQuat::Identity);
+		// Component position: the parent's position, plus the local translation rotated into the
+		// parent's frame.
+		CompPos[i] = (Parent != INDEX_NONE)
+			? CompPos[Parent] + CompRot[Parent].RotateVector(Local[i].GetTranslation())
+			: Local[i].GetTranslation();
 	}
 
 	int32 Raised = 0;
@@ -543,10 +550,27 @@ FString UHIAnimTool::MakeHangClip(USkeletalMesh* Mesh, const FString& PackagePat
 		{
 			continue;
 		}
-		// Where the bone points now, and where it must point: up, leaning a little forward so a
-		// hanging body is not a plumb line.
-		const FVector Now = CompRot[Arm].GetAxisX();
-		const FVector Want = (FVector::UpVector + FVector::ForwardVector * 0.18f).GetSafeNormal();
+		// WHERE THE BONE POINTS NOW, AND WHERE IT MUST POINT: up, leaning slightly forward so a
+		// hanging body is not a plumb line. The swing is the shortest arc from one to the other,
+		// which is exactly right and needs no per-side sign -- the two arms point opposite ways and
+		// the cross product handles that for free.
+		//
+		// NOTE for anyone reading the history: an earlier version of this line was judged "wrong"
+		// against a capture where the pose was not rendering at all (the intruder body could never
+		// draw an animation), so it was replaced with a fixed rotation about the forward axis and
+		// signed per side. That replacement is what put Alina's left arm up and left the other three
+		// arms out. This is the original, now seen rendered.
+		// THE BONE'S DIRECTION IS NOT ITS +X AXIS. `GetAxisX()` on a Mixamo arm reports a lateral
+		// axis, so swinging "X to up" rolled the arm instead of lifting it -- two attempts died on
+		// that. The direction that cannot lie is the one between the bone and its child.
+		const int32 Child = Ref.FindBoneIndex(Arm == Ref.FindBoneIndex(TEXT("LeftArm"))
+			? TEXT("LeftForeArm") : TEXT("RightForeArm"));
+		FVector Now = CompRot[Arm].GetAxisX();
+		if (Child != INDEX_NONE)
+		{
+			Now = (CompPos[Child] - CompPos[Arm]).GetSafeNormal();
+		}
+		const FVector Want = (FVector::UpVector + FVector::ForwardVector * 0.16f).GetSafeNormal();
 		const FQuat Swing = FQuat::FindBetweenNormals(Now, Want);
 		const FQuat CompNew = Swing * CompRot[Arm];
 		Local[Arm].SetRotation(CompRot[Parent].Inverse() * CompNew);

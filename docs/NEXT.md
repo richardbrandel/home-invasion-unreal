@@ -392,6 +392,37 @@ Implementation notes that matter later:
 * `-HITranqDemo=N` darts the first N intruders a second into the round. It exists because a manual
   capture drives no input, so without it there is no way to photograph the basement.
 
+**RESOLVED (2026-11-05), and the fix was structural.** Richard: *"I am happy with the 3 intruders and
+how they look, so if you can use the dedicated captive actor, without losing the characters appearance,
+do it."* So there is now **`AHICaptive`**: its own actor, an ordinary tick, and the same body —
+`SetSkeletalMeshAsset` + `FHICharAnim::SetupCharacter`, word for word what the intruder does, so the
+mesh, materials, face and the brute's hidden axe are identical. The fallen intruder hands off to it on
+the third second, then hides itself for good.
+
+Why that worked when nothing else did: the intruder is an actor the game mode *steps* and never ticks,
+so its skeletal mesh never evaluates an animation into the render state. `TickPose`/`TickAnimation`
+by hand updated the sockets and nothing else. A captive has nothing to do but hang, so it gets the
+tick, and the clip renders.
+
+**The pose itself took three wrong answers, all of them now written down:**
+1. *Arm bones' local rotation is not their direction.* `CompRot[Arm].GetAxisX()` reports a lateral axis
+   on a Mixamo arm, so "swing X to up" rolls the arm instead of lifting it. The direction that cannot
+   lie is between the bone and its child (`LeftArm` -> `LeftForeArm`), and with that the swing
+   (`FindBetweenNormals(dir, up)`) raises both arms first time.
+2. Two intermediate attempts were signed rotations about the forward axis -- one raised Alina's left
+   arm and left the other three arms out, which is what made "the pose is wrong" look true when the
+   formula was not the problem.
+3. The chain anchors were stored once, in the captive's frame, which drew them converging on a point in
+   the middle of the room; they are recomputed from each wrist every frame now.
+
+**The round no longer ends on a capture.** Richard: *"once you tranquilize all 3 intruders, the game
+ends. The game shouldn't end if there is an intruder in the basement chained up. The game will end when
+all chained up intruders are killed."* `AnyIntruderStanding` reads `bAlive` again -- a chained man is
+alive, so the round goes on -- and capturing is counted separately as `ThievesCaptured`, shown on the
+HUD as **CHAINED n**. `DamageIntruder` still works on a captive: the same sim path, and a lethal hit
+cuts the chains and drops the body to the slab (`AHICaptive::GoLimp`). `HI.Sim.Round` asserts the whole
+sequence: capture one -> not standing -> capture all three -> **still playing** -> kill them -> won.
+
 **Later the same day (2026-11-05), from play:** *"the restraint, they should be hanging by their wrists
 meaning that their wrists are above their heads"* and *"when I shoot the dart gun, nothing is fired."*
 
