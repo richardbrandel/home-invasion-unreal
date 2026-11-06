@@ -491,20 +491,20 @@ namespace
 FString UHIAnimTool::MakeHangClip(USkeletalMesh* Mesh, const FString& PackagePath)
 {
 #if WITH_EDITOR
-	// A POSE FOR A MAN HANGING BY HIS WRISTS (2026-11-05). Richard: "the restraint, they should be
-	// hanging by their wrists meaning that their wrists are above their heads." The cast's ten clips
-	// are walking and shooting; none of them raise both arms, and a skeletal mesh cannot be posed
-	// bone-by-bone at runtime -- `SetBoneTransformByName` belongs to UPoseableMeshComponent, and the
-	// intruder actor does not tick, so an animation only evaluates when this code drives it.
+	// A POSE FOR A MAN HANGING BY HIS WRISTS, WITH A LITTLE LIFE IN IT (2026-11-05). Richard: "they
+	// should be hanging by their wrists meaning that their wrists are above their heads", and later
+	// "can we put some life into her? A little bit of wiggling to know she is alive".
 	//
-	// So the pose becomes an ASSET: one key, taken from the mesh's own reference pose with the arm
-	// bones rotated so they point up. Rotating the arms is a rotation in COMPONENT space -- swing the
-	// bone's +X from where the bind has it to up -- converted back to a local rotation against the
-	// parent's component rotation, which is the only thing that makes it valid for THIS rig rather
-	// than for a rig of the same shape.
+	// The cast's ten clips are walking and shooting; none of them raise both arms, and a skeletal mesh
+	// cannot be posed bone-by-bone at runtime on a normal component. So the pose is an ASSET: a short
+	// looping clip taken from the mesh's own reference pose.
 	//
-	// The clip is expected to be a duplicate of one of the character's own clips, so it is already
-	// bound to the right skeleton; this writes the keys and saves.
+	// THREE THINGS THAT WERE WRONG FIRST AND ARE NOW MEASURED, not guessed:
+	//   * up is the RIG'S up (hips -> head), not the world's. The brute hung at 40 degrees because
+	//     his FBX import carries its own rest orientation and world-up swings the whole body.
+	//   * an arm bone's direction is NOT its +X axis (`GetAxisX` reports a lateral axis on a Mixamo
+	//     arm, so "X to up" rolls the arm). The direction that cannot lie is bone -> child.
+	//   * a body that never moves is a prop, so the clip is 48 keys of unhurried sway.
 	UAnimSequence* Seq = LoadObject<UAnimSequence>(nullptr, *PackagePath);
 	if (Seq == nullptr || Mesh == nullptr)
 	{
@@ -512,20 +512,20 @@ FString UHIAnimTool::MakeHangClip(USkeletalMesh* Mesh, const FString& PackagePat
 	}
 	const FReferenceSkeleton& Ref = Mesh->GetRefSkeleton();
 	const int32 Num = Ref.GetNum();
-	if (Num == 0)
-	{
-		return FString::Printf(TEXT("%s: empty skeleton"), *PackagePath);
-	}
 	IAnimationDataModel* Model = Seq->GetDataModel();
-	TScriptInterface<IAnimationDataController> ControllerSI = (Model != nullptr) ? Model->GetController() : TScriptInterface<IAnimationDataController>();
-	IAnimationDataController* Controller = ControllerSI.GetInterface();
-	if (Model == nullptr || Controller == nullptr)
+	if (Num == 0 || Model == nullptr)
 	{
-		return FString::Printf(TEXT("%s: no data model/controller"), *PackagePath);
+		return FString::Printf(TEXT("%s: empty skeleton or no data model"), *PackagePath);
+	}
+	TScriptInterface<IAnimationDataController> ControllerSI = Model->GetController();
+	IAnimationDataController* Controller = ControllerSI.GetInterface();
+	if (Controller == nullptr)
+	{
+		return FString::Printf(TEXT("%s: no controller"), *PackagePath);
 	}
 
-	// The reference pose, and the component-space rotation of every bone in it.
-	TArray<FTransform> Local = Ref.GetRefBonePose();
+	// The reference pose, and the component-space transform of every bone in it.
+	TArray<FTransform> Base = Ref.GetRefBonePose();
 	TArray<FQuat> CompRot;
 	TArray<FVector> CompPos;
 	CompRot.SetNum(Num);
@@ -533,14 +533,33 @@ FString UHIAnimTool::MakeHangClip(USkeletalMesh* Mesh, const FString& PackagePat
 	for (int32 i = 0; i < Num; ++i)
 	{
 		const int32 Parent = Ref.GetParentIndex(i);
-		CompRot[i] = Local[i].GetRotation() * ((Parent != INDEX_NONE) ? CompRot[Parent] : FQuat::Identity);
-		// Component position: the parent's position, plus the local translation rotated into the
-		// parent's frame.
+		CompRot[i] = Base[i].GetRotation() * ((Parent != INDEX_NONE) ? CompRot[Parent] : FQuat::Identity);
 		CompPos[i] = (Parent != INDEX_NONE)
-			? CompPos[Parent] + CompRot[Parent].RotateVector(Local[i].GetTranslation())
-			: Local[i].GetTranslation();
+			? CompPos[Parent] + CompRot[Parent].RotateVector(Base[i].GetTranslation())
+			: Base[i].GetTranslation();
 	}
 
+	// ---- the rig's own frame
+	const int32 Hips = Ref.FindBoneIndex(TEXT("Hips"));
+	const int32 Head = Ref.FindBoneIndex(TEXT("Head"));
+	const int32 Foot = Ref.FindBoneIndex(TEXT("LeftFoot"));
+	const int32 Toe = Ref.FindBoneIndex(TEXT("LeftToeBase"));
+	FVector BodyUp = FVector::UpVector;
+	if (Hips != INDEX_NONE && Head != INDEX_NONE
+		&& (CompPos[Head] - CompPos[Hips]).SizeSquared() > 1.0f)
+	{
+		BodyUp = (CompPos[Head] - CompPos[Hips]).GetSafeNormal();
+	}
+	FVector BodyFwd = FVector::ForwardVector;
+	if (Foot != INDEX_NONE && Toe != INDEX_NONE
+		&& (CompPos[Toe] - CompPos[Foot]).SizeSquared() > 1.0f)
+	{
+		BodyFwd = (CompPos[Toe] - CompPos[Foot]).GetSafeNormal();
+		BodyFwd = (BodyFwd - BodyUp * FVector::DotProduct(BodyFwd, BodyUp)).GetSafeNormal();
+	}
+	const FVector BodyLat = FVector::CrossProduct(BodyUp, BodyFwd).GetSafeNormal();
+
+	// ---- arms overhead
 	int32 Raised = 0;
 	for (const TCHAR* ArmName : { TEXT("LeftArm"), TEXT("RightArm") })
 	{
@@ -550,19 +569,6 @@ FString UHIAnimTool::MakeHangClip(USkeletalMesh* Mesh, const FString& PackagePat
 		{
 			continue;
 		}
-		// WHERE THE BONE POINTS NOW, AND WHERE IT MUST POINT: up, leaning slightly forward so a
-		// hanging body is not a plumb line. The swing is the shortest arc from one to the other,
-		// which is exactly right and needs no per-side sign -- the two arms point opposite ways and
-		// the cross product handles that for free.
-		//
-		// NOTE for anyone reading the history: an earlier version of this line was judged "wrong"
-		// against a capture where the pose was not rendering at all (the intruder body could never
-		// draw an animation), so it was replaced with a fixed rotation about the forward axis and
-		// signed per side. That replacement is what put Alina's left arm up and left the other three
-		// arms out. This is the original, now seen rendered.
-		// THE BONE'S DIRECTION IS NOT ITS +X AXIS. `GetAxisX()` on a Mixamo arm reports a lateral
-		// axis, so swinging "X to up" rolled the arm instead of lifting it -- two attempts died on
-		// that. The direction that cannot lie is the one between the bone and its child.
 		const int32 Child = Ref.FindBoneIndex(Arm == Ref.FindBoneIndex(TEXT("LeftArm"))
 			? TEXT("LeftForeArm") : TEXT("RightForeArm"));
 		FVector Now = CompRot[Arm].GetAxisX();
@@ -570,18 +576,24 @@ FString UHIAnimTool::MakeHangClip(USkeletalMesh* Mesh, const FString& PackagePat
 		{
 			Now = (CompPos[Child] - CompPos[Arm]).GetSafeNormal();
 		}
-		const FVector Want = (FVector::UpVector + FVector::ForwardVector * 0.16f).GetSafeNormal();
-		const FQuat Swing = FQuat::FindBetweenNormals(Now, Want);
-		const FQuat CompNew = Swing * CompRot[Arm];
-		Local[Arm].SetRotation(CompRot[Parent].Inverse() * CompNew);
+		const FVector Want = (BodyUp + BodyFwd * 0.16f).GetSafeNormal();
+		const FQuat CompNew = FQuat::FindBetweenNormals(Now, Want) * CompRot[Arm];
+		Base[Arm].SetRotation(CompRot[Parent].Inverse() * CompNew);
 		CompRot[Arm] = CompNew;
 		++Raised;
 	}
-	// THE LEGS HANG, BENT. A man hanging by the wrists has his feet off the floor, and this basement
-	// is 2.05 m from slab to ceiling: with the arms overhead his wrists reach the ceiling and
-	// straight legs put his feet on the floor, which reads as standing in cuffs rather than hanging.
-	// Thighs forward, knees back, feet pointed down -- and the body is lifted in the hang so the
-	// shins clear the slab.
+	// Soften the elbows: a dead-straight arm reads as a scarecrow.
+	for (const TCHAR* ForeName : { TEXT("LeftForeArm"), TEXT("RightForeArm") })
+	{
+		const int32 Fore = Ref.FindBoneIndex(ForeName);
+		if (Fore != INDEX_NONE)
+		{
+			Base[Fore].SetRotation(Base[Fore].GetRotation()
+				* FQuat(BodyFwd, FMath::DegreesToRadians(18.0f)));
+		}
+	}
+	// ---- legs hanging, bent: the basement is 2.05 m from slab to ceiling and a hanging man needs his
+	// feet off the floor, which straight legs cannot do in that headroom.
 	for (const TCHAR* ThighName : { TEXT("LeftUpLeg"), TEXT("RightUpLeg") })
 	{
 		const int32 Thigh = Ref.FindBoneIndex(ThighName);
@@ -590,45 +602,84 @@ FString UHIAnimTool::MakeHangClip(USkeletalMesh* Mesh, const FString& PackagePat
 		{
 			continue;
 		}
-		const FQuat CompNew = FQuat(FVector::RightVector, FMath::DegreesToRadians(38.0f)) * CompRot[Thigh];
-		Local[Thigh].SetRotation(CompRot[Parent].Inverse() * CompNew);
+		const FQuat CompNew = FQuat(BodyLat, FMath::DegreesToRadians(38.0f)) * CompRot[Thigh];
+		Base[Thigh].SetRotation(CompRot[Parent].Inverse() * CompNew);
 		CompRot[Thigh] = CompNew;
 	}
 	for (const TCHAR* ShinName : { TEXT("LeftLeg"), TEXT("RightLeg") })
 	{
 		const int32 Shin = Ref.FindBoneIndex(ShinName);
-		if (Shin == INDEX_NONE)
+		if (Shin != INDEX_NONE)
 		{
-			continue;
+			Base[Shin].SetRotation(Base[Shin].GetRotation()
+				* FQuat(BodyLat, FMath::DegreesToRadians(-68.0f)));
 		}
-		Local[Shin].SetRotation(Local[Shin].GetRotation()
-			* FQuat(FVector::RightVector, FMath::DegreesToRadians(-68.0f)));
 	}
 
-	// Soften the elbows: a dead-straight arm reads as a scarecrow. Local rotations, so the forearm
-	// keeps whatever bend the bind already had plus a little.
-	for (const TCHAR* ForeName : { TEXT("LeftForeArm"), TEXT("RightForeArm") })
+	// ---- SOME LIFE: 48 keys at 30 fps (1.6 s, one unhurried breath) with a slow sway, limbs out of
+	// phase, so she is visibly awake without pretending to struggle.
+	const int32 Keys = 48;
+	Controller->SetNumberOfFrames(FFrameNumber(Keys));
+
+	auto Wobble = [&](const TCHAR* Bone, float Degrees, float Phase, const FVector& Axis, FQuat& Out) -> bool
 	{
-		const int32 Fore = Ref.FindBoneIndex(ForeName);
-		if (Fore != INDEX_NONE)
+		const int32 Idx = Ref.FindBoneIndex(Bone);
+		if (Idx == INDEX_NONE)
 		{
-			Local[Fore].SetRotation(Local[Fore].GetRotation()
-				* FQuat(FVector::ForwardVector, FMath::DegreesToRadians(18.0f)));
+			return false;
 		}
-	}
+		Out = Base[Idx].GetRotation()
+			* FQuat(Axis.GetSafeNormal(), FMath::DegreesToRadians(Degrees) * FMath::Sin(Phase));
+		return true;
+	};
 
 	Controller->OpenBracket(FText::FromString(TEXT("HI hang pose")), /*bShouldTransact=*/false);
 	int32 Written = 0;
 	for (int32 i = 0; i < Num; ++i)
 	{
 		const FName Bone = Ref.GetBoneName(i);
-		TArray<FVector3f> Pos{ FVector3f(Local[i].GetTranslation()) };
-		TArray<FQuat4f> Rot{ FQuat4f(Local[i].GetRotation()) };
-		TArray<FVector3f> Scale{ FVector3f(Local[i].GetScale3D()) };
+		TArray<FVector3f> Pos;
+		TArray<FQuat4f> Rot;
+		TArray<FVector3f> Scale;
+		Pos.Reserve(Keys); Rot.Reserve(Keys); Scale.Reserve(Keys);
+		const bool bLeftLeg = Bone == FName(TEXT("LeftLeg"));
+		const bool bRightLeg = Bone == FName(TEXT("RightLeg"));
+		const bool bHand = Bone == FName(TEXT("LeftHand")) || Bone == FName(TEXT("RightHand"));
+		const bool bThigh = Bone == FName(TEXT("LeftUpLeg")) || Bone == FName(TEXT("RightUpLeg"));
+		const bool bHead = Bone == FName(TEXT("Head"));
+		const bool bSpine = Bone == FName(TEXT("Spine2"));
+		for (int32 K = 0; K < Keys; ++K)
+		{
+			const float T = 2.0f * PI * float(K) / float(Keys);
+			FQuat Fine = Base[i].GetRotation();
+			FQuat Move;
+			if (bHand && Wobble(*Bone.ToString(), 2.5f, T, BodyFwd, Move))
+			{
+				Fine = Move;
+			}
+			else if ((bLeftLeg || bRightLeg)
+				&& Wobble(*Bone.ToString(), 3.5f, T + (bLeftLeg ? 0.0f : 1.4f), BodyLat, Move))
+			{
+				Fine = Move;
+			}
+			else if (bThigh && Wobble(*Bone.ToString(), 2.0f, T * 0.5f, BodyLat, Move))
+			{
+				Fine = Move;
+			}
+			else if (bHead && Wobble(*Bone.ToString(), 4.5f, T * 0.5f + 0.7f, BodyUp, Move))
+			{
+				Fine = Move;
+			}
+			else if (bSpine && Wobble(*Bone.ToString(), 1.5f, T, BodyUp, Move))
+			{
+				Fine = Move;
+			}
+			Pos.Add(FVector3f(Base[i].GetTranslation()));
+			Rot.Add(FQuat4f(Fine));
+			Scale.Add(FVector3f(Base[i].GetScale3D()));
+		}
 		// AddBoneCurve returns FALSE for a bone that already has one -- every bone in a duplicated
-		// clip does -- so its result cannot gate the write, or nothing is written at all (measured:
-		// "2 arms raised, 0 bone track(s) written, SAVED", a clip identical to the one it was copied
-		// from).
+		// clip does -- so its result cannot gate the write.
 		Controller->AddBoneCurve(Bone, /*bShouldTransact=*/false);
 		if (Controller->SetBoneTrackKeys(Bone, Pos, Rot, Scale, /*bShouldTransact=*/false))
 		{
@@ -643,8 +694,8 @@ FString UHIAnimTool::MakeHangClip(USkeletalMesh* Mesh, const FString& PackagePat
 	FSavePackageArgs SaveArgs;
 	SaveArgs.TopLevelFlags = RF_Public | RF_Standalone;
 	const bool bSaved = Package != nullptr && UPackage::SavePackage(Package, Seq, *FileName, SaveArgs);
-	return FString::Printf(TEXT("%s: %d arms raised, %d bone track(s) written, %s"),
-		*PackagePath, Raised, Written, bSaved ? TEXT("SAVED") : TEXT("SAVE FAILED"));
+	return FString::Printf(TEXT("%s: %d arms raised, %d track(s) x %d keys, %s"),
+		*PackagePath, Raised, Written, Keys, bSaved ? TEXT("SAVED") : TEXT("SAVE FAILED"));
 #else
 	return TEXT("FAILED: editor only");
 #endif

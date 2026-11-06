@@ -415,6 +415,22 @@ tick, and the clip renders.
 3. The chain anchors were stored once, in the captive's frame, which drew them converging on a point in
    the middle of the room; they are recomputed from each wrist every frame now.
 
+**Three more from play, same day.** *"Fix the brute... there is a dead brute in the basement when the game
+starts... can we put some life into her? A little bit of wiggling to know she is alive."*
+
+* **The brute hung at 40 degrees** because the pose swung his arms to WORLD up, and his FBX import
+  carries its own rest orientation. Up is now measured from the rig itself -- hips to head -- and
+  forward from his own foot to toe, with the lateral axis from the cross product. Every rig is treated
+  the same way and none needs a special case; he hangs upright.
+* **The dead brute on a new round** was a captive from the previous round: those actors belong to the
+  round that took them and nothing destroyed them. `AHIGameMode` now clears every `AHICaptive` when it
+  builds a round, and says how many it removed.
+* **A little life**: the hang clip is no longer one key. It is 48 keys at 30 fps (1.6 s, one unhurried
+  breath) with the arms drifting, the legs kicking gently out of phase (left lags right by 1.4 rad),
+  the head turning, and the spine twisting 1.5 degrees. Played LOOPED (`PlayAnimation(..., true)`),
+  because one breath has to repeat. Measured between two captures 0.5 s apart: 24,381 changed pixels
+  in the body region -- she is visibly awake, and it is nowhere near a struggle.
+
 **Two more from play, same day.** *"I tranquilized all 3, but the message said that they got away with the
 loot and the game ended... One of the problems is if they get tranquilized while carrying loot, it is
 counted that they got away with the loot."*

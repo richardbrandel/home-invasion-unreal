@@ -20,6 +20,7 @@
 #include "HIHUD.h"
 #include "HIIntruder.h"
 #include "HICaptive.h"
+#include "Kismet/GameplayStatics.h"
 #include "HILootProp.h"
 #include "HIMarks.h"
 #include "HIMaterials.h"
@@ -542,6 +543,26 @@ void AHIGameMode::BeginPlay()
 		ApplyLights();
 	}
 	SpawnLoot();
+
+	// CLEAR THE CELLS. A captive is its own actor and belongs to the round that took him; without
+	// this, the men from the last round were still hanging -- or lying, if they had been finished --
+	// in the basement when the next one began (Richard, 2026-11-05: "it seems like there is a dead
+	// brute in the basement when the game starts").
+	{
+		TArray<AActor*> Old;
+		UGameplayStatics::GetAllActorsOfClass(this, AHICaptive::StaticClass(), Old);
+		for (AActor* Actor : Old)
+		{
+			if (Actor != nullptr)
+			{
+				Actor->Destroy();
+			}
+		}
+		if (Old.Num() > 0)
+		{
+			UE_LOG(LogTemp, Display, TEXT("HI: cleared %d captive(s) from the basement for the new round"), Old.Num());
+		}
+	}
 
 	IntruderActors.Reset();
 	for (const FHISim::FHIThief& T : Round.Intruders)

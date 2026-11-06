@@ -64,8 +64,9 @@ void AHICaptive::Hang(int32 InThiefId, const FString& InTag, const FVector& Stat
 	if (HangClip != nullptr)
 	{
 		Body->SetAnimationMode(EAnimationMode::AnimationSingleNode);
+		// LOOPED, because the clip is one breath of sway (1.6 s) and it has to keep breathing.
 		Body->SetAnimation(HangClip);
-		Body->Play(true);
+		Body->PlayAnimation(HangClip, /*bLooping=*/true);
 	}
 	else
 	{
