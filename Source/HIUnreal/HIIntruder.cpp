@@ -4,6 +4,8 @@
 #include "PhysicsEngine/SkeletalBodySetup.h"
 #include "PhysicsEngine/BodyInstance.h"
 #include "Components/InstancedStaticMeshComponent.h"
+#include "Animation/AnimSequence.h"
+#include "Animation/AnimData/IAnimationDataModel.h"
 
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
@@ -471,7 +473,15 @@ void AHIIntruder::HangInBasement()
 	// ragdoll left them -- which is why the body and its chains drew on the ground floor while the
 	// actor sat in the basement. The evaluation is driven by hand, every frame, in
 	// UpdateHangVisuals; this only arms it.
-	const FString StandPath = FHICharAnim::ClipPathFor(*CastTag, FHICharAnim::ClipIdle());
+	// THE HANG CLIP, authored by `HIAnimTool::MakeHangClip`: arms overhead, legs bent. It is a
+	// duplicate of this character's own idle, so it is bound to this skeleton.
+	const FString HangPath = FString::Printf(TEXT("/Game/HIImported/characters_%s/hang"), *CastTag);
+	FString StandPath = HangPath;
+	if (!FPackageName::DoesPackageExist(StandPath))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("HI: %s has no /hang clip -- run tools/make-hang-clips.py; using idle"), *CastTag);
+		StandPath = FHICharAnim::ClipPathFor(*CastTag, FHICharAnim::ClipIdle());
+	}
 	StandClip = LoadObject<UAnimationAsset>(nullptr, *StandPath);
 	if (StandClip != nullptr)
 	{
@@ -498,6 +508,17 @@ void AHIIntruder::HangInBasement()
 	// first framed capture showed. The actor's small lean is what makes him look limp.
 	Body->SetRelativeRotation(FRotator::ZeroRotator);
 	SetActorRotation(FRotator(7.0f, GetActorRotation().Yaw, 3.0f));
+	// AND HE TICKS FROM HERE ON. Every intruder is stepped by the game mode rather than ticking, so
+	// the skeletal mesh's own tick -- which is what evaluates an animation -- never runs, and the
+	// hang clip's keys were written, loaded, and then never sampled: the body stayed in the pose the
+	// ragdoll left (the first frame of the hang showed the raised arm, the next showed the T-pose
+	// again). A prisoner is a static actor with one animation and nothing else to do, so giving him
+	// the tick is the cheapest correct answer.
+	PrimaryActorTick.bCanEverTick = true;
+	SetActorTickEnabled(true);
+	// Setting bCanEverTick after the actor is in the world is not enough on its own: the tick
+	// function has to be registered, or the flag is true and nothing ever calls it.
+	RegisterAllActorTickFunctions(/*bRegister=*/true, /*bDoComponentRegistration=*/true);
 	// Chains and cuffs: instanced cubes, stamped every frame in UpdateHangVisuals.
 	const TCHAR* CubePath = TEXT("/Engine/BasicShapes/Cube.Cube");
 	UStaticMesh* Cube = LoadObject<UStaticMesh>(nullptr, CubePath);
@@ -543,14 +564,19 @@ void AHIIntruder::UpdateHangVisuals()
 	// of the spine at shoulder height -- measured off the drawn body in shots/hung3_01.png.
 	const FVector Base = GetActorLocation();
 	const float CeilingZ = (FHISim::BasementZ + 2.05f) * HI_METERS_TO_UU;
-	const float WristZ = Base.Z + 1.42f * HI_METERS_TO_UU;
-	const float WristOut = 0.76f * HI_METERS_TO_UU;
 	const int32 Links = 6;
-
+	static const TCHAR* const WristBones[2] = { TEXT("LeftHand"), TEXT("RightHand") };
 	for (int32 i = 0; i < 2; ++i)
 	{
-		const float Lean = (i == 0) ? -1.0f : 1.0f;
-		const FVector WristPos(Base.X + Lean * WristOut, Base.Y, WristZ);
+		// The wrists come from the hand BONES of the hang pose -- that is the whole point of posing it
+		// as an asset -- with a sanity fallback: a socket more than 1.5 m from the body means the pose
+		// is not evaluated, and a chain to nowhere looks worse than a chain to his head.
+		const FVector Socket = Body->GetSocketLocation(WristBones[i]);
+		const bool bSane = FVector::Dist(Socket, Base) < 1.5f * HI_METERS_TO_UU;
+		const float Lean = (i == 0) ? -0.16f : 0.16f;
+		const FVector WristPos = bSane
+			? Socket
+			: FVector(Base.X + Lean * HI_METERS_TO_UU, Base.Y, Base.Z + 1.95f * HI_METERS_TO_UU);
 		const FVector Anchor(WristPos.X, WristPos.Y, CeilingZ);
 		const FVector Span = WristPos - Anchor;
 		const float Len = Span.Size();

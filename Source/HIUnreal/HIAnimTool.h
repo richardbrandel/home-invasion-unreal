@@ -118,6 +118,11 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Home Invasion")
 	static FString BakeClipRootScale(const FString& PackagePath, USkeletalMesh* Mesh, float Factor);
 
+	/** Write a one-key HANG pose into an existing (duplicated) clip: both arms raised overhead,
+	 *  from this mesh's own reference pose. Used for the tranquilizer's prisoners. */
+	UFUNCTION(BlueprintCallable, Category = "Home Invasion")
+	static FString MakeHangClip(USkeletalMesh* Mesh, const FString& PackagePath);
+
 	/** Report bone segments that are impossibly long for the character's own height -- a bind whose
 	 *  joints sit far from where the geometry is. Such a bind renders correctly until a bone rotates,
 	 *  and then its vertices draw as spikes ("long swords" on the Dancer, 2026-11-05). */

@@ -180,7 +180,6 @@ private:
 	float HangClock = 0.0f;
 	/** The clip the hang evaluates by hand, because this actor does not tick. */
 	TObjectPtr<class UAnimationAsset> StandClip;
-	int32 DbgLeft = 4;
 	/** Seconds since the dart landed; the body falls for a beat before it disappears. */
 	float CapturedT = 0.0f;
 	bool bCapturedSeen = false;

@@ -132,6 +132,11 @@ FHISim::FHIPlayer FHISim::CreatePlayer()
 	P.Mag = 12;
 	P.Mags.Add(TEXT("pistol"), 12);
 	P.Mags.Add(TEXT("shotgun"), 6);
+	// The tranquilizer's chamber holds ONE dart, and it has to be in `mags` or switching to it
+	// finds no banked magazine: `SwitchWeapon` sets Mag to `mags[key]` and 0 is a gun that cannot
+	// fire. That is exactly the report (Richard, 2026-11-05): "when I shoot the dart gun, nothing
+	// is fired so I can't tranquilize them."
+	P.Mags.Add(TEXT("tranq"), WeaponMag(TEXT("tranq")));
 	P.ShoveCd = 0.0f;
 	P.Stagger = 0.0f;
 	// RESERVE is a constant dictionary in Godot and `.duplicate()` is what stops one

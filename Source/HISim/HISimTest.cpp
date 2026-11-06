@@ -2035,6 +2035,15 @@ bool FHISimRound::RunTest(const FString& Parameters)
 			Dart.Damage, Dart.Mag, FHISim::ReserveFor(TEXT("tranq"))),
 			Dart.Mag == 1 && Dart.Damage == 0.0f && FHISim::ReserveFor(TEXT("tranq")) > 0);
 
+		// AND IT CAN BE FIRED. The chamber has to be banked in `mags` or switching to it finds
+		// nothing and Mag comes up 0 -- a gun that does nothing at all.
+		{
+			FHISim::FHIPlayer Fresh = FHISim::CreatePlayer();
+			const int32* Banked = Fresh.Mags.Find(TEXT("tranq"));
+			TestTrue(FString::Printf(TEXT("the tranquilizer starts with a dart chambered (mag=%d)"),
+				Banked != nullptr ? *Banked : -1),
+				Banked != nullptr && *Banked == FHISim::WeaponMag(TEXT("tranq")));
+		}
 		FHISim::FHIRound T = FHISim::FHIRound::Start(2);
 		const int32 Id = T.Intruders[0].Id;
 		TestTrue(TEXT("a dart captures him"), T.Tranquilise(Id));
