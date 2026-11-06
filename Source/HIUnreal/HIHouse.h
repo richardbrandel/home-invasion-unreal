@@ -334,7 +334,11 @@ private:
 		const FVector& SizeMeters, const FRotator& Rot);
 
 	/** Compose one furniture row into a colliding body plus decor detail, by its label. */
-	void BuildFurniture(const FString& Label, const FBox2D& Rect, float Base, float Height);
+	/** Compose one furniture row. `YawDeg` turns the piece about its footprint's centre; only
+	 *  pieces whose facing is legible (chairs) use it, and the footprint is unchanged for a
+	 *  multiple of 90 degrees, so the sim's collision rects stay authoritative. */
+	void BuildFurniture(const FString& Label, const FBox2D& Rect, float Base, float Height,
+		float YawDeg = 0.0f);
 
 	/** The street, sidewalk, driveway, neighbor shells, cars, trees and a street light. */
 	void BuildNeighborhood();

@@ -1313,6 +1313,19 @@ namespace
 		const TCHAR* Label;
 		/** Floor this item stands on; its base is FloorHeight(Floor). */
 		int32 Floor;
+		/**
+		 * Which way the piece FACES, in degrees about Z; 0 is the historic build.
+		 *
+		 * A trailing member, so every row written before this existed keeps its orientation and
+		 * only the rows that name one change. It exists because a chair's facing is readable from
+		 * across the room and a table's is not: all four dining chairs were built identically, so
+		 * the pair nearest the front showed the room their backs (Richard, 2026-11-05).
+		 *
+		 * The FOOTPRINT is unaffected by a multiple of 90 degrees on a symmetric piece, which is
+		 * why the sim's collision rects and every clearance assertion stay exactly as they were --
+		 * this is decoration, and the one thing it must not do is move a chair into a wall.
+		 */
+		float YawDeg = 0.0f;
 	};
 	const TArray<FFurnRow>& FurnitureRows()
 	{
@@ -1383,8 +1396,10 @@ namespace
 			{  2.60f, -11.40f, 1.60f, 1.00f, 0.75f, false, TEXT("dining_table"), 0 },
 			{  2.50f, -11.95f, 0.45f, 0.45f, 0.90f, false, TEXT("chair"), 0 },
 			{  3.15f, -11.95f, 0.45f, 0.45f, 0.90f, false, TEXT("chair"), 0 },
-			{  2.50f, -10.30f, 0.45f, 0.45f, 0.90f, false, TEXT("chair"), 0 },
-			{  3.15f, -10.30f, 0.45f, 0.45f, 0.90f, false, TEXT("chair"), 0 },
+			// The two chairs on the front (north) side face the table: built the same way as
+			// their neighbours they showed the room their backs.
+			{  2.50f, -10.30f, 0.45f, 0.45f, 0.90f, false, TEXT("chair"), 0, 180.0f },
+			{  3.15f, -10.30f, 0.45f, 0.45f, 0.90f, false, TEXT("chair"), 0, 180.0f },
 			{  5.50f,  -9.60f, 0.55f, 1.60f, 0.90f, false, TEXT("sideboard"), 0 },
 			// ---- SECOND, bedroom 2 (front west)
 			{ -6.10f, -11.80f, 2.00f, 2.20f, 0.55f, false, TEXT("bed"), 1 },
@@ -1454,6 +1469,21 @@ const TArray<FString>& FHISim::FurnitureLabels()
 		for (const FFurnRow& F : FurnitureRows())
 		{
 			Out.Add(F.Label);
+		}
+		return Out;
+	}();
+	return L;
+}
+
+const TArray<float>& FHISim::FurnitureYaws()
+{
+	// Index-aligned with FurnitureRects. Degrees about Z; 0 for everything that predates it.
+	static const TArray<float> L = []()
+	{
+		TArray<float> Out;
+		for (const FFurnRow& F : FurnitureRows())
+		{
+			Out.Add(F.YawDeg);
 		}
 		return Out;
 	}();

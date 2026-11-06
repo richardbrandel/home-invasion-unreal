@@ -1124,6 +1124,11 @@ struct HISIM_API FHISim
 	 * guessing at a rectangle's identity from its coordinates.
 	 */
 	static const TArray<FString>& FurnitureLabels();
+
+	/** Index-aligned with `FurnitureRects`: each row's facing in degrees about Z, 0 for the
+	 *  historic build. Only decoration turns -- collision rects are unchanged by a multiple of
+	 *  90 degrees on a symmetric piece. */
+	static const TArray<float>& FurnitureYaws();
 	static const TArray<FVector2D>& LootPositions();
 	static const TArray<FString>& LootLabels();
 	static const TArray<FString>& LootNodes();

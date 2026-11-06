@@ -1242,7 +1242,8 @@ void AHIHouse::PlaceSketchfabModel(const FString& Name, const FVector2D& Center,
 	}
 }
 
-void AHIHouse::BuildFurniture(const FString& Label, const FBox2D& Rect, float Base, float Height)
+void AHIHouse::BuildFurniture(const FString& Label, const FBox2D& Rect, float Base, float Height,
+	float YawDeg)
 {
 	// Compose one furniture row into a recognisable silhouette (2026-10-19). The BODY is the
 	// sim's exact footprint -- one colliding box, so a bullet still cannot pass where the AI
@@ -1322,7 +1323,10 @@ void AHIHouse::BuildFurniture(const FString& Label, const FBox2D& Rect, float Ba
 			const FVector MS = B.BoxExtent * 2.0f;   // full mesh size, in UU
 			if (MS.X > 1.0f && MS.Y > 1.0f && MS.Z > 1.0f)
 			{
-				const float Yaw = ModelYaw(Label);
+				// The row's own facing is added to the label's model correction: `ModelYaw` fixes a
+				// mesh authored along the wrong axis, `YawDeg` is which way the piece is meant to
+				// face in the room (the dining chairs on the front side of the table, 2026-11-05).
+				const float Yaw = ModelYaw(Label) + YawDeg;
 				const FRotator Rot(0.0f, Yaw, 0.0f);
 				// Uniform scale: fit the model's longest axis to the row's largest dimension,
 				// preserving its proportions (per-axis stretching was what made a scanned sofa
@@ -1442,19 +1446,43 @@ void AHIHouse::BuildFurniture(const FString& Label, const FBox2D& Rect, float Ba
 	// --- chairs: a seat and a back over four legs
 	else if (Label == TEXT("chair") || Label == TEXT("desk_chair"))
 	{
+		// A CHAIR IS THE ONE PIECE WHOSE FACING READS FROM ACROSS THE ROOM. Every dining chair was
+		// built the same way -- back on the -X side, seat facing +X -- so the pair on the front
+		// side of the table showed the room their backs and the table their fronts. Richard,
+		// 2026-11-05: "the two kitchen chairs closer to the front are facing away from the table.
+		// They need to be turned 180 degrees." The row now carries a yaw, so the parts are built in
+		// the chair's own frame and turned once: offsets rotate about the footprint's centre, and a
+		// quarter turn swaps each part's width and depth (a box rotated 90 degrees has to).
+		const float Rad = FMath::DegreesToRadians(YawDeg);
+		const float Ca = FMath::Cos(Rad);
+		const float Sa = FMath::Sin(Rad);
+		const bool bQuarter = FMath::Abs(Sa) > 0.5f;
+		auto Rot = [&](float Dx, float Dy) -> FVector2D
+		{
+			return FVector2D(C.X + Dx * Ca - Dy * Sa, C.Y + Dx * Sa + Dy * Ca);
+		};
+		auto TurnSize = [&](float Sx, float Sy) -> FVector2D
+		{
+			return bQuarter ? FVector2D(Sy, Sx) : FVector2D(Sx, Sy);
+		};
+
 		Part(FurnitureInstances, C.X, C.Y, Base, Top, S.X, S.Y);
-		Part(FurnitureWoodDecorInstances, C.X, C.Y, Top - 0.10f, Top, S.X + 0.06f, S.Y + 0.06f);   // seat
-		// De-boxing (2026-10-19): the back leans back instead of standing straight.
-		PartR(FurnitureWoodDecorInstances, C.X - S.X * 0.5f + 0.05f, C.Y, Top - 0.10f, Top + 0.34f,
-			0.10f, S.Y * 0.7f, FRotator(-14.0f, 0.0f, 0.0f));                            // back
-		Part(FurnitureDarkDecorInstances, C.X - S.X * 0.5f + 0.04f, C.Y - S.Y * 0.5f + 0.04f,
-			Base - 0.04f, Top - 0.12f, 0.06f, 0.06f);
-		Part(FurnitureDarkDecorInstances, C.X + S.X * 0.5f - 0.04f, C.Y - S.Y * 0.5f + 0.04f,
-			Base - 0.04f, Top - 0.12f, 0.06f, 0.06f);
-		Part(FurnitureDarkDecorInstances, C.X - S.X * 0.5f + 0.04f, C.Y + S.Y * 0.5f - 0.04f,
-			Base - 0.04f, Top - 0.12f, 0.06f, 0.06f);
-		Part(FurnitureDarkDecorInstances, C.X + S.X * 0.5f - 0.04f, C.Y + S.Y * 0.5f - 0.04f,
-			Base - 0.04f, Top - 0.12f, 0.06f, 0.06f);
+		const FVector2D Seat = TurnSize(S.X + 0.06f, S.Y + 0.06f);
+		Part(FurnitureWoodDecorInstances, C.X, C.Y, Top - 0.10f, Top, Seat.X, Seat.Y);
+		// De-boxing (2026-10-19): the back leans back instead of standing straight. The lean is a
+		// pitch about Y, so turning the chair turns the lean with it -- hence Ca/Sa on both axes.
+		const FVector2D BackAt = Rot(-S.X * 0.5f + 0.05f, 0.0f);
+		const FVector2D BackSz = TurnSize(0.10f, S.Y * 0.7f);
+		PartR(FurnitureWoodDecorInstances, BackAt.X, BackAt.Y, Top - 0.10f, Top + 0.34f,
+			BackSz.X, BackSz.Y, FRotator(-14.0f * Ca, 0.0f, -14.0f * Sa));
+		for (int32 Sx2 = -1; Sx2 <= 1; Sx2 += 2)
+		{
+			for (int32 Sy2 = -1; Sy2 <= 1; Sy2 += 2)
+			{
+				const FVector2D Leg = Rot(Sx2 * (S.X * 0.5f - 0.04f), Sy2 * (S.Y * 0.5f - 0.04f));
+				Part(FurnitureDarkDecorInstances, Leg.X, Leg.Y, Base - 0.04f, Top - 0.12f, 0.06f, 0.06f);
+			}
+		}
 	}
 	// --- beds: wood frame, fabric mattress + duvet + two pillows
 	else if (Label == TEXT("bed"))
@@ -1704,8 +1732,10 @@ void AHIHouse::Build()
 		const TArray<bool>& Flat = FHISim::FurnitureFlat();
 		const TArray<int32>& Floors = FHISim::FurnitureFloors();
 		const TArray<FString>& Labels = FHISim::FurnitureLabels();
+		const TArray<float>& Yaws = FHISim::FurnitureYaws();
 		if (Rects.Num() != Heights.Num() || Rects.Num() != Flat.Num()
 			|| Rects.Num() != Floors.Num() || Rects.Num() != Labels.Num()
+			|| Rects.Num() != Yaws.Num()
 			|| FurnitureInstances == nullptr)
 		{
 			return;
@@ -1723,7 +1753,7 @@ void AHIHouse::Build()
 			else
 			{
 				BuildFurniture(Labels[Idx], Rects[Idx],
-					FHISim::FloorHeight(Floors[Idx]), Heights[Idx]);
+					FHISim::FloorHeight(Floors[Idx]), Heights[Idx], Yaws[Idx]);
 			}
 		}
 	}

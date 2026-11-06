@@ -357,6 +357,36 @@ Source assets refreshed to match: `SourceAssets/models/woman01_edited.glb` (raw 
 - The screenshots that go with this: `shots/dancerdrive_01.png` (her on the driveway, in the game),
   `shots/chestab5_02.png`. `shots/` is gitignored.
 
+## The dining chairs faced the wrong way (2026-11-05)
+
+*"when entering the kitchen, the two kitchen chairs closer to the front are facing away from the table.
+They need to be turned 180 degrees."* Correct, and the cause was structural rather than a slip: the four
+dining chairs are one furniture row each, and the port drew every one of them the same way. Two pairs
+on opposite sides of a table cannot both be right if they share a facing -- so one pair was always
+going to be backwards, and it was the pair on the front (street) side.
+
+Nothing in the row data could express a facing: `FFurnRow` was `{X, Z, W, D, H, bFlat, Label, Floor}`
+and the builder placed every piece axis-aligned. The fix adds a **trailing** `float YawDeg = 0.0f`, so
+every row written before it keeps its orientation and only the rows that name one change:
+
+* `FHISim::FurnitureYaws()` -- index-aligned with `FurnitureRects()`, like the heights, labels, flat
+  flags and floors the builder already walks;
+* `AHIHouse::BuildFurniture(..., YawDeg)` adds the row's yaw to the LABEL's model correction
+  (`ModelYaw`, which exists to fix a mesh authored along the wrong axis) when the piece is placed as a
+  real mesh -- the dining chairs are `dining_chair_02`, so that path, not the box composition, is what
+  draws them;
+* the two front rows (`y -10.30`) carry `180.0f`.
+
+The **footprint is untouched** -- a multiple of 90 degrees on a symmetric piece is the same rectangle --
+so the sim's collision rects, the furniture-envelope assertions and every nav clearance stay exactly as
+they were. This is decoration, and the one thing it must not do is move a chair into a wall.
+
+Verified where it counts: the chair model's own geometry says its back is on -Z (measured: the top 6 cm
+of the mesh, 1,216 vertices, sits at z = -0.27 against a mesh centre of -0.13), and the rendered set now
+shows the front pair's backs out and their seats across the table. Suite **52/52** (the envelope checks
+are unaffected, as intended). `shots/chairs7_01.png` is the top-down check; `shots/chairs3_01.png` is
+the same set from the room before.
+
 ## The chest, third shape: a cup instead of a cone (2026-11-05)
 
 *"The Dancers boobs look like 2 tents. I would like a fuller cup, like a DD size cup. Alina has nice
