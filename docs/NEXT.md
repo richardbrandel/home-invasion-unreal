@@ -437,7 +437,23 @@ cell a meter wider and 1/2 meter deeper."*
   to widen without moving a column; the walls route around them, and the north wall moved to -12.82
   because the `baseOpen`->`baseDoor` walk line's envelope fouled the old corner.
 
-**Still wrong, and known:** the brute's hang pose is horizontal -- his own rig's frame disagrees with the
+**The brute's legs, fixed by not trusting a bind pose (2026-11-05).** His hang was written as "4 degrees of
+thigh, 10 of knee", on the assumption that every rig's reference pose stands with its legs down. **The
+brute's does not** -- his bind has the knees folded up, so the clip faithfully hung him with his knees
+ABOVE his hips. Measured in the cellar before the fix: hips z -143, knee -103, foot -58 (i.e. legs
+pointing up); after: hips -143, knee -199, foot -247.
+
+The fix is the same construction the arms already used: swing the bone's DIRECTION to an absolute target
+instead of adding a fixed angle. Thigh: swing (thigh -> knee) to straight down, relative to the rig's own
+up. Knee: swing (knee -> ankle) to straight down plus 0.10 of the body's forward. Any bind pose now
+produces the same hanging legs, and the women are unchanged.
+
+**Still wrong, and known:** the brute's arms are not overhead -- they hang forward, in his bind's
+"zombie" position. The swing IS being computed and written (measured: both arms ~80 degrees, symmetric),
+and it does not show on screen, which is not explained. The next thing to try is swinging the CLAVICLE
+(`LeftShoulder`/`RightShoulder`) rather than the arm bone, so the whole chain follows.
+
+**Old note (superseded by the above):** the brute's hang pose is horizontal -- his own rig's frame disagrees with the
 hips->head/foot->toe derivation somewhere. Richard deferred it ("we will adjust the Brute's chain next
 time"), so it is untouched here.
 

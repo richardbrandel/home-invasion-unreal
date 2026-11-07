@@ -592,29 +592,44 @@ FString UHIAnimTool::MakeHangClip(USkeletalMesh* Mesh, const FString& PackagePat
 				* FQuat(BodyFwd, FMath::DegreesToRadians(18.0f)));
 		}
 	}
-	// ---- LEGS HANGING. They were folded up at 38/68 degrees to keep the feet off the slab, which
-	// read as a man squatting in mid-air; Richard: "have gravity pull their legs down". A chained man
-	// in a 2.05 m basement is on tiptoe instead, so the legs hang with only a token bend.
+	// ---- LEGS HANGING DOWN, BY SWINGING THEM, NOT BY TRUSTING A BIND POSE.
+	// This was a fixed 4 degrees of thigh and 10 of knee, on the assumption that every rig's
+	// reference pose stands with its legs down. The brute's does not: his bind has the knees folded
+	// up, so the clip faithfully hung him with his knees ABOVE his hips (measured in the cellar:
+	// hips z -143, knee -103, foot -58). The arms get out of the same trap by swinging the bone's
+	// direction to an absolute target, so the legs do now too: thigh -> straight down, knee -> straight
+	// on, both relative to the rig's own up. Any bind pose produces the same hanging legs.
 	for (const TCHAR* ThighName : { TEXT("LeftUpLeg"), TEXT("RightUpLeg") })
 	{
 		const int32 Thigh = Ref.FindBoneIndex(ThighName);
 		const int32 Parent = Thigh != INDEX_NONE ? Ref.GetParentIndex(Thigh) : INDEX_NONE;
-		if (Thigh == INDEX_NONE || Parent == INDEX_NONE)
+		const int32 Shin = Ref.FindBoneIndex(
+			FCString::Strcmp(ThighName, TEXT("LeftUpLeg")) == 0 ? TEXT("LeftLeg") : TEXT("RightLeg"));
+		if (Thigh == INDEX_NONE || Parent == INDEX_NONE || Shin == INDEX_NONE)
 		{
 			continue;
 		}
-		const FQuat CompNew = FQuat(BodyLat, FMath::DegreesToRadians(4.0f)) * CompRot[Thigh];
+		const FVector Now = (CompPos[Shin] - CompPos[Thigh]).GetSafeNormal();
+		const FVector Want = (-BodyUp + BodyFwd * 0.04f).GetSafeNormal();
+		const FQuat CompNew = FQuat::FindBetweenNormals(Now, Want) * CompRot[Thigh];
 		Base[Thigh].SetRotation(CompRot[Parent].Inverse() * CompNew);
 		CompRot[Thigh] = CompNew;
 	}
 	for (const TCHAR* ShinName : { TEXT("LeftLeg"), TEXT("RightLeg") })
 	{
 		const int32 Shin = Ref.FindBoneIndex(ShinName);
-		if (Shin != INDEX_NONE)
+		const int32 Parent = Shin != INDEX_NONE ? Ref.GetParentIndex(Shin) : INDEX_NONE;
+		const int32 Ankle = Ref.FindBoneIndex(
+			FCString::Strcmp(ShinName, TEXT("LeftLeg")) == 0 ? TEXT("LeftFoot") : TEXT("RightFoot"));
+		if (Shin == INDEX_NONE || Parent == INDEX_NONE || Ankle == INDEX_NONE)
 		{
-			Base[Shin].SetRotation(Base[Shin].GetRotation()
-				* FQuat(BodyLat, FMath::DegreesToRadians(-10.0f)));
+			continue;
 		}
+		const FVector Now = (CompPos[Ankle] - CompPos[Shin]).GetSafeNormal();
+		const FVector Want = (-BodyUp + BodyFwd * 0.10f).GetSafeNormal();
+		const FQuat CompNew = FQuat::FindBetweenNormals(Now, Want) * CompRot[Shin];
+		Base[Shin].SetRotation(CompRot[Parent].Inverse() * CompNew);
+		CompRot[Shin] = CompNew;
 	}
 
 	// ---- SOME LIFE: 48 keys at 30 fps (1.6 s, one unhurried breath) with a slow sway, limbs out of
@@ -695,8 +710,11 @@ FString UHIAnimTool::MakeHangClip(USkeletalMesh* Mesh, const FString& PackagePat
 	FSavePackageArgs SaveArgs;
 	SaveArgs.TopLevelFlags = RF_Public | RF_Standalone;
 	const bool bSaved = Package != nullptr && UPackage::SavePackage(Package, Seq, *FileName, SaveArgs);
-	return FString::Printf(TEXT("%s: %d arms raised, %d track(s) x %d keys, %s"),
-		*PackagePath, Raised, Written, Keys, bSaved ? TEXT("SAVED") : TEXT("SAVE FAILED"));
+	return FString::Printf(
+		TEXT("%s: %d arms raised, %d track(s) x %d keys, %s | up=(%.2f,%.2f,%.2f) fwd=(%.2f,%.2f,%.2f) lat=(%.2f,%.2f,%.2f)"),
+		*PackagePath, Raised, Written, Keys, bSaved ? TEXT("SAVED") : TEXT("SAVE FAILED"),
+		BodyUp.X, BodyUp.Y, BodyUp.Z, BodyFwd.X, BodyFwd.Y, BodyFwd.Z,
+		BodyLat.X, BodyLat.Y, BodyLat.Z);
 #else
 	return TEXT("FAILED: editor only");
 #endif
