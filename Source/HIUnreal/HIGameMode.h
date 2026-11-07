@@ -88,6 +88,11 @@ public:
 	UPROPERTY()
 	TArray<TObjectPtr<class AHIMark>> Marks;
 
+	/** Chains and cuffs for the prisoners: a slice of the pool that only the chains use. */
+	TArray<TObjectPtr<class AHIMark>> ChainMarks;
+	int32 ChainCursor = 0;
+	static constexpr int32 ChainPoolSize = 12;
+
 	int32 MarkCursor = 0;
 
 	/**
@@ -322,6 +327,18 @@ public:
 	float ShotRangeMeters = 60.0f;
 	/** The stick's reach: an arm and the stick, about 1.8 m. A gun sees 60. */
 	float StickReachMeters = 2.8f;
+
+	/**
+	 * Draw one chain segment between two world points, using the mark pool.
+	 *
+	 * THE CAPTIVES DO NOT OWN THEIR OWN CHAINS ANY MORE (2026-11-05). Any extra mesh component on a
+	 * captive actor -- instanced or plain, cube or cylinder, attached or not -- made the house's ground
+	 * floor lose its wood material and go white, and a captive is spawned the moment a man is darted.
+	 * Bisected to that exactly: chains off, floor is wood; chains on, floor is white. The mark pool is
+	 * already in the world, is what gunfire uses, and does not disturb the floors, so the chain is
+	 * stamped through it instead.
+	 */
+	void DrawChainSegment(const FVector& From, const FVector& To, float Thickness, const FLinearColor& Colour);
 
 	/** Start a fresh round: new intruders, new loot, the same house. Bound to [ENTER]. */
 	UFUNCTION(BlueprintCallable, Category = "Home Invasion")

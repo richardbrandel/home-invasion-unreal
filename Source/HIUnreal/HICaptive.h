@@ -90,9 +90,7 @@ private:
 	/** The clip the hang poses with: arms overhead, knees bent. */
 	TObjectPtr<class UAnimationAsset> HangClip;
 
-	/** Chains from the ceiling to each wrist, and a cuff at each wrist. */
-	TObjectPtr<class UInstancedStaticMeshComponent> ChainInstances;
-	TObjectPtr<class UInstancedStaticMeshComponent> CuffInstances;
+	/** The wrists' ceiling anchors, kept for reference; drawing happens in UpdateChains via the pool. */
 	FVector ChainAnchor[2] = { FVector::ZeroVector, FVector::ZeroVector };
 	bool bHanging = false;
 	bool bDead = false;

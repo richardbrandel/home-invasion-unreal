@@ -1,4 +1,6 @@
 #include "HICaptive.h"
+#include "HIGameMode.h"
+#include "Kismet/GameplayStatics.h"
 
 #include "Components/CapsuleComponent.h"
 #include "Components/InstancedStaticMeshComponent.h"
@@ -37,6 +39,13 @@ AHICaptive::AHICaptive()
 	// makes its capsule for exactly this reason -- the sim decides hit points, not the mesh.
 	Hit->SetCapsuleSize(FHISim::ThiefRadius * HI_METERS_TO_UU, 0.85f * HI_METERS_TO_UU);
 	Hit->SetRelativeLocation(FVector(0.0f, 0.0f, 0.85f * HI_METERS_TO_UU));
+
+	// The chains are NOT components of this actor any more: any extra mesh component here -- instanced
+	// or plain, cube or cylinder, attached or not -- made the house's GROUND FLOOR lose its wood
+	// material and go white, and a captive spawns the moment a man is darted. Bisected to exactly that:
+	// chains off, floor is wood; chains on, floor is white. They are stamped through the game mode's
+	// mark pool in UpdateChains instead, which is machinery gunfire already uses and which leaves the
+	// floors alone.
 }
 
 void AHICaptive::BeginPlay()
@@ -112,26 +121,6 @@ void AHICaptive::Hang(int32 InThiefId, const FString& InTag, const FVector& Stat
 	// the hang pose before.
 	SetActorRotation(FRotator(7.0f, 270.0f, 3.0f));
 
-	// Chains and cuffs: instanced cubes, restamped every frame.
-	const TCHAR* CubePath = TEXT("/Engine/BasicShapes/Cube.Cube");
-	if (UStaticMesh* Cube = LoadObject<UStaticMesh>(nullptr, CubePath))
-	{
-		ChainInstances = NewObject<UInstancedStaticMeshComponent>(this);
-		ChainInstances->SetStaticMesh(Cube);
-		ChainInstances->SetMobility(EComponentMobility::Movable);
-		ChainInstances->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-		ChainInstances->RegisterComponent();
-		ChainInstances->SetWorldLocation(FVector::ZeroVector);
-		FHIMaterials::Tint(ChainInstances, FLinearColor(0.10f, 0.10f, 0.11f));
-
-		CuffInstances = NewObject<UInstancedStaticMeshComponent>(this);
-		CuffInstances->SetStaticMesh(Cube);
-		CuffInstances->SetMobility(EComponentMobility::Movable);
-		CuffInstances->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-		CuffInstances->RegisterComponent();
-		CuffInstances->SetWorldLocation(FVector::ZeroVector);
-		FHIMaterials::Tint(CuffInstances, FLinearColor(0.34f, 0.35f, 0.38f));
-	}
 	// The ceiling of the basement: the underside of the ground floor's deck.
 	const float CeilingZ = (FHISim::BasementZ + FHISim::BasementCeiling) * HI_METERS_TO_UU;
 	ChainAnchor[0] = FVector(Station.X, Station.Y, CeilingZ);
@@ -347,14 +336,6 @@ void AHICaptive::GoLimp()
 	Body->SetCollisionProfileName(TEXT("Ragdoll"));
 	Body->SetAllBodiesSimulatePhysics(true);
 	Body->SetSimulatePhysics(true);
-	if (ChainInstances != nullptr)
-	{
-		ChainInstances->ClearInstances();
-	}
-	if (CuffInstances != nullptr)
-	{
-		CuffInstances->ClearInstances();
-	}
 	// Nothing left to aim at: he is a corpse on the floor now, and the sim has already counted him
 	// dead. Leaving the capsule enabled would let the player keep shooting a dead body's hit volume.
 	if (Hit != nullptr)
@@ -366,75 +347,53 @@ void AHICaptive::GoLimp()
 
 void AHICaptive::UpdateChains()
 {
-	if (Body == nullptr || ChainInstances == nullptr)
+	if (Body == nullptr || !bHanging || bDead)
 	{
 		return;
 	}
-	ChainInstances->ClearInstances();
-	if (CuffInstances != nullptr)
+	// THE CHAINS GO THROUGH THE MARK POOL, not through components of this actor. Six links per wrist
+	// plus a cuff: 14 stamps a frame for a full cell, well inside the chain slice of the pool.
+	AHIGameMode* GM = Cast<AHIGameMode>(UGameplayStatics::GetGameMode(this));
+	if (GM == nullptr)
 	{
-		CuffInstances->ClearInstances();
+		return;
 	}
 	static const TCHAR* const Hands[2] = { TEXT("LeftHand"), TEXT("RightHand") };
 	static const TCHAR* const Elbows[2] = { TEXT("LeftForeArm"), TEXT("RightForeArm") };
+	const float CeilingZ = (FHISim::BasementZ + FHISim::BasementCeiling) * HI_METERS_TO_UU;
 	const int32 Links = 6;
-	for (int32 i = 0; i < 2; ++i)
+	const FLinearColor ChainColour(0.10f, 0.10f, 0.11f);
+	const FLinearColor CuffColour(0.34f, 0.35f, 0.38f);
+
+	for (int32 Side = 0; Side < 2; ++Side)
 	{
-		// Now that the engine ticks this actor, the hand bones ARE the drawn pose -- the thing the
-		// intruder version could never rely on.
-		// THE WRIST, NOT THE PALM, AND SIZED FROM THE ARM ITSELF (Richard, 2026-11-05: "the brute
-		// doesn't have cuffs around his wrists"). The cuff was a fixed 8.5 cm box parked on the hand
-		// bone: right for a woman's wrist, and on the brute it sat INSIDE his forearm and never drew.
-		// The wrist crease is a quarter of the way from the hand to the elbow, and the cuff's size is
-		// a fraction of his own forearm length -- so a big man gets a big cuff without a special case.
-		const FVector Palm = Body->GetSocketLocation(Hands[i]);
-		const FVector Elbow = Body->GetSocketLocation(Elbows[i]);
+		const FVector Palm = Body->GetSocketLocation(Hands[Side]);
+		const FVector Elbow = Body->GetSocketLocation(Elbows[Side]);
 		const float ForeLen = FVector::Dist(Palm, Elbow);
 		const FVector Wrist = (ForeLen > 1.0f) ? Palm + (Elbow - Palm) * 0.22f : Palm;
-		// Measured: forearm 23.2 cm (dancer), 22.7 (Alina), 29.0 (brute); a wrist is ~6-8 cm across,
-		// so 0.55 of the forearm with a 12 cm floor leaves steel proud of the skin on every build.
 		const float CuffR = FMath::Clamp(0.55f * ForeLen, 0.12f * HI_METERS_TO_UU, 0.19f * HI_METERS_TO_UU);
-		if (!bLoggedCuff && ForeLen > 1.0f)
-		{
-			bLoggedCuff = true;
-			UE_LOG(LogTemp, Display, TEXT("HI: CUFF %s forearm=%.1fcm cuff=%.1fcm across (wrist %.1fcm from the palm)"),
-				*CastTag, ForeLen, CuffR, FVector::Dist(Palm, Wrist));
-		}
-		// The anchor is the wrist's own column at the ceiling, recomputed every frame: the first
-		// version stored them once in Hang() and the drawn chains converged on a point in the middle
-		// of the room instead of hanging plumb over the two men.
-		const float CeilingZ = (FHISim::BasementZ + FHISim::BasementCeiling) * HI_METERS_TO_UU;
-		ChainAnchor[i] = FVector(Wrist.X, Wrist.Y, CeilingZ);
-		if (FVector::Dist(Wrist, GetActorLocation()) > 2.5f * HI_METERS_TO_UU)
-		{
-			continue;   // a socket this far out means no pose; better no chain than a chain to nowhere
-		}
-		const FVector Span = Wrist - ChainAnchor[i];
+
+		const FVector Anchor(Wrist.X, Wrist.Y, CeilingZ);
+		const FVector Span = Wrist - Anchor;
 		const float Len = Span.Size();
-		if (Len < 2.0f)
+		if (FVector::Dist(Wrist, GetActorLocation()) > 2.5f * HI_METERS_TO_UU || Len < 2.0f)
 		{
-			continue;
+			continue;   // a socket this far out means no pose; no chain is better than a chain to nowhere
 		}
 		const FVector Dir = Span / Len;
 		for (int32 L = 0; L < Links; ++L)
 		{
-			const float T = (float(L) + 0.5f) / float(Links);
-			const FVector At = ChainAnchor[i] + Dir * (Len * T);
-			// Alternating roll is what reads as a chain rather than a rod.
-			const FRotator Rot = FRotationMatrix::MakeFromZ(Dir).Rotator()
-				+ FRotator(0.0f, (L % 2 == 0) ? 0.0f : 90.0f, 0.0f);
-			ChainInstances->AddInstance(FTransform(Rot, At,
-				FVector(0.022f, 0.022f, Len / float(Links) * 0.62f)));
+			const float T0 = float(L) / float(Links);
+			const float T1 = float(L + 1) / float(Links);
+			// A small gap between links is what reads as a chain rather than a rod.
+			const FVector A = Anchor + Dir * (Len * T0);
+			const float LinkEnd = Len * T1 - Len / float(Links) * 0.18f;
+			const FVector B = Anchor + Dir * LinkEnd;
+			GM->DrawChainSegment(A, B, 0.022f, ChainColour);
 		}
-		if (CuffInstances != nullptr)
-		{
-			const FRotator CuffRot = FRotationMatrix::MakeFromZ(Dir).Rotator();
-			// A BAND, NOT A PLATE. This was 8.5 x 4.7 x 4.7 cm -- and 4.7 cm across is INSIDE a
-			// forearm, which is why the brute had no visible cuff at all (and the women's were only
-			// just there). A cuff has to enclose the wrist: square in section, a few centimetres along
-			// the arm, and sized from the man's own forearm so a big arm gets a big shackle.
-			CuffInstances->AddInstance(FTransform(CuffRot, Wrist,
-				FVector(CuffR, CuffR, 0.035f * HI_METERS_TO_UU)));
-		}
+		// The cuff: a short, fat segment square across the wrist.
+		// The cuff: a short, fat segment along the wrist, 3.5 cm deep and as wide as the wrist.
+		GM->DrawChainSegment(Wrist - Dir * (0.0175f * HI_METERS_TO_UU),
+			Wrist + Dir * (0.0175f * HI_METERS_TO_UU), CuffR / HI_METERS_TO_UU, CuffColour);
 	}
 }

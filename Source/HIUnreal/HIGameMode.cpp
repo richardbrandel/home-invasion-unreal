@@ -1534,6 +1534,22 @@ void AHIGameMode::FlashLine(const FVector& From, const FVector& To, float Thickn
 	}
 }
 
+void AHIGameMode::DrawChainSegment(const FVector& From, const FVector& To, float Thickness,
+	const FLinearColor& Colour)
+{
+	// A dedicated slice of the pool, so a chain cannot eat the slot a bullet hole is about to use.
+	if (ChainMarks.Num() == 0)
+	{
+		return;
+	}
+	AHIMark* Slot = ChainMarks[ChainCursor % ChainMarks.Num()];
+	ChainCursor = (ChainCursor + 1) % ChainMarks.Num();
+	if (Slot != nullptr)
+	{
+		Slot->StampLine(From, To, Thickness, Colour);
+	}
+}
+
 void AHIGameMode::FlashPoint(const FVector& Where, float SizeMeters, const FLinearColor& Colour)
 {
 	if (Flashes.IsEmpty())
@@ -1885,6 +1901,17 @@ void AHIGameMode::Tick(float DeltaSeconds)
 			{
 				Mark->SetActorHiddenInGame(true);
 				Marks.Add(Mark);
+			}
+		}
+		// CHAINS AND CUFFS (2026-11-05): six segments per prisoner, three prisoners. Their own slice of
+		// the pool, and they are stamped every frame rather than hidden on a timer -- see DrawChainSegment.
+		for (int32 Idx = 0; Idx < ChainPoolSize; ++Idx)
+		{
+			if (AHIMark* Chain = World->SpawnActor<AHIMark>(
+				AHIMark::StaticClass(), FTransform::Identity, Params))
+			{
+				Chain->SetActorHiddenInGame(true);
+				ChainMarks.Add(Chain);
 			}
 		}
 		// Tracers and muzzle flashes: fewer of them, because only a few dozen can overlap

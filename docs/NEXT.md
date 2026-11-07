@@ -437,6 +437,34 @@ cell a meter wider and 1/2 meter deeper."*
   to widen without moving a column; the walls route around them, and the north wall moved to -12.82
   because the `baseOpen`->`baseDoor` walk line's envelope fouled the old corner.
 
+**Found it, and it was the chains (2026-11-05).** Richard sent a screenshot: the ground floor was a flat white sheet
+around the corridor, with the *stairs and the far rooms still wood*. Reproduced at that exact camera after one
+capture, and bisected:
+
+| change | ground-floor floor |
+|---|---|
+| no captures at all | wood |
+| one capture | **white** |
+| chains/cuffs disabled | wood |
+| chains as ISMs, created in the constructor | white |
+| chains as plain meshes, cube | white (or grey untinted) |
+| chains as plain meshes, cylinder | white |
+| **chains stamped through the mark pool** | **wood** |
+
+So **any extra mesh component on the captive actor** — instanced or plain, cube or cylinder, attached or not,
+constructor or runtime — made the house's ground floor lose its wood material. The floors are scaled cubes and
+ISMs of the basic shapes, and adding a component elsewhere took their material with it. This went unnoticed for
+rounds because a captive only exists after the first dart, and every screenshot before that looked fine.
+
+The chains are now drawn through the **mark pool** (`AHIGameMode::DrawChainSegment`, a dedicated 12-actor slice),
+stamped every frame from the ceiling to each wrist plus a short fat segment for the cuff. That machinery is
+already what gunfire uses and it leaves the floors alone. Verified by capture: floor wood, chains visible.
+
+**The stick freeze is not reproduced, and may have the same cause.** One stick swing at a chained man logged
+"squirms -- reaction 1" and ran on. The old chain code called `ClearInstances()` and refilled the ISMs EVERY
+FRAME, including during a squirm's clip swap — a plausible way to freeze the render thread and then die. That
+code is gone. If it happens again, the bottom of `Saved/Logs/HIUnreal.log` will name the assert or exception.
+
 **Fear with a fixed face: the neck snap (2026-11-05).** *"We put so much work into the current models, I am
 afraid to get new models and start from scratch. Yes, do the neck bone thing."*
 
