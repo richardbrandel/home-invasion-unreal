@@ -476,6 +476,9 @@ private:
 	float TranqDemoAt = 1.0f;
 	/** -HISquirmDemo=seconds: at that point every captive does a reaction (0,1,2 in order). */
 	float SquirmDemoAt = -1.0f;
+	/** -HIFireAt=seconds: one trigger pull at that moment (three frames), for captures. */
+	float FireAtSeconds = -1.0f;
+	int32 FireFrames = 0;
 	bool bSquirmDemoDone = false;
 	bool bTranqDemoDone = false;
 	bool bAuto = false;

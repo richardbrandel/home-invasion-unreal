@@ -437,6 +437,23 @@ cell a meter wider and 1/2 meter deeper."*
   to widen without moving a column; the walls route around them, and the north wall moved to -12.82
   because the `baseOpen`->`baseDoor` walk line's envelope fouled the old corner.
 
+**The wound reveal undid the fix (2026-11-05).** The capture branch hid the wound quads, but `SyncFromSim`
+calls `ShowWounds(...)` on EVERY FRAME from health, so the next frame put them straight back: a captured man is
+`bAlive`, with wounds from earlier hits, and those quads are parented to bones the capture then hands to
+physics -- stretched flat on the floor. The reveal now reads `T.bCaptured ? 0 : (...)`.
+
+**Not reproduced, and that is worth saying:** four captures (a dart into a wall, the hall, the living room, and
+a man darted from the doorway at 2.0/2.8/4.2 s) show a clean floor. If the white slab survives this fix, a
+screenshot or the room it happens in is what would settle it. `-HIFireAt=seconds` was added for the attempt: one
+trigger pull at that moment, three frames, because the autopilot only fires with a thief in view and there was
+otherwise no way to ask a capture for a single shot.
+
+**Faces: not possible on these models, measured.** All four characters have **0 morph targets** and no face
+bones -- they are Mixamo game rigs with a `Head` bone and a face TEXTURE. There is nothing to drive. Fear would
+have to come from a *texture variant* (an angry/frightened face painted per character and swapped on the head
+material), or from re-importing models that carry blendshapes. Both are art jobs, not code. Body language is
+what the game has: the three squirm reactions, and the head can be jerked with the neck bone if more is wanted.
+
 **Marks, wounds and a lower-body run (2026-11-05).** *"The stick leaves bullet marks... the walking reaction
 should only happen for the lower half of the body, the arms should stay in the shackles... when someone is
 tranquilized, part of the first floor gets filled in waist high with white."*

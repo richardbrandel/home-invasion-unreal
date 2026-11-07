@@ -106,6 +106,7 @@ void AHIGameMode::HandleCommandLine()
 	// hanging can be CAPTURED. Manual capture runs drive no input, so without this there is no
 	// way to photograph the one thing the tranquillizer produces.
 	FParse::Value(Cmd, TEXT("HISquirmDemo="), SquirmDemoAt);
+	FParse::Value(Cmd, TEXT("HIFireAt="), FireAtSeconds);
 	{
 		// `-HITranqDemo=N` or `-HITranqDemo=N@seconds`, so a capture can dart them when they are
 		// actually carrying something rather than a second in.
@@ -1976,6 +1977,15 @@ void AHIGameMode::Tick(float DeltaSeconds)
 	ApplyLook();
 	ClaimInput();
 	FHISim::FHIInput In = ReadInput();
+	// `-HIFireAt=seconds`: pull the trigger for three frames at that moment. The autopilot only fires
+	// with a thief in view, so a capture that needs ONE shot fired at a wall or a prisoner had no way
+	// to ask for it -- which is how a one-line rendering bug ("the first floor fills with white after
+	// the first dart") went unphotographed.
+	if (FireAtSeconds >= 0.0f && RoundSeconds >= FireAtSeconds && FireFrames < 3)
+	{
+		++FireFrames;
+		In.bFire = true;
+	}
 
 	// -HIPlaytest / -HITour replace what the player does, not how it is read. That
 	// distinction is the entire point: -HIAuto overwrites the input struct, so it can never
