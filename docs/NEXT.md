@@ -437,6 +437,24 @@ cell a meter wider and 1/2 meter deeper."*
   to widen without moving a column; the walls route around them, and the north wall moved to -12.82
   because the `baseOpen`->`baseDoor` walk line's envelope fouled the old corner.
 
+**The stick freeze was the garbage collector (2026-11-05).** Richard: "I was hitting the intruders, last hit the Dancer
+and the game froze and then died again."
+
+`AHICaptive::HangClip` and `FlinchClip` were plain `TObjectPtr<UAnimationAsset>` -- **no `UPROPERTY`**. A
+`LoadObject` result is owned only by its package, so it is invisible to the garbage collector, and a collection
+part-way through a round frees it: the next `PlayAnimation` on the dead pointer freezes the render thread and
+then kills the process. That is exactly the symptom, and exactly when these clips are played -- a stick hit is
+the only thing that plays them after they load. `AHIIntruder::StandClip` had the same bug and is fixed with it.
+
+**Diagnostics, so this can never be a mystery again.** Every step of the stick path now logs at Display level with
+a `HI: STICK` prefix: `squirm requested -- reaction N`, `reaction N begins (x.x s)`, `flinch done at x.xx s ->
+reaction|hang`, `reaction N done at x.xx s`, `back to hanging`. If the process dies, the LAST of those lines names
+the step it died in.
+
+**And a stress flag to prove it:** `-HISquirmSpam=seconds` makes a random prisoner squirm every half second from
+that moment. 90 seconds of it -- **273 stick reactions across all three characters** -- ran clean: no assert, no
+freeze, no exit. Before the fix this class of run is what would have found it.
+
 **Found it, and it was the chains (2026-11-05).** Richard sent a screenshot: the ground floor was a flat white sheet
 around the corridor, with the *stairs and the far rooms still wood*. Reproduced at that exact camera after one
 capture, and bisected:

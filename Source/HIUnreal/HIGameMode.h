@@ -493,6 +493,12 @@ private:
 	float TranqDemoAt = 1.0f;
 	/** -HISquirmDemo=seconds: at that point every captive does a reaction (0,1,2 in order). */
 	float SquirmDemoAt = -1.0f;
+	/** -HISquirmSpam=seconds: from that moment, make a random prisoner squirm every half second.
+	 *  A stress test for the stick path -- the freeze that killed the process needs stress to reproduce. */
+	float SquirmSpamAt = -1.0f;
+	float SquirmSpamNext = 0.0f;
+	int32 SquirmSpamIdx = 0;
+
 	/** -HIFireAt=seconds: one trigger pull at that moment (three frames), for captures. */
 	float FireAtSeconds = -1.0f;
 	int32 FireFrames = 0;

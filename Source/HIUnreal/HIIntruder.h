@@ -184,7 +184,9 @@ private:
 	/** True once the ragdoll has been abandoned for a by-hand fall (the Dancer's rig). */
 	bool bFallScripted = false;
 
-	/** The clip the hang evaluates by hand, because this actor does not tick. */
+	/** The clip the hang evaluates by hand, because this actor does not tick. UPROPERTY: a bare
+	 *  TObjectPtr is invisible to the GC and a collected clip crashes the next PlayAnimation. */
+	UPROPERTY()
 	TObjectPtr<class UAnimationAsset> StandClip;
 	/** Seconds since the dart landed; the body falls for a beat before it disappears. */
 	float CapturedT = 0.0f;

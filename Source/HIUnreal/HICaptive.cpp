@@ -151,6 +151,7 @@ void AHICaptive::Tick(float DeltaSeconds)
 		SquirmT += DeltaSeconds;
 		if (SquirmT >= SquirmLen)
 		{
+			UE_LOG(LogTemp, Display, TEXT("HI: STICK %s reaction %d done at %.2f s"), *CastTag, SquirmKind, SquirmT);
 			EndSquirm();
 		}
 		else
@@ -201,6 +202,7 @@ void AHICaptive::Squirm()
 	}
 	LastSquirmKind = Kind;
 	// A blow lands on the neck first, then the body answers: flinch, then the reaction.
+	UE_LOG(LogTemp, Display, TEXT("HI: STICK %s squirm requested -- reaction %d"), *CastTag, Kind);
 	Flinch(Kind);
 }
 
@@ -225,6 +227,8 @@ void AHICaptive::BeginSquirm(int32 Kind)
 	// 2 -- WRITHING, 1.6 s: the idle clip at 2.6x, so the limbs jerk, plus a slow quarter-turn twist.
 	SquirmKind = Kind;
 	SquirmT = 0.0f;
+	UE_LOG(LogTemp, Display, TEXT("HI: STICK %s reaction %d begins (%.1f s)"), *CastTag, Kind,
+		(Kind == 0) ? 2.0f : ((Kind == 1) ? 1.4f : 1.6f));
 	SquirmLen = (Kind == 0) ? 2.0f : ((Kind == 1) ? 1.4f : 1.6f);
 	HangRotation = GetActorRotation();
 	HangLocation = GetActorLocation();
@@ -256,6 +260,7 @@ void AHICaptive::BeginSquirm(int32 Kind)
 
 void AHICaptive::EndSquirm()
 {
+	UE_LOG(LogTemp, Display, TEXT("HI: STICK %s back to hanging"), *CastTag);
 	SquirmKind = -1;
 	SquirmT = 0.0f;
 	if (HangClip != nullptr)

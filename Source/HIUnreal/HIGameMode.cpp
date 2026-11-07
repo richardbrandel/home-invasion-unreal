@@ -107,6 +107,7 @@ void AHIGameMode::HandleCommandLine()
 	// way to photograph the one thing the tranquillizer produces.
 	FParse::Value(Cmd, TEXT("HISquirmDemo="), SquirmDemoAt);
 	FParse::Value(Cmd, TEXT("HIFireAt="), FireAtSeconds);
+	FParse::Value(Cmd, TEXT("HISquirmSpam="), SquirmSpamAt);
 	{
 		// `-HITranqDemo=N` or `-HITranqDemo=N@seconds`, so a capture can dart them when they are
 		// actually carrying something rather than a second in.
@@ -2138,6 +2139,21 @@ void AHIGameMode::Tick(float DeltaSeconds)
 	RoundSeconds += StepsThisFrame * SimFixedDt;
 
 	// The capture-only demonstration of the tranquillizer (see the flag's comment).
+	if (SquirmSpamAt >= 0.0f && RoundSeconds >= SquirmSpamAt && RoundSeconds >= SquirmSpamNext)
+	{
+		SquirmSpamNext = RoundSeconds + 0.5f;
+		TArray<AActor*> Found;
+		UGameplayStatics::GetAllActorsOfClass(this, AHICaptive::StaticClass(), Found);
+		if (Found.Num() > 0)
+		{
+			if (AHICaptive* Chained = Cast<AHICaptive>(Found[SquirmSpamIdx % Found.Num()]))
+			{
+				++SquirmSpamIdx;
+				Chained->SquirmAs(SquirmSpamIdx % 3);
+			}
+		}
+	}
+
 	if (SquirmDemoAt >= 0.0f && !bSquirmDemoDone && RoundSeconds >= SquirmDemoAt)
 	{
 		bSquirmDemoDone = true;

@@ -69,6 +69,12 @@ public:
 	float FlinchT = 0.0f;
 	float FlinchLen = 0.5f;
 	int32 PendingSquirmKind = -1;
+	/** UPROPERTY, AND THAT IS THE CRASH FIX (2026-11-05). `LoadObject` returns an object owned only by
+	 *  the package; a bare TObjectPtr is invisible to the garbage collector, so a collection part-way
+	 *  through a round freed the clip and the next PlayAnimation on it froze the render thread and then
+	 *  killed the process. Richard saw it as "the game froze and then died" after hitting a prisoner --
+	 *  which is exactly when these clips are played. */
+	UPROPERTY()
 	TObjectPtr<class UAnimationAsset> FlinchClip;
 	void UpdateFlinch(float DeltaSeconds);
 
@@ -87,7 +93,8 @@ public:
 	FString CastTag;
 
 private:
-	/** The clip the hang poses with: arms overhead, knees bent. */
+	/** The clip the hang poses with: arms overhead, knees bent. UPROPERTY for the reason above. */
+	UPROPERTY()
 	TObjectPtr<class UAnimationAsset> HangClip;
 
 	/** The wrists' ceiling anchors, kept for reference; drawing happens in UpdateChains via the pool. */
