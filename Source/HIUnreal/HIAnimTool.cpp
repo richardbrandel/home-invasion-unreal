@@ -559,39 +559,50 @@ FString UHIAnimTool::MakeHangClip(USkeletalMesh* Mesh, const FString& PackagePat
 	}
 	const FVector BodyLat = FVector::CrossProduct(BodyUp, BodyFwd).GetSafeNormal();
 
-	// ---- arms overhead
+	// ---- ARMS OVERHEAD, LINK BY LINK. Swinging only the upper arm was enough for the two women and
+	// never for the brute: his bind has the arms forward, and his shoulder keeps them there, so the
+	// clip showed him reaching out instead of hanging (measured: both arms swung ~80 degrees, and it
+	// made no visible difference). So each LINK of the chain -- clavicle, upper arm, forearm -- is
+	// swung to point up, exactly the way the legs are swung down below. A rig whose bind already has
+	// the arms up is unchanged by this, and one whose bind has them forward ends up vertical.
+	const FVector ArmUp = (BodyUp + BodyFwd * 0.10f).GetSafeNormal();
+	auto SwingLink = [&](const TCHAR* BoneName, const TCHAR* ChildName, const FVector& Want) -> bool
+	{
+		const int32 Bone = Ref.FindBoneIndex(BoneName);
+		const int32 Child = Ref.FindBoneIndex(ChildName);
+		const int32 Parent = Bone != INDEX_NONE ? Ref.GetParentIndex(Bone) : INDEX_NONE;
+		if (Bone == INDEX_NONE || Child == INDEX_NONE || Parent == INDEX_NONE)
+		{
+			return false;
+		}
+		const FVector Now = (CompPos[Child] - CompPos[Bone]).GetSafeNormal();
+		if (Now.IsNearlyZero())
+		{
+			return false;
+		}
+		const FQuat CompNew = FQuat::FindBetweenNormals(Now, Want) * CompRot[Bone];
+		Base[Bone].SetRotation(CompRot[Parent].Inverse() * CompNew);
+		CompRot[Bone] = CompNew;
+		return true;
+	};
 	int32 Raised = 0;
-	for (const TCHAR* ArmName : { TEXT("LeftArm"), TEXT("RightArm") })
+	for (int32 Side = 0; Side < 2; ++Side)
 	{
-		const int32 Arm = Ref.FindBoneIndex(ArmName);
-		const int32 Parent = Arm != INDEX_NONE ? Ref.GetParentIndex(Arm) : INDEX_NONE;
-		if (Arm == INDEX_NONE || Parent == INDEX_NONE)
+		const bool bLeft = (Side == 0);
+		if (SwingLink(bLeft ? TEXT("LeftShoulder") : TEXT("RightShoulder"),
+			bLeft ? TEXT("LeftArm") : TEXT("RightArm"), ArmUp))
 		{
-			continue;
+			++Raised;
 		}
-		const int32 Child = Ref.FindBoneIndex(Arm == Ref.FindBoneIndex(TEXT("LeftArm"))
-			? TEXT("LeftForeArm") : TEXT("RightForeArm"));
-		FVector Now = CompRot[Arm].GetAxisX();
-		if (Child != INDEX_NONE)
+		if (SwingLink(bLeft ? TEXT("LeftArm") : TEXT("RightArm"),
+			bLeft ? TEXT("LeftForeArm") : TEXT("RightForeArm"), ArmUp))
 		{
-			Now = (CompPos[Child] - CompPos[Arm]).GetSafeNormal();
+			++Raised;
 		}
-		const FVector Want = (BodyUp + BodyFwd * 0.16f).GetSafeNormal();
-		const FQuat CompNew = FQuat::FindBetweenNormals(Now, Want) * CompRot[Arm];
-		Base[Arm].SetRotation(CompRot[Parent].Inverse() * CompNew);
-		CompRot[Arm] = CompNew;
-		++Raised;
+		SwingLink(bLeft ? TEXT("LeftForeArm") : TEXT("RightForeArm"),
+			bLeft ? TEXT("LeftHand") : TEXT("RightHand"), ArmUp);
 	}
-	// Soften the elbows: a dead-straight arm reads as a scarecrow.
-	for (const TCHAR* ForeName : { TEXT("LeftForeArm"), TEXT("RightForeArm") })
-	{
-		const int32 Fore = Ref.FindBoneIndex(ForeName);
-		if (Fore != INDEX_NONE)
-		{
-			Base[Fore].SetRotation(Base[Fore].GetRotation()
-				* FQuat(BodyFwd, FMath::DegreesToRadians(18.0f)));
-		}
-	}
+
 	// ---- LEGS HANGING DOWN, BY SWINGING THEM, NOT BY TRUSTING A BIND POSE.
 	// This was a fixed 4 degrees of thigh and 10 of knee, on the assumption that every rig's
 	// reference pose stands with its legs down. The brute's does not: his bind has the knees folded
@@ -711,7 +722,7 @@ FString UHIAnimTool::MakeHangClip(USkeletalMesh* Mesh, const FString& PackagePat
 	SaveArgs.TopLevelFlags = RF_Public | RF_Standalone;
 	const bool bSaved = Package != nullptr && UPackage::SavePackage(Package, Seq, *FileName, SaveArgs);
 	return FString::Printf(
-		TEXT("%s: %d arms raised, %d track(s) x %d keys, %s | up=(%.2f,%.2f,%.2f) fwd=(%.2f,%.2f,%.2f) lat=(%.2f,%.2f,%.2f)"),
+		TEXT("%s: %d arm links raised, %d track(s) x %d keys, %s | up=(%.2f,%.2f,%.2f) fwd=(%.2f,%.2f,%.2f) lat=(%.2f,%.2f,%.2f)"),
 		*PackagePath, Raised, Written, Keys, bSaved ? TEXT("SAVED") : TEXT("SAVE FAILED"),
 		BodyUp.X, BodyUp.Y, BodyUp.Z, BodyFwd.X, BodyFwd.Y, BodyFwd.Z,
 		BodyLat.X, BodyLat.Y, BodyLat.Z);

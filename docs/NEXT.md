@@ -437,6 +437,22 @@ cell a meter wider and 1/2 meter deeper."*
   to widen without moving a column; the walls route around them, and the north wall moved to -12.82
   because the `baseOpen`->`baseDoor` walk line's envelope fouled the old corner.
 
+**Lowered, turned to the door, and the arms finally overhead (2026-11-05).** *"Lower the Brute by enough so
+that he can hang by his arms... about 2 feet... Also turn the prisoners 90 degrees to the left so that
+they are facing the entrance to the cell."*
+
+* The brute hangs at **0.19 m** instead of 0.80 (2 ft lower). He is 2.2 m of man in a 3.29 m cellar;
+  at the women's height his head and shoulders were jammed against the deck and his arms had nowhere to
+  go. The women keep 0.80.
+* The prisoners are **turned a quarter turn** (`FRotator(7, 90, 3)`), so they face the doorway in the
+  east face of the cell rather than the back wall.
+* **The brute's arms are overhead at last**, and the answer was the thing flagged as unexplained last
+  time: swinging only the UPPER ARM was enough for the women and never for him, because his bind has the
+  arms forward and his clavicle keeps them there. The generator now swings **every link** -- clavicle,
+  upper arm, forearm -- to point up, the same construction the legs use downwards. A rig whose bind
+  already has the arms up is unchanged by it (the two women look the same), and one whose bind has them
+  forward ends up vertical (the brute does).
+
 **The brute's legs, fixed by not trusting a bind pose (2026-11-05).** His hang was written as "4 degrees of
 thigh, 10 of knee", on the assumption that every rig's reference pose stands with its legs down. **The
 brute's does not** -- his bind has the knees folded up, so the clip faithfully hung him with his knees

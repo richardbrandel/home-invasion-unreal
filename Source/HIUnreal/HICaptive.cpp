@@ -81,12 +81,18 @@ void AHICaptive::Hang(int32 InThiefId, const FString& InTag, const FVector& Stat
 	// two: `Body` is the ROOT, so a "relative" move on it is a move of the whole actor -- setting the
 	// station and then the relative offset left him at (0, 0, 23) cm, i.e. the world origin on the
 	// ground floor, which is why the first captive capture showed chains and no man.
-	// OFF THE FLOOR, NOW THAT THERE IS ROOM FOR IT. With the basement a metre taller the man hangs
-	// clear: wrists at the ceiling, feet 0.8 m up, a visible run of chain. Before the extra metre
-	// the ceiling forced him onto tiptoe.
-	SetActorLocation(Station + FVector(0.0f, 0.0f, 0.80f * HI_METERS_TO_UU));
-	// A limp man is not a plumb line.
-	SetActorRotation(FRotator(7.0f, GetActorRotation().Yaw, 3.0f));
+	// OFF THE FLOOR -- BUT THE BRUTE HANGS LOW ENOUGH FOR HIS ARMS TO BE STRAIGHT UP (Richard,
+	// 2026-11-05: "lower the Brute by enough so that he can hang by his arms. Lower him about 2 feet
+	// and then I hope there will be enough room for his body."). He is 2.2 m of man in a 3.29 m
+	// cellar: hung like the women, his head and shoulders were jammed against the deck and the arms
+	// had nowhere to go. 2 ft = 0.61 m, so he hangs at 0.19 and the two women keep 0.80.
+	const float Lift = (CastTag == TEXT("brute")) ? 0.19f : 0.80f;
+	SetActorLocation(Station + FVector(0.0f, 0.0f, Lift * HI_METERS_TO_UU));
+	// FACING THE DOOR (Richard, 2026-11-05: "turn the prisoners 90 degrees to the left so that they
+	// are facing the entrance to the cell"). The doorway is the 1.00 m gap in the EAST face, and the
+	// cell was built so that +X is east, so a quarter turn from the spawn yaw points them at it --
+	// and then straightens the spawn yaw out, because a prisoner rotates to face his visitor.
+	SetActorRotation(FRotator(7.0f, 90.0f, 3.0f));
 
 	// Chains and cuffs: instanced cubes, restamped every frame.
 	const TCHAR* CubePath = TEXT("/Engine/BasicShapes/Cube.Cube");
