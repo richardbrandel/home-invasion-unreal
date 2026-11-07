@@ -129,8 +129,15 @@ void AHIPlayerCharacter::SetWeaponVisual(const FString& Weapon)
 	// last 10% needs an artist, and that door stays open -- any .fbx/.glb dropped into
 	// SourceAssets/weapons/ imports the same way and only this path changes. The pistol is
 	// still the engine's own; it was never a stand-in, it is a pistol.
-	const TCHAR* Path = (Weapon == TEXT("shotgun")) ? ShotgunMeshPath
-		: TEXT("/Game/Weapons/Pistol/Meshes/SM_Pistol.SM_Pistol");
+	// THE STICK IS A STICK (Richard, 2026-11-05: "in the dungeon, the stick looks like a pistol").
+	// It was falling through to the pistol, which is the fallback for every non-shotgun key. It is
+	// the engine's cube, scaled into a 90 cm shaft along the PISTOL'S OWN long axis -- measured from
+	// the swap log: SM_Pistol's extent is (3.0, 13.1, 9.5) cm, so its barrel runs along +Y and a box
+	// stretched on Y lies where a barrel lies without a pivot to argue about.
+	const bool bStick = (Weapon == TEXT("stick"));
+	const TCHAR* Path = bStick ? TEXT("/Engine/BasicShapes/Cube.Cube")
+		: ((Weapon == TEXT("shotgun")) ? ShotgunMeshPath
+			: TEXT("/Game/Weapons/Pistol/Meshes/SM_Pistol.SM_Pistol"));
 
 	if (UStaticMesh* Mesh = LoadObject<UStaticMesh>(nullptr, Path))
 	{
@@ -155,6 +162,16 @@ void AHIPlayerCharacter::SetWeaponVisual(const FString& Weapon)
 				Bounds.Origin.X, Bounds.Origin.Y, Bounds.Origin.Z);
 		}
 		FHICharAnim::AttachPistol(this, Body, Gun);
+		// After the attach, because that sets the relative transform the pistol needs.
+		if (bStick)
+		{
+			Gun->SetRelativeScale3D(FVector(0.03f, 0.90f, 0.03f));
+			FHIMaterials::Tint(Gun, FLinearColor(0.42f, 0.28f, 0.15f));
+		}
+		else
+		{
+			Gun->SetRelativeScale3D(FVector::OneVector);
+		}
 	}
 }
 

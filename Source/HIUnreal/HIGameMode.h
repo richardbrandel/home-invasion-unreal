@@ -321,7 +321,7 @@ public:
 	UPROPERTY(EditDefaultsOnly, Category = "Home Invasion")
 	float ShotRangeMeters = 60.0f;
 	/** The stick's reach: an arm and the stick, about 1.8 m. A gun sees 60. */
-	float StickReachMeters = 1.8f;
+	float StickReachMeters = 2.8f;
 
 	/** Start a fresh round: new intruders, new loot, the same house. Bound to [ENTER]. */
 	UFUNCTION(BlueprintCallable, Category = "Home Invasion")

@@ -91,7 +91,16 @@ TArray<FString> AHIHUD::RoundLines(const FHISim::FHIRound& Round)
 	const FString Ammo = P.Reloading > 0.0f
 		? FString(TEXT("RELOADING"))
 		: FString::Printf(TEXT("%d / %d"), P.Mag, Reserve != nullptr ? *Reserve : 0);
-	Lines.Add(FString::Printf(TEXT("%s   %s"), *P.Weapon.ToUpper(), *Ammo));
+	// A STICK HAS NO AMMUNITION, so it gets no counts: "STICK 0 / 0" reads like an empty gun, which
+	// is the opposite of what a melee weapon is. Everything else keeps the magazine and the bag.
+	if (FHISim::Weapon(P.Weapon).bMelee)
+	{
+		Lines.Add(FString::Printf(TEXT("%s"), *FHISim::Weapon(P.Weapon).Name.ToUpper()));
+	}
+	else
+	{
+		Lines.Add(FString::Printf(TEXT("%s   %s"), *P.Weapon.ToUpper(), *Ammo));
+	}
 
 	// Three valuables, so "stolen" is what is NOT still in the world.
 	Lines.Add(FString::Printf(TEXT("LOOT STOLEN  %d / 3"), 3 - Round.Remaining()));

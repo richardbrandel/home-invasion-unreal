@@ -437,6 +437,26 @@ cell a meter wider and 1/2 meter deeper."*
   to widen without moving a column; the walls route around them, and the north wall moved to -12.82
   because the `baseOpen`->`baseDoor` walk line's envelope fouled the old corner.
 
+**Three from play (2026-11-05).** *"The stick looks like a pistol, the stick should also work a little farther
+from the intruder. Also the dancer is solid, but in the cell, Alina and the Brute are walk through."*
+
+* **The stick was the pistol**: `SetWeaponVisual` falls back to the pistol mesh for every key it does not know,
+  and "stick" was not one. It is now the engine's cube scaled to a 90 cm shaft (3 x 90 x 3 cm) with a wood
+  tint, stretched along the PISTOL'S OWN long axis -- measured from the swap log, `SM_Pistol`'s extent is
+  (3.0, 13.1, 9.5) cm, so its barrel runs along +Y and a box stretched on Y lies where a barrel lies.
+* **Reach 1.8 -> 2.8 m.** Two metres is a lunge; this is a swing.
+* **The walk-through bodies were a collision-channel bug, not a per-character one.** The captive's hit capsule
+  blocked `ECC_Visibility` and `ECC_WorldDynamic` only, and a character's own capsule is on `ECC_Pawn` -- so the
+  chained men were shootable but not solid. The dancer *looked* solid because her imported mesh carries
+  collision of its own while the other two carry none. Now the capsule blocks `ECC_Pawn`, and every captive's
+  mesh is explicitly `NoCollision` after `SetupCharacter`, so the capsule is the single source of solidity for
+  all three and they cannot drift apart again.
+* **"STICK 0 / 0"** on the HUD reads like an empty gun. A melee weapon now prints its name alone.
+
+Verified in the log: `weapon visual -> stick (mesh Cube)`. The *look* of the stick in hand could not be framed --
+the shot camera trails the player and the weapon is hidden by his own body when he stands in the cell -- so
+whether the shaft sits nicely in the hand is a judgement for play.
+
 **The stick, and squirming (2026-11-05).** *"When the homeowner enters the cage, the weapons will change. 1)
 will be the pistol 2) will be the shotgun and 3) will be a stick. If the prisoner gets hit with a stick, they
 will squirm. Try your best at squirm. I think we will have some random movements with each stick hit. One of

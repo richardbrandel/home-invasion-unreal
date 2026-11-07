@@ -27,6 +27,12 @@ AHICaptive::AHICaptive()
 	Hit->SetCollisionResponseToAllChannels(ECR_Ignore);
 	Hit->SetCollisionResponseToChannel(ECC_Visibility, ECR_Block);
 	Hit->SetCollisionResponseToChannel(ECC_WorldDynamic, ECR_Block);
+	// AND THE PAWN, or the player walks straight through him (Richard, 2026-11-05: "in the cell,
+	// Alina and the Brute are walk through"). A character's own capsule is on ECC_Pawn, which is
+	// neither of the two channels above, so the chained men were only shootable, not solid. The
+	// dancer read as solid because her imported MESH carries collision of its own; the other two
+	// meshes do not, which is exactly the kind of difference that looks like one working body.
+	Hit->SetCollisionResponseToChannel(ECC_Pawn, ECR_Block);
 	// The same man the sim models: a capsule of ThiefRadius and the intruder's height. The intruder
 	// makes its capsule for exactly this reason -- the sim decides hit points, not the mesh.
 	Hit->SetCapsuleSize(FHISim::ThiefRadius * HI_METERS_TO_UU, 0.85f * HI_METERS_TO_UU);
@@ -50,6 +56,9 @@ void AHICaptive::Hang(int32 InThiefId, const FString& InTag, const FVector& Stat
 	{
 		Body->SetSkeletalMeshAsset(Mesh);
 		FHICharAnim::SetupCharacter(Body, *CastTag);
+		// One source of solidity -- the capsule -- so all three behave the same whether or not the
+		// imported mesh happens to carry its own collision (the dancer's does).
+		Body->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	}
 	else
 	{
