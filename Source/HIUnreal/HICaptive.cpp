@@ -88,11 +88,16 @@ void AHICaptive::Hang(int32 InThiefId, const FString& InTag, const FVector& Stat
 	// had nowhere to go. 2 ft = 0.61 m, so he hangs at 0.19 and the two women keep 0.80.
 	const float Lift = (CastTag == TEXT("brute")) ? 0.19f : 0.80f;
 	SetActorLocation(Station + FVector(0.0f, 0.0f, Lift * HI_METERS_TO_UU));
-	// FACING THE DOOR (Richard, 2026-11-05: "turn the prisoners 90 degrees to the left so that they
-	// are facing the entrance to the cell"). The doorway is the 1.00 m gap in the EAST face, and the
-	// cell was built so that +X is east, so a quarter turn from the spawn yaw points them at it --
-	// and then straightens the spawn yaw out, because a prisoner rotates to face his visitor.
-	SetActorRotation(FRotator(7.0f, 90.0f, 3.0f));
+	// FACING THE DOOR. Richard, 2026-11-05: "turn the prisoners 90 degrees to the left so that they
+	// are facing the entrance to the cell", and then, on the capture: "you turned the prisoners the
+	// wrong way. Now if you turn them 180 degrees, I think they will be OK."
+	//
+	// He was right: at 90 they showed the doorway their BACKS (the camera stands outside the east
+	// face, and the shot had their shoulder blades to it). 270 faces the opening. The lesson is that
+	// +90 was reasoned from the cell's axes rather than read off a frame, and the bind facing of these
+	// meshes is not the actor's forward -- which is the same trap that has bitten the walking yaw and
+	// the hang pose before.
+	SetActorRotation(FRotator(7.0f, 270.0f, 3.0f));
 
 	// Chains and cuffs: instanced cubes, restamped every frame.
 	const TCHAR* CubePath = TEXT("/Engine/BasicShapes/Cube.Cube");

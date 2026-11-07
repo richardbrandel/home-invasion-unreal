@@ -444,8 +444,12 @@ they are facing the entrance to the cell."*
 * The brute hangs at **0.19 m** instead of 0.80 (2 ft lower). He is 2.2 m of man in a 3.29 m cellar;
   at the women's height his head and shoulders were jammed against the deck and his arms had nowhere to
   go. The women keep 0.80.
-* The prisoners are **turned a quarter turn** (`FRotator(7, 90, 3)`), so they face the doorway in the
-  east face of the cell rather than the back wall.
+* The prisoners face the doorway in the east face of the cell: **`FRotator(7, 270, 3)`**. The first
+  attempt used 90 and Richard, looking at the capture, said it exactly right -- "you turned the
+  prisoners the wrong way. Now if you turn them 180 degrees, I think they will be OK." At 90 they had
+  their shoulder blades to the door. **The lesson: 90 was reasoned from the cell's axes instead of read
+  off a frame, and these meshes' bind facing is not the actor's forward** -- the same trap as the
+  walking yaw and the hang pose.
 * **The brute's arms are overhead at last**, and the answer was the thing flagged as unexplained last
   time: swinging only the UPPER ARM was enough for the women and never for him, because his bind has the
   arms forward and his clavicle keeps them there. The generator now swings **every link** -- clavicle,
