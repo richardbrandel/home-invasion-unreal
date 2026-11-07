@@ -70,6 +70,10 @@ void AHICaptive::Hang(int32 InThiefId, const FString& InTag, const FVector& Stat
 	// clear of the slab.
 	const FString HangPath = FString::Printf(TEXT("/Game/HIImported/characters_%s/hang"), *CastTag);
 	HangClip = LoadObject<UAnimationAsset>(nullptr, *HangPath);
+	// The head snap, from the same generator family: `HIAnimTool::MakeFlinchClip` wrote it as a copy of
+	// the hang pose with only Head/Neck/Spine2 replaced by a flinch arc.
+	FlinchClip = LoadObject<UAnimationAsset>(nullptr,
+		*FString::Printf(TEXT("/Game/HIImported/characters_%s/flinch"), *CastTag));
 	if (HangClip != nullptr)
 	{
 		Body->SetAnimationMode(EAnimationMode::AnimationSingleNode);
@@ -134,6 +138,8 @@ void AHICaptive::Hang(int32 InThiefId, const FString& InTag, const FVector& Stat
 	ChainAnchor[1] = FVector(Station.X, Station.Y, CeilingZ);
 
 	bHanging = true;
+	// He wakes up in the cell: one head snap, so the first thing the player sees is a man moving.
+	Flinch(-1);
 	UE_LOG(LogTemp, Display, TEXT("HI: %s (%d) chained in the basement at (%.2f, %.2f)"),
 		*CastTag, ThiefId, Station.X / HI_METERS_TO_UU, Station.Y / HI_METERS_TO_UU);
 }
@@ -145,6 +151,8 @@ void AHICaptive::Tick(float DeltaSeconds)
 	{
 		UpdateChains();
 	}
+
+	UpdateFlinch(DeltaSeconds);
 
 	// ---- A SQUIRM, if one is running. Each reaction moves a different thing, and every one of them
 	// shakes the body as well: the clip alone was not enough -- reaction 2 played the idle clip and
@@ -203,7 +211,8 @@ void AHICaptive::Squirm()
 		Kind = (Kind + 1) % 3;
 	}
 	LastSquirmKind = Kind;
-	BeginSquirm(Kind);
+	// A blow lands on the neck first, then the body answers: flinch, then the reaction.
+	Flinch(Kind);
 }
 
 void AHICaptive::SquirmAs(int32 Kind)
@@ -268,6 +277,60 @@ void AHICaptive::EndSquirm()
 	}
 	SetActorRotation(HangRotation);
 	SetActorLocation(HangLocation);
+}
+
+void AHICaptive::Flinch(int32 ThenSquirmKind)
+{
+	if (bDead || !bHanging)
+	{
+		return;
+	}
+	PendingSquirmKind = ThenSquirmKind;
+	bFlinching = true;
+	FlinchT = 0.0f;
+	if (FlinchClip != nullptr)
+	{
+		Body->SetAnimationMode(EAnimationMode::AnimationSingleNode);
+		Body->SetAnimation(FlinchClip);
+		Body->PlayAnimation(FlinchClip, /*bLooping=*/false);
+		Body->SetPlayRate(1.0f);
+	}
+	else
+	{
+		// No clip (a Content/ that predates the generator): the reaction alone still happens.
+		bFlinching = false;
+		if (PendingSquirmKind >= 0)
+		{
+			BeginSquirm(PendingSquirmKind);
+		}
+	}
+}
+
+void AHICaptive::UpdateFlinch(float DeltaSeconds)
+{
+	if (!bFlinching)
+	{
+		return;
+	}
+	FlinchT += DeltaSeconds;
+	if (FlinchT < FlinchLen)
+	{
+		return;
+	}
+	bFlinching = false;
+	// The head snap is the FIRST half of the answer to a blow; the body reaction follows it.
+	if (PendingSquirmKind >= 0)
+	{
+		const int32 Kind = PendingSquirmKind;
+		PendingSquirmKind = -1;
+		BeginSquirm(Kind);
+	}
+	else if (HangClip != nullptr)
+	{
+		Body->SetAnimationMode(EAnimationMode::AnimationSingleNode);
+		Body->SetAnimation(HangClip);
+		Body->PlayAnimation(HangClip, /*bLooping=*/true);
+	}
 }
 
 void AHICaptive::GoLimp()

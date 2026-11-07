@@ -570,6 +570,153 @@ FString UHIAnimTool::MakeLowerBodyClip(USkeletalMesh* Mesh, const FString& WalkP
 #endif
 }
 
+FString UHIAnimTool::MakeFlinchClip(USkeletalMesh* Mesh, const FString& SourcePath,
+	const FString& DestPath)
+{
+#if WITH_EDITOR
+	// A HEAD SNAP, for fear without a face (Richard, 2026-11-05: "yes, do the neck bone thing").
+	// The cast has no morph targets and no face bones, so the only thing that can move is the neck:
+	// a man who jerks his head back and then cowers reads as frightened even with a fixed face.
+	//
+	// The destination is expected to be a COPY of the source (for a prisoner, the HANG clip). Only
+	// the Head, Neck and Spine2 tracks are rewritten -- a snap back on the lateral axis, an overshoot
+	// the other way, then a settle -- so the rest of the pose is untouched and the clip can be
+	// dropped on top of a hanging body without moving his wrists out of the cuffs.
+	UAnimSequence* Src = LoadObject<UAnimSequence>(nullptr, *SourcePath);
+	UAnimSequence* Dest = LoadObject<UAnimSequence>(nullptr, *DestPath);
+	if (Src == nullptr || Dest == nullptr || Mesh == nullptr)
+	{
+		return FString::Printf(TEXT("%s: missing source (%s) or destination"), *DestPath, *SourcePath);
+	}
+	const IAnimationDataModel* SrcModel = Src->GetDataModel();
+	IAnimationDataModel* DestModel = Dest->GetDataModel();
+	if (SrcModel == nullptr || DestModel == nullptr)
+	{
+		return FString::Printf(TEXT("%s: no data model"), *DestPath);
+	}
+	TScriptInterface<IAnimationDataController> ControllerSI = DestModel->GetController();
+	IAnimationDataController* Controller = ControllerSI.GetInterface();
+	const FReferenceSkeleton& Ref = Mesh->GetRefSkeleton();
+	const int32 Num = Ref.GetNum();
+	if (Controller == nullptr || Num == 0)
+	{
+		return FString::Printf(TEXT("%s: no controller/skeleton"), *DestPath);
+	}
+
+	// The source's OWN first-frame pose is the base: for a prisoner that is the hang pose with the
+	// arms up, which is why this reads the clip rather than the reference skeleton.
+	TArray<FTransform> Local = Ref.GetRefBonePose();
+	for (int32 i = 0; i < Num; ++i)
+	{
+		const FName Bone = Ref.GetBoneName(i);
+		bool bFirst = true;
+		SrcModel->IterateBoneKeys(Bone,
+			[&Local, i, &bFirst](const FVector3f& P, const FQuat4f& R, const FVector3f S, const FFrameNumber&)
+			{
+				if (bFirst)
+				{
+					bFirst = false;
+					Local[i] = FTransform(FQuat(R), FVector(P), FVector(S));
+				}
+				return true;
+			});
+	}
+
+	// Component rotations of that base pose, and the rig's own frame (the same derivation the hang
+	// pose uses: up is hips -> head, forward is foot -> toe).
+	TArray<FQuat> CompRot;
+	TArray<FVector> CompPos;
+	CompRot.SetNum(Num);
+	CompPos.SetNum(Num);
+	for (int32 i = 0; i < Num; ++i)
+	{
+		const int32 Parent = Ref.GetParentIndex(i);
+		CompRot[i] = Local[i].GetRotation() * ((Parent != INDEX_NONE) ? CompRot[Parent] : FQuat::Identity);
+		CompPos[i] = (Parent != INDEX_NONE)
+			? CompPos[Parent] + CompRot[Parent].RotateVector(Local[i].GetTranslation())
+			: Local[i].GetTranslation();
+	}
+	const int32 Hips = Ref.FindBoneIndex(TEXT("Hips"));
+	const int32 HeadBone = Ref.FindBoneIndex(TEXT("Head"));
+	const int32 Foot = Ref.FindBoneIndex(TEXT("LeftFoot"));
+	const int32 Toe = Ref.FindBoneIndex(TEXT("LeftToeBase"));
+	FVector BodyUp = FVector::UpVector;
+	if (Hips != INDEX_NONE && HeadBone != INDEX_NONE
+		&& (CompPos[HeadBone] - CompPos[Hips]).SizeSquared() > 1.0f)
+	{
+		BodyUp = (CompPos[HeadBone] - CompPos[Hips]).GetSafeNormal();
+	}
+	FVector BodyFwd = FVector::ForwardVector;
+	if (Foot != INDEX_NONE && Toe != INDEX_NONE
+		&& (CompPos[Toe] - CompPos[Foot]).SizeSquared() > 1.0f)
+	{
+		BodyFwd = (CompPos[Toe] - CompPos[Foot]).GetSafeNormal();
+		BodyFwd = (BodyFwd - BodyUp * FVector::DotProduct(BodyFwd, BodyUp)).GetSafeNormal();
+	}
+	const FVector BodyLat = FVector::CrossProduct(BodyUp, BodyFwd).GetSafeNormal();
+
+	// 15 keys at 30 fps: half a second. The shape is a flinch -- snap back hard, overshoot, settle --
+	// and it is deliberately front-loaded, because a flinch that eases in looks like a nod.
+	//
+	//         key:  0    1    2    3    4    5    6    8   10   12   14
+	//      pitch:  0  -14  -26  -22  -12    -4    +6   +3   -1    0    0   (degrees)
+	//        yaw:  0    3    6    4     1    -3    -5   -2    0    0    0
+	struct FWob { int32 Frame; float Pitch; float Yaw; };
+	static const FWob Wob[] = {
+		{ 0, 0.0f, 0.0f }, { 1, -14.0f, 3.0f }, { 2, -26.0f, 6.0f }, { 3, -22.0f, 4.0f },
+		{ 4, -12.0f, 1.0f }, { 5, -4.0f, -3.0f }, { 6, 6.0f, -5.0f }, { 7, 4.0f, -3.0f },
+		{ 8, 3.0f, -2.0f }, { 9, 1.0f, -1.0f }, { 10, -1.0f, 0.0f }, { 11, -0.5f, 0.0f },
+		{ 12, 0.0f, 0.0f }, { 13, 0.0f, 0.0f }, { 14, 0.0f, 0.0f }
+	};
+	const int32 Keys = UE_ARRAY_COUNT(Wob);
+	Controller->SetNumberOfFrames(FFrameNumber(Keys));
+
+	auto Snap = [&](const TCHAR* BoneName, float Scale) -> bool
+	{
+		const int32 Bone = Ref.FindBoneIndex(BoneName);
+		const int32 Parent = Bone != INDEX_NONE ? Ref.GetParentIndex(Bone) : INDEX_NONE;
+		if (Bone == INDEX_NONE || Parent == INDEX_NONE)
+		{
+			return false;
+		}
+		const FQuat BaseComp = CompRot[Bone];
+		TArray<FVector3f> Pos;
+		TArray<FQuat4f> Rot;
+		TArray<FVector3f> Scale3;
+		Pos.Reserve(Keys); Rot.Reserve(Keys); Scale3.Reserve(Keys);
+		for (const FWob& W : Wob)
+		{
+			FQuat CompNew = FQuat(BodyLat, FMath::DegreesToRadians(W.Pitch * Scale)) * BaseComp;
+			CompNew = FQuat(BodyUp, FMath::DegreesToRadians(W.Yaw * Scale)) * CompNew;
+			const FQuat NewLocal = CompRot[Parent].Inverse() * CompNew;
+			Pos.Add(FVector3f(Local[Bone].GetTranslation()));
+			Rot.Add(FQuat4f(NewLocal));
+			Scale3.Add(FVector3f(Local[Bone].GetScale3D()));
+		}
+		Controller->AddBoneCurve(FName(BoneName), /*bShouldTransact=*/false);
+		return Controller->SetBoneTrackKeys(FName(BoneName), Pos, Rot, Scale3, /*bShouldTransact=*/false);
+	};
+
+	Controller->OpenBracket(FText::FromString(TEXT("HI flinch")), /*bShouldTransact=*/false);
+	int32 Written = 0;
+	Written += Snap(TEXT("Head"), 1.0f) ? 1 : 0;
+	Written += Snap(TEXT("Neck"), 0.55f) ? 1 : 0;      // the neck carries the same arc, damped
+	Written += Snap(TEXT("Spine2"), 0.18f) ? 1 : 0;    // and a little of it runs down the spine
+	Controller->CloseBracket();
+
+	UPackage* Package = Dest->GetOutermost();
+	const FString FileName = FPackageName::LongPackageNameToFilename(
+		Package != nullptr ? Package->GetName() : FString(), FPackageName::GetAssetPackageExtension());
+	FSavePackageArgs SaveArgs;
+	SaveArgs.TopLevelFlags = RF_Public | RF_Standalone;
+	const bool bSaved = Package != nullptr && UPackage::SavePackage(Package, Dest, *FileName, SaveArgs);
+	return FString::Printf(TEXT("%s: %d neck track(s) x %d keys, %s"),
+		*DestPath, Written, Keys, bSaved ? TEXT("SAVED") : TEXT("SAVE FAILED"));
+#else
+	return TEXT("FAILED: editor only");
+#endif
+}
+
 FString UHIAnimTool::MakeHangClip(USkeletalMesh* Mesh, const FString& PackagePath)
 {
 #if WITH_EDITOR

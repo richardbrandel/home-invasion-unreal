@@ -60,6 +60,18 @@ public:
 	 */
 	void Squirm();
 
+	/** Head snap and cower: the only fear these models can express. Plays the flinch clip, then
+	 *  hands over to whatever `PendingKind` asked for (or back to hanging if nothing did). */
+	void Flinch(int32 ThenSquirmKind = -1);
+
+	/** True while a flinch is playing, so Tick can hand over when it ends. */
+	bool bFlinching = false;
+	float FlinchT = 0.0f;
+	float FlinchLen = 0.5f;
+	int32 PendingSquirmKind = -1;
+	TObjectPtr<class UAnimationAsset> FlinchClip;
+	void UpdateFlinch(float DeltaSeconds);
+
 	/** Capture-only: force a specific reaction, so all three can be photographed side by side. */
 	void SquirmAs(int32 Kind);
 

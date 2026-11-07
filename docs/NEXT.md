@@ -437,6 +437,27 @@ cell a meter wider and 1/2 meter deeper."*
   to widen without moving a column; the walls route around them, and the north wall moved to -12.82
   because the `baseOpen`->`baseDoor` walk line's envelope fouled the old corner.
 
+**Fear with a fixed face: the neck snap (2026-11-05).** *"We put so much work into the current models, I am
+afraid to get new models and start from scratch. Yes, do the neck bone thing."*
+
+The cast has **nothing** to animate a face with (0 morph targets, no jaw/brow/eye bones -- measured), but the Head
+and Neck bones are real, and a man who jerks his head back and cowers reads as frightened with any face.
+
+`HIAnimTool::MakeFlinchClip` writes `<tag>/flinch`: a COPY of the hang clip -- so the body stays hanging with its
+wrists in the cuffs -- with only **Head, Neck and Spine2** rewritten to a 15-key, half-second arc: snap back
+26 degrees with a 6 degree turn, overshoot the other way, settle. The snapping frame table is written out in the
+function; the shape is front-loaded on purpose, because a flinch that eases in is a nod.
+
+Wired in three places:
+* **on arrival in the cell** -- the first thing the player sees is a man moving (`Flinch(-1)` at the end of
+  `Hang`). Without that he appeared as a perfectly still prop.
+* **on every stick hit**, BEFORE the reaction: a blow lands on the neck first and the body answers second, so
+  `Squirm()` now calls `Flinch(Kind)` and the reaction starts when the snap finishes.
+* there is a fallback if the clip is missing (a Content/ that predates the generator): the reaction still runs.
+
+Measured: the head goes from **5.2 to 23.9 degrees** off the body's forward axis in **0.06 s**, then decays
+through 21, 17, 14.7 -- the commanded 26 is the peak, and the rig reports 24.
+
 **The wound reveal undid the fix (2026-11-05).** The capture branch hid the wound quads, but `SyncFromSim`
 calls `ShowWounds(...)` on EVERY FRAME from health, so the next frame put them straight back: a captured man is
 `bAlive`, with wounds from earlier hits, and those quads are parented to bones the capture then hands to

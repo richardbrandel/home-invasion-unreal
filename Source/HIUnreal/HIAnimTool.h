@@ -128,6 +128,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Home Invasion")
 	static FString MakeLowerBodyClip(USkeletalMesh* Mesh, const FString& WalkPath, const FString& DestPath);
 
+	/** Head-snap flinch into a (duplicated) clip: Head, Neck and a little Spine2, nothing else. */
+	UFUNCTION(BlueprintCallable, Category = "Home Invasion")
+	static FString MakeFlinchClip(USkeletalMesh* Mesh, const FString& SourcePath, const FString& DestPath);
+
 	/** Report bone segments that are impossibly long for the character's own height -- a bind whose
 	 *  joints sit far from where the geometry is. Such a bind renders correctly until a bone rotates,
 	 *  and then its vertices draw as spikes ("long swords" on the Dancer, 2026-11-05). */
