@@ -181,12 +181,30 @@ void AHICaptive::UpdateChains()
 		CuffInstances->ClearInstances();
 	}
 	static const TCHAR* const Hands[2] = { TEXT("LeftHand"), TEXT("RightHand") };
+	static const TCHAR* const Elbows[2] = { TEXT("LeftForeArm"), TEXT("RightForeArm") };
 	const int32 Links = 6;
 	for (int32 i = 0; i < 2; ++i)
 	{
 		// Now that the engine ticks this actor, the hand bones ARE the drawn pose -- the thing the
 		// intruder version could never rely on.
-		const FVector Wrist = Body->GetSocketLocation(Hands[i]);
+		// THE WRIST, NOT THE PALM, AND SIZED FROM THE ARM ITSELF (Richard, 2026-11-05: "the brute
+		// doesn't have cuffs around his wrists"). The cuff was a fixed 8.5 cm box parked on the hand
+		// bone: right for a woman's wrist, and on the brute it sat INSIDE his forearm and never drew.
+		// The wrist crease is a quarter of the way from the hand to the elbow, and the cuff's size is
+		// a fraction of his own forearm length -- so a big man gets a big cuff without a special case.
+		const FVector Palm = Body->GetSocketLocation(Hands[i]);
+		const FVector Elbow = Body->GetSocketLocation(Elbows[i]);
+		const float ForeLen = FVector::Dist(Palm, Elbow);
+		const FVector Wrist = (ForeLen > 1.0f) ? Palm + (Elbow - Palm) * 0.22f : Palm;
+		// Measured: forearm 23.2 cm (dancer), 22.7 (Alina), 29.0 (brute); a wrist is ~6-8 cm across,
+		// so 0.55 of the forearm with a 12 cm floor leaves steel proud of the skin on every build.
+		const float CuffR = FMath::Clamp(0.55f * ForeLen, 0.12f * HI_METERS_TO_UU, 0.19f * HI_METERS_TO_UU);
+		if (!bLoggedCuff && ForeLen > 1.0f)
+		{
+			bLoggedCuff = true;
+			UE_LOG(LogTemp, Display, TEXT("HI: CUFF %s forearm=%.1fcm cuff=%.1fcm across (wrist %.1fcm from the palm)"),
+				*CastTag, ForeLen, CuffR, FVector::Dist(Palm, Wrist));
+		}
 		// The anchor is the wrist's own column at the ceiling, recomputed every frame: the first
 		// version stored them once in Hang() and the drawn chains converged on a point in the middle
 		// of the room instead of hanging plumb over the two men.
@@ -216,7 +234,12 @@ void AHICaptive::UpdateChains()
 		if (CuffInstances != nullptr)
 		{
 			const FRotator CuffRot = FRotationMatrix::MakeFromZ(Dir).Rotator();
-			CuffInstances->AddInstance(FTransform(CuffRot, Wrist, FVector(0.085f, 0.070f, 0.070f)));
+			// A BAND, NOT A PLATE. This was 8.5 x 4.7 x 4.7 cm -- and 4.7 cm across is INSIDE a
+			// forearm, which is why the brute had no visible cuff at all (and the women's were only
+			// just there). A cuff has to enclose the wrist: square in section, a few centimetres along
+			// the arm, and sized from the man's own forearm so a big arm gets a big shackle.
+			CuffInstances->AddInstance(FTransform(CuffRot, Wrist,
+				FVector(CuffR, CuffR, 0.035f * HI_METERS_TO_UU)));
 		}
 	}
 }

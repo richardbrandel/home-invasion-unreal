@@ -72,6 +72,7 @@ private:
 	FVector ChainAnchor[2] = { FVector::ZeroVector, FVector::ZeroVector };
 	bool bHanging = false;
 	bool bDead = false;
+	bool bLoggedCuff = false;
 
 	/** Redraw the chains to wherever the wrists are this frame. */
 	void UpdateChains();

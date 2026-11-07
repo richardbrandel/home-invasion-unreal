@@ -437,6 +437,30 @@ cell a meter wider and 1/2 meter deeper."*
   to widen without moving a column; the walls route around them, and the north wall moved to -12.82
   because the `baseOpen`->`baseDoor` walk line's envelope fouled the old corner.
 
+**The brute had no cuffs, and the reason was the cuff's shape (2026-11-05).** *"The brute doesn't have cuffs
+around his wrists."* The cuff was a box of **8.5 x 4.7 x 4.7 cm** parked on the HAND bone. 4.7 cm across is
+narrower than a forearm, so on the brute it was entirely inside his arm (and on the two women it was only
+just proud of the skin). It was not missing -- it was swallowed.
+
+It is now a **band**: square in section, 3.5 cm along the arm, sized from the man's own forearm
+(`0.55 x forearm`, floor 12 cm), and placed at the **wrist crease** -- 22 % of the way from the hand to the
+elbow rather than at the palm. Measured in the cellar:
+
+| | forearm | cuff across | wrist offset |
+|---|---|---|---|
+| dancer | 23.2 cm | 12.7 cm | 5.1 cm |
+| Alina | 22.7 cm | 12.5 cm | 5.0 cm |
+| brute | 29.0 cm | **15.9 cm** | 6.4 cm |
+
+A wrist is 6-8 cm across, so the steel is now visibly outside the skin on all three.
+
+This one is verified **by measurement, not by a frame**: the third-person shot camera trails the player by
+1.27 m, the corridor beside the cell is only 1.58 m wide, and the stairwell (a metre deeper since the
+basement grew) swallows the camera at every angle that would look into the cell -- four attempts produced
+clips of the stair wall, a belt buckle and a bare chest. A `-HIShotCam=x,y,z` flag to place the camera
+independently of the player would fix that class of problem for good, and is worth doing before the next art
+check.
+
 **Lowered, turned to the door, and the arms finally overhead (2026-11-05).** *"Lower the Brute by enough so
 that he can hang by his arms... about 2 feet... Also turn the prisoners 90 degrees to the left so that
 they are facing the entrance to the cell."*
