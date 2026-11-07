@@ -437,6 +437,41 @@ cell a meter wider and 1/2 meter deeper."*
   to widen without moving a column; the walls route around them, and the north wall moved to -12.82
   because the `baseOpen`->`baseDoor` walk line's envelope fouled the old corner.
 
+**The stick, and squirming (2026-11-05).** *"When the homeowner enters the cage, the weapons will change. 1)
+will be the pistol 2) will be the shotgun and 3) will be a stick. If the prisoner gets hit with a stick, they
+will squirm. Try your best at squirm. I think we will have some random movements with each stick hit. One of
+them could be running in place for 2 seconds. If we have 3 types of reactions, you randomly mix them up."*
+
+**Slot 3 is zone-dependent, and the ZONE does the swapping, not the key.** `FHISim::JailCell()` is the cell's
+interior plan (x -5.66..-2.86, y -12.82..-16.50, floor -1) and `FHIRound::Step` swaps `tranq <-> stick` on the
+boundary: walking in turns the dart gun into a stick, walking out turns it back. That means there is no way to
+be standing in front of a prisoner holding the wrong one. The 3 key reads the same predicate so the HUD and the
+swap agree.
+
+`FHIWeapon` grew **`bMelee`**. A stick spends no magazine (the fire gate asks `bMelee || Mag > 0`) and makes no
+gunshot noise (the "they hear it" alert loop is skipped), but it still raises the same `playerShot` event so the
+actor layer traces it -- the shortest path through code that already works. In the game mode a stick shot has
+no flash, no tracer, no recoil, and a **1.8 m reach** instead of 60.
+
+**Three reactions, picked per hit and never the same twice in a row** (`AHICaptive::Squirm`):
+1. **RUNNING IN PLACE, 2.0 s** -- the character's own WALK clip at 1.4x on a body that is not going anywhere,
+   plus a small pitch into each stride. The legs are the whole point, so this is the one reaction that changes
+   the clip.
+2. **THRASHING, 1.4 s** -- the hang pose held; the actor shakes fast (10 deg yaw at 6 Hz, 5 roll, 3 pitch) with
+   a 3 cm bounce. The chains are drawn from the wrists every frame, so they follow him.
+3. **WRITHING, 1.6 s** -- the same shake, slower and bigger (7/5/4 deg at 3 Hz, 4 cm bounce).
+
+Kinds 2 and 3 keep the HANG clip on purpose: a full-body clip drops the arms to the character's sides, and a man
+cuffed to the ceiling with his arms suddenly down looks released rather than struggling. That was measured --
+reaction 2 first played the idle clip and the brute stood there perfectly calm with his hands at his sides.
+
+`-HISquirmDemo=seconds` (capture-only, like `-HITranqDemo`) makes each captive do a different reaction at that
+moment, which is how `shots/squirm3_*.png` shows all three at once. Between frames 0.15 s and 0.9 s into the
+reactions, **194,270 pixels** change inside the cell.
+
+Suite 52/52 with new `HI.Sim.Round` assertions: the stick is melee with zero damage, an empty-handed swing still
+fires and spends nothing, and stepping in and out of the cell turns slot 3 into the stick and back.
+
 **The brute had no cuffs, and the reason was the cuff's shape (2026-11-05).** *"The brute doesn't have cuffs
 around his wrists."* The cuff was a box of **8.5 x 4.7 x 4.7 cm** parked on the HAND bone. 4.7 cm across is
 narrower than a forearm, so on the brute it was entirely inside his arm (and on the two women it was only

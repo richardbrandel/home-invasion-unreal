@@ -136,6 +136,124 @@ void AHICaptive::Tick(float DeltaSeconds)
 	{
 		UpdateChains();
 	}
+
+	// ---- A SQUIRM, if one is running. Each reaction moves a different thing, and every one of them
+	// shakes the body as well: the clip alone was not enough -- reaction 2 played the idle clip and
+	// the brute simply stood there, which read as calm rather than as a man being beaten.
+	if (SquirmKind >= 0 && !bDead)
+	{
+		SquirmT += DeltaSeconds;
+		if (SquirmT >= SquirmLen)
+		{
+			EndSquirm();
+		}
+		else
+		{
+			const float T = SquirmT;
+			const float Fade = FMath::Min(1.0f, (SquirmLen - T) / 0.25f);   // eases out
+			float YawA, PitchA, RollA, Hz, BounceA;
+			if (SquirmKind == 0)
+			{
+				// RUNNING IN PLACE: the legs do the work (the walk clip at 1.4x), the body just
+				// pitches into each stride.
+				YawA = 3.0f; PitchA = 2.0f; RollA = 2.0f; Hz = 2.4f; BounceA = 0.02f;
+			}
+			else if (SquirmKind == 1)
+			{
+				// THRASHING: fast and violent.
+				YawA = 10.0f; PitchA = 3.0f; RollA = 5.0f; Hz = 6.0f; BounceA = 0.03f;
+			}
+			else
+			{
+				// WRITHING: slower and bigger, on top of the idle clip at 2.6x.
+				YawA = 7.0f; PitchA = 5.0f; RollA = 4.0f; Hz = 3.0f; BounceA = 0.04f;
+			}
+			const FRotator Shake(
+				PitchA * FMath::Sin(2.0f * PI * Hz * 0.8f * T + 1.9f) * Fade,
+				YawA * FMath::Sin(2.0f * PI * Hz * T) * Fade,
+				RollA * FMath::Sin(2.0f * PI * Hz * 1.3f * T + 0.7f) * Fade);
+			SetActorRotation(HangRotation + Shake);
+			const float Bounce = BounceA * FMath::Abs(FMath::Sin(2.0f * PI * Hz * 1.7f * T)) * Fade;
+			// Absolute, from the hook position: adding a delta every frame walked him upward.
+			SetActorLocation(HangLocation + FVector(0.0f, 0.0f, Bounce * HI_METERS_TO_UU));
+		}
+	}
+}
+
+void AHICaptive::Squirm()
+{
+	if (bDead || !bHanging)
+	{
+		return;
+	}
+	// Three reactions, picked per hit and never the same one twice in a row -- a prisoner who
+	// answers every blow with the same twitch reads as a bug, not as a man.
+	int32 Kind = FMath::RandRange(0, 2);
+	if (Kind == LastSquirmKind)
+	{
+		Kind = (Kind + 1) % 3;
+	}
+	LastSquirmKind = Kind;
+	BeginSquirm(Kind);
+}
+
+void AHICaptive::SquirmAs(int32 Kind)
+{
+	if (bDead || !bHanging)
+	{
+		return;
+	}
+	LastSquirmKind = Kind;
+	BeginSquirm(FMath::Clamp(Kind, 0, 2));
+}
+
+void AHICaptive::BeginSquirm(int32 Kind)
+{
+	// 0 -- RUNNING IN PLACE, two seconds. The character's own WALK clip, at 1.4x, on a body that is
+	//      not moving anywhere: the legs pump and the arms stay overhead because the clip's arms are
+	//      overridden by... nothing, so this is the one reaction that looks choreographed rather
+	//      than panicked. It is the one Richard asked for by name.
+	// 1 -- THRASHING, 1.4 s: the hang pose held, the whole body shaken -- fast yaw, a little roll and
+	//      a bounce, which is what a man on two wrist chains does when a stick lands.
+	// 2 -- WRITHING, 1.6 s: the idle clip at 2.6x, so the limbs jerk, plus a slow quarter-turn twist.
+	SquirmKind = Kind;
+	SquirmT = 0.0f;
+	SquirmLen = (Kind == 0) ? 2.0f : ((Kind == 1) ? 1.4f : 1.6f);
+	HangRotation = GetActorRotation();
+	HangLocation = GetActorLocation();
+
+	if (Kind == 0)
+	{
+		const FString WalkPath = FHICharAnim::ClipPathFor(*CastTag, FHICharAnim::ClipWalk());
+		if (UAnimationAsset* Walk = LoadObject<UAnimationAsset>(nullptr, *WalkPath))
+		{
+			Body->SetAnimationMode(EAnimationMode::AnimationSingleNode);
+			Body->SetAnimation(Walk);
+			Body->PlayAnimation(Walk, /*bLooping=*/true);
+			Body->SetPlayRate(1.4f);
+		}
+	}
+	// Kinds 1 and 2 keep the HANG clip. They are told apart by the shake itself (fast and small vs
+	// slow and large), and that matters for more than taste: a full-body clip drops the arms to the
+	// character's sides, and a man cuffed to the ceiling with his arms suddenly down looks released
+	// rather than struggling. Measured: reaction 2 on the idle clip stood the brute quite still with
+	// his hands at his sides. Only reaction 0 changes the clip -- the legs are the whole point of it.
+	UE_LOG(LogTemp, Display, TEXT("HI: %s squirms -- reaction %d (%.1f s)"),
+		*CastTag, Kind, SquirmLen);
+}
+
+void AHICaptive::EndSquirm()
+{
+	SquirmKind = -1;
+	SquirmT = 0.0f;
+	if (HangClip != nullptr)
+	{
+		Body->SetAnimationMode(EAnimationMode::AnimationSingleNode);
+		Body->SetAnimation(HangClip);
+		Body->PlayAnimation(HangClip, /*bLooping=*/true);
+	}
+	SetActorRotation(HangRotation);
+	SetActorLocation(HangLocation);
 }
 
 void AHICaptive::GoLimp()

@@ -2116,6 +2116,50 @@ bool FHISimRound::RunTest(const FString& Parameters)
 			!C.Loot[0].bTaken && C.Loot[0].Pos.Equals(C.Intruders[0].Pos, 0.001f));
 	}
 
+	// ---- the stick: slot 3 inside the cage, and it makes a prisoner squirm (2026-11-05)
+	{
+		const FHISim::FHIWeapon Stick = FHISim::Weapon(TEXT("stick"));
+		TestTrue(FString::Printf(TEXT("the stick is melee (melee=%d, damage=%.1f)"),
+			Stick.bMelee ? 1 : 0, Stick.Damage),
+			Stick.bMelee && Stick.Damage == 0.0f && Stick.Cd > 0.0f);
+
+		// It fires with an EMPTY magazine -- that is what melee means -- and spends nothing.
+		FHISim::FHIRound S = FHISim::FHIRound::Start(1);
+		S.Player.Weapon = TEXT("stick");
+		S.Player.Mag = 0;
+		S.Player.Cd = 0.0f;
+		S.Events.Reset();
+		FHISim::FHIInput Swing;
+		Swing.bFire = true;
+		S.Step(Swing, 1.0f / 60.0f);
+		int32 Shots = 0;
+		for (const FHISim::FHIEvent& Ev : S.Events)
+		{
+			if (Ev.Type == TEXT("playerShot"))
+			{
+				++Shots;
+				TestTrue(TEXT("and it carries no damage"), Ev.Damage == 0.0f);
+			}
+		}
+		TestTrue(FString::Printf(TEXT("an empty-handed swing still fires (events=%d, mag=%d)"),
+			Shots, S.Player.Mag), Shots == 1 && S.Player.Mag == 0);
+
+		// The zone owns slot 3: tranq outside, stick inside, both ways, on the boundary.
+		FHISim::FHIRound Z = FHISim::FHIRound::Start(1);
+		Z.Player.Pos = FVector2D(-4.4f, -14.5f);
+		Z.Player.Floor = -1;
+		Z.Player.Weapon = TEXT("tranq");
+		FHISim::FHIInput Idle2;
+		Z.Step(Idle2, 1.0f / 60.0f);
+		TestTrue(FString::Printf(TEXT("stepping into the cell turns slot 3 into the stick (weapon=%s)"),
+			*Z.Player.Weapon), Z.Player.Weapon == TEXT("stick"));
+		Z.Player.Pos = FVector2D(-1.0f, -9.0f);
+		Z.Player.Floor = -1;
+		Z.Step(Idle2, 1.0f / 60.0f);
+		TestTrue(FString::Printf(TEXT("and stepping out turns it back into the dart gun (weapon=%s)"),
+			*Z.Player.Weapon), Z.Player.Weapon == TEXT("tranq"));
+	}
+
 	// ---- a downed intruder drops what he was carrying, where he fell
 	{
 		FHISim::FHIRound D = FHISim::FHIRound::Start(1);

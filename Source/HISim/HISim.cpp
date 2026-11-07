@@ -65,6 +65,23 @@ FHISim::FHIWeapon FHISim::Weapon(const FString& Key)
 		W.Spread = 0.1125f;   // radians
 		return W;
 	}
+	if (Key == TEXT("stick"))
+	{
+		// THE STICK (Richard, 2026-11-05): slot 3 inside the cage. No damage, no ammo -- what it does
+		// is make a chained man squirm, and that is the actor layer's business, not the sim's. Mag 1
+		// is a placeholder so `SwitchWeapon`'s "a weapon with no magazine cannot be selected" guard
+		// stays honest for real firearms; `bMelee` is what the fire path actually reads.
+		FHIWeapon W;
+		W.Name = TEXT("Stick");
+		W.Damage = 0.0f;
+		W.Cd = 0.28f;
+		W.Mag = 1;
+		W.Reload = 0.0f;
+		W.Pellets = 1;
+		W.Spread = 0.0f;
+		W.bMelee = true;
+		return W;
+	}
 	if (Key == TEXT("tranq"))
 	{
 		// THE TRANQUILIZER (Richard, 2026-11-05): "if an intruder is shot with 3), they fall to
@@ -96,6 +113,22 @@ int32 FHISim::WeaponMag(const FString& Key)
 }
 
 // ---------------------------------------------------------------------- entities
+
+const FBox2D& FHISim::JailCell()
+{
+	// The cell's INTERIOR, from the five `jail` furniture rows (x -5.66..-2.86, y -12.82..-16.50).
+	// Kept as a constant here because two systems need it: the weapon swap on entry, and the test
+	// that asserts the swap happens on the right side of the bars.
+	static const FBox2D Cell(FVector2D(-5.66f, -16.50f), FVector2D(-2.86f, -12.82f));
+	return Cell;
+}
+
+bool FHISim::InJailCell(const FHIPlayer& P)
+{
+	// The basement and the plan, both: the cell is drawn only in the basement, and the same x/y on
+	// the ground floor is the kitchen.
+	return P.Floor == -1 && JailCell().IsInside(P.Pos);
+}
 
 FHISim::FHIPlayer FHISim::CreatePlayer()
 {
@@ -799,7 +832,12 @@ FHISim::FHIThief* FHISim::FHIRound::FindIntruder(int32 Id)
 void FHISim::FHIRound::FireWeapon()
 {
 	const FHIWeapon Spec = Weapon(Player.Weapon);
-	Player.Mag -= 1;
+	// A stick spends nothing and nobody hears a shot. Everything else is unchanged, because the
+	// event the actor layer traces is the same shape either way.
+	if (!Spec.bMelee)
+	{
+		Player.Mag -= 1;
+	}
 	Player.Cd = Spec.Cd;
 
 	// THEY hear it -- all of them, each scaled by his own distance. Alerting only the
@@ -809,6 +847,11 @@ void FHISim::FHIRound::FireWeapon()
 	const bool bShotgun = Player.Weapon == TEXT("shotgun");
 	for (FHIThief& T : Intruders)
 	{
+		if (Spec.bMelee)
+		{
+			// A stick across a prisoner's back is not a gunshot; nobody in the house hears it.
+			break;
+		}
 		if (!T.bAlive)
 		{
 			continue;
@@ -1114,9 +1157,26 @@ void FHISim::FHIRound::Step(const FHIInput& Input, float Dt)
 	Player.ShoutCd = FMath::Max(0.0f, Player.ShoutCd - Dt);
 	Player.Stagger = FMath::Max(0.0f, Player.Stagger - Dt);
 
+	// ---- THE CAGE HAS ITS OWN THIRD WEAPON (Richard, 2026-11-05): "when the homeowner enters the
+	// cage, the weapons will change. 1) pistol 2) shotgun 3) stick." Swapping on the boundary rather
+	// than on a keypress means the stick is simply what slot 3 is once he is inside, and the dart gun
+	// is what it is outside -- no way to be standing in front of a prisoner holding the wrong one.
+	{
+		const bool bInside = InJailCell(Player);
+		if (bInside && Player.Weapon == TEXT("tranq"))
+		{
+			SwitchWeapon(TEXT("stick"));
+		}
+		else if (!bInside && Player.Weapon == TEXT("stick"))
+		{
+			SwitchWeapon(TEXT("tranq"));
+		}
+	}
+
 	// A man with his hands on you is a man you cannot aim through.
+	const bool bMeleeHeld = Weapon(Player.Weapon).bMelee;
 	if (Input.bFire && Player.Cd <= 0.0f && Player.Reloading <= 0.0f
-		&& Player.Mag > 0 && Player.Stagger <= 0.0f)
+		&& (bMeleeHeld || Player.Mag > 0) && Player.Stagger <= 0.0f)
 	{
 		FireWeapon();
 	}

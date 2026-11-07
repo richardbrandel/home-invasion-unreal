@@ -395,6 +395,13 @@ struct HISIM_API FHISim
 		float Reload = 0.0f;
 		int32 Pellets = 1;
 		float Spread = 0.0f;
+		/**
+		 * A STICK IS NOT A GUN. Melee weapons never spend a magazine and never make the noise a
+		 * firearm makes, but they go through the same fire path so the actor layer still gets a
+		 * `playerShot` event to trace. Richard, 2026-11-05: "in the cage, 3) will be a stick. If the
+		 * prisoner gets hit with a stick, they will squirm."
+		 */
+		bool bMelee = false;
 	};
 	/** sim.gd WEAPONS: {"pistol": {...}, "shotgun": {...}}. An unknown key is a no-weapon. */
 	static FHIWeapon Weapon(const FString& Key);
@@ -698,6 +705,11 @@ struct HISIM_API FHISim
 		 */
 		int32 Pellets = 1;
 	};
+
+	/** The jail cell's plan, in metres, on floor -1. The stick only exists inside it. */
+	static const FBox2D& JailCell();
+	/** Is this body standing in the cell? */
+	static bool InJailCell(const FHIPlayer& P);
 
 	static FHIPlayer CreatePlayer();
 	/**

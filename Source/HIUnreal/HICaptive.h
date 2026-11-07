@@ -51,6 +51,18 @@ public:
 	/** Killed while chained: let go of physics and drop to the slab. */
 	void GoLimp();
 
+	/**
+	 * Struck with the stick. Picks one of three reactions -- see the .cpp -- and plays it for its
+	 * length, then goes back to hanging. Richard, 2026-11-05: "if the prisoner gets hit with a stick,
+	 * they will squirm... I think we will have some random movements with each stick hit. One of them
+	 * could be running in place for 2 seconds. If we have 3 types of reactions, you randomly mix them
+	 * up."
+	 */
+	void Squirm();
+
+	/** Capture-only: force a specific reaction, so all three can be photographed side by side. */
+	void SquirmAs(int32 Kind);
+
 	/** The hit volume -- a capsule of the sim's man, exactly as the intruder's is. */
 	UPROPERTY(VisibleAnywhere, Category = "Home Invasion")
 	TObjectPtr<class UCapsuleComponent> Hit;
@@ -73,6 +85,17 @@ private:
 	bool bHanging = false;
 	bool bDead = false;
 	bool bLoggedCuff = false;
+
+	/** Squirm state: which reaction, how long, and how far through it we are. */
+	int32 SquirmKind = -1;
+	float SquirmT = 0.0f;
+	float SquirmLen = 0.0f;
+	/** The last reaction, so the same one does not come up twice in a row. */
+	int32 LastSquirmKind = -1;
+	FRotator HangRotation = FRotator(7.0f, 270.0f, 3.0f);
+	FVector HangLocation = FVector::ZeroVector;
+	void BeginSquirm(int32 Kind);
+	void EndSquirm();
 
 	/** Redraw the chains to wherever the wrists are this frame. */
 	void UpdateChains();

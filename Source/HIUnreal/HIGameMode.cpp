@@ -105,6 +105,7 @@ void AHIGameMode::HandleCommandLine()
 	// `-HITranqDemo=N`: dart the first N intruders a second into the round, so the basement
 	// hanging can be CAPTURED. Manual capture runs drive no input, so without this there is no
 	// way to photograph the one thing the tranquillizer produces.
+	FParse::Value(Cmd, TEXT("HISquirmDemo="), SquirmDemoAt);
 	{
 		// `-HITranqDemo=N` or `-HITranqDemo=N@seconds`, so a capture can dart them when they are
 		// actually carrying something rather than a second in.
@@ -1107,9 +1108,12 @@ FHISim::FHIInput AHIGameMode::ReadInput()
 	}
 	else if (PC->WasInputKeyJustPressed(EKeys::Three))
 	{
-		// THE TRANQUILIZER, third weapon (2026-11-05). Its own key because the player must be able
-		// to choose it under pressure, and 3 is where a third tool belongs.
-		SwitchLatched = TEXT("tranq");
+		// THE THIRD SLOT, and what it holds depends on where he is standing (Richard, 2026-11-05:
+		// "when the homeowner enters the cage, the weapons will change... 3) will be a stick").
+		// The sim also swaps by zone on the boundary, so this only decides what the KEY means; the
+		// two agree, and a man who presses 3 inside the cell gets the stick rather than a dart gun
+		// cycling to itself.
+		SwitchLatched = FHISim::InJailCell(Round.Player) ? TEXT("stick") : TEXT("tranq");
 	}
 	if (In.SwitchWeapon.IsEmpty())
 	{
@@ -1383,7 +1387,11 @@ void AHIGameMode::ResolvePlayerShot(const FHISim::FHIEvent& Shot)
 	// A DART, not a bullet (2026-11-05): no bang, no wound, no hole in the wall. It gets the
 	// cool tracer and the small flash so it is still legible as a shot.
 	const bool bTranq = Round.Player.Weapon == TEXT("tranq");
-	if (!bTranq)
+	// THE STICK (Richard, 2026-11-05): no bang, no muzzle flash, no tracer, and a reach you can
+	// measure in arm lengths rather than metres. It goes through the same event so the trace and
+	// the hit attribution are shared with the guns -- only the presentation and the range differ.
+	const bool bStick = FHISim::Weapon(Round.Player.Weapon).bMelee;
+	if (!bTranq && !bStick)
 	{
 		FHIAudio::PlayerGunshot(World, Origin, bShotgun);
 	}
@@ -1400,13 +1408,17 @@ void AHIGameMode::ResolvePlayerShot(const FHISim::FHIEvent& Shot)
 	// invisible. The gun component stands in for the marker.
 	const FVector Muzzle = (Pawn->Gun != nullptr) ? Pawn->Gun->GetComponentLocation() : Origin;
 	// Godot's flash quad is 0.34 m and its colour is the original's own warm white.
-	FlashPoint(Muzzle, bTranq ? 0.16f : 0.34f,
-		bTranq ? FLinearColor(0.35f, 0.80f, 0.95f) : FLinearColor(1.0f, 0.92f, 0.55f));
+	if (!bStick)
+	{
+		FlashPoint(Muzzle, bTranq ? 0.16f : 0.34f,
+			bTranq ? FLinearColor(0.35f, 0.80f, 0.95f) : FLinearColor(1.0f, 0.92f, 0.55f));
+	}
 	// `game.gd`'s recoil: the kick lands on THIS frame, and ApplyLook hands it back over the
 	// next fraction of a second. Kicking the body pitch rather than a separate aim pitch,
 	// because with the cone off there is only one pitch.
 	{
-		const float Kick = bTranq ? (RecoilPistol * 0.25f) : (bShotgun ? RecoilShotgun : RecoilPistol);
+		const float Kick = bStick ? 0.0f
+			: (bTranq ? (RecoilPistol * 0.25f) : (bShotgun ? RecoilShotgun : RecoilPistol));
 		Round.Player.Pitch = FMath::Clamp(Round.Player.Pitch - Kick,
 			FHISim::PitchMin, FHISim::PitchMax);
 		// 65% of the kick comes back, not all of it: game.gd:1456 does
@@ -1428,19 +1440,30 @@ void AHIGameMode::ResolvePlayerShot(const FHISim::FHIEvent& Shot)
 			FMath::FRandRange(-Shot.Spread, Shot.Spread));
 
 		FHitResult Hit;
-		const FVector End = Origin + (Dir + Scatter).GetSafeNormal() * ShotRangeMeters * HI_METERS_TO_UU;
+		const float Reach = bStick ? StickReachMeters : ShotRangeMeters;
+		const FVector End = Origin + (Dir + Scatter).GetSafeNormal() * Reach * HI_METERS_TO_UU;
 		const bool bHit = World->LineTraceSingleByChannel(Hit, Origin, End, ECC_Visibility, Params);
 
 		// One tracer PER PELLET, from the muzzle -- `game.gd:1545-1566`. 24 mm across in the
 		// original (a 0.012 m cylinder radius) against the intruders' 20 mm, and the same warm
 		// colour, so a shotgun's nine pellets are nine visible lines rather than one.
-		FlashLine(Muzzle, bHit ? Hit.ImpactPoint : End, bTranq ? 0.012f : 0.024f,
-			bTranq ? FLinearColor(0.45f, 0.85f, 1.0f) : FLinearColor(1.0f, 0.92f, 0.66f));
+		if (!bStick)
+		{
+			FlashLine(Muzzle, bHit ? Hit.ImpactPoint : End, bTranq ? 0.012f : 0.024f,
+				bTranq ? FLinearColor(0.45f, 0.85f, 1.0f) : FLinearColor(1.0f, 0.92f, 0.66f));
+		}
 
 		if (bHit)
 		{
 			if (AHICaptive* HitCaptive = Cast<AHICaptive>(Hit.GetActor()))
 			{
+				if (bStick)
+				{
+					// THE POINT OF THE STICK. No damage, no capture: he is already caught. He
+					// squirms, and which of the three reactions he picks is his own business.
+					HitCaptive->Squirm();
+				}
+				else
 				// KILLING THE CHAINED (2026-11-05). A captured man is still alive, so the round is not
 				// over while he hangs -- Richard: "the game will end when all chained up intruders are
 				// killed". Damage goes through the same sim path; a lethal hit lets the body go.
@@ -2076,6 +2099,25 @@ void AHIGameMode::Tick(float DeltaSeconds)
 	RoundSeconds += StepsThisFrame * SimFixedDt;
 
 	// The capture-only demonstration of the tranquillizer (see the flag's comment).
+	if (SquirmDemoAt >= 0.0f && !bSquirmDemoDone && RoundSeconds >= SquirmDemoAt)
+	{
+		bSquirmDemoDone = true;
+		// Capture-only, like -HITranqDemo: make each chained man do a different reaction so all three
+		// can be seen at once. Nothing in play sets this.
+		TArray<AActor*> Found;
+		UGameplayStatics::GetAllActorsOfClass(this, AHICaptive::StaticClass(), Found);
+		int32 N = 0;
+		for (AActor* Actor : Found)
+		{
+			if (AHICaptive* Chained = Cast<AHICaptive>(Actor))
+			{
+				Chained->SquirmAs(N % 3);
+				++N;
+			}
+		}
+		UE_LOG(LogTemp, Display, TEXT("HI: -HISquirmDemo made %d captive(s) squirm"), N);
+	}
+
 	if (TranqDemo > 0 && !bTranqDemoDone && RoundSeconds >= TranqDemoAt)
 	{
 		bTranqDemoDone = true;

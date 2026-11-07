@@ -320,6 +320,8 @@ public:
 	/** How far a pellet carries, in METRES -- the sim's unit. Converted inside the trace. */
 	UPROPERTY(EditDefaultsOnly, Category = "Home Invasion")
 	float ShotRangeMeters = 60.0f;
+	/** The stick's reach: an arm and the stick, about 1.8 m. A gun sees 60. */
+	float StickReachMeters = 1.8f;
 
 	/** Start a fresh round: new intruders, new loot, the same house. Bound to [ENTER]. */
 	UFUNCTION(BlueprintCallable, Category = "Home Invasion")
@@ -472,6 +474,9 @@ private:
 	 *  photograph the basement hanging. Capture-only; nothing in play sets it. */
 	int32 TranqDemo = 0;
 	float TranqDemoAt = 1.0f;
+	/** -HISquirmDemo=seconds: at that point every captive does a reaction (0,1,2 in order). */
+	float SquirmDemoAt = -1.0f;
+	bool bSquirmDemoDone = false;
 	bool bTranqDemoDone = false;
 	bool bAuto = false;
 	/** Frames to wait after asking for a screenshot before quitting, so it can be written. */
