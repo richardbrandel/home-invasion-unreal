@@ -115,6 +115,7 @@ USoundBase* FHIAudio::VoiceCue(const TCHAR* Line)
 	{
 		return *Found;
 	}
+	UE_LOG(LogTemp, Display, TEXT("HI: voice %s"), Line);
 	const FString AssetPath =
 		FString::Printf(TEXT("/Game/HIImported/voice/%s.%s"), Line, Line);
 	USoundBase* Loaded = LoadObject<USoundBase>(nullptr, *AssetPath);

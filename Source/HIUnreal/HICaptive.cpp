@@ -1,4 +1,5 @@
 #include "HICaptive.h"
+#include "HIAudio.h"
 #include "HIGameMode.h"
 #include "Kismet/GameplayStatics.h"
 
@@ -187,6 +188,40 @@ void AHICaptive::Tick(float DeltaSeconds)
 	}
 }
 
+void AHICaptive::SayHitLine()
+{
+	// One list per character: the brute is a deep man with three macho lines, Alina is a woman who
+	// flirts and threatens, and the Dancer is the one who is actually scared.
+	TArray<const TCHAR*> Lines;
+	if (CastTag == TEXT("brute"))
+	{
+		Lines = { TEXT("brute_1"), TEXT("brute_2"), TEXT("brute_3") };
+	}
+	else if (CastTag == TEXT("alina"))
+	{
+		Lines = { TEXT("alina_1"), TEXT("alina_2"), TEXT("alina_3"), TEXT("alina_4"), TEXT("alina_5") };
+	}
+	else
+	{
+		Lines = { TEXT("dancer_1"), TEXT("dancer_2"), TEXT("dancer_3"), TEXT("dancer_4"), TEXT("dancer_5") };
+	}
+	if (Lines.Num() == 0)
+	{
+		return;
+	}
+	int32 Pick = FMath::RandRange(0, Lines.Num() - 1);
+	if (Pick == LastHitLine)
+	{
+		Pick = (Pick + 1) % Lines.Num();
+	}
+	LastHitLine = Pick;
+	if (UWorld* World = GetWorld())
+	{
+		const FVector Mouth = Body != nullptr ? Body->GetSocketLocation(TEXT("Head")) : GetActorLocation();
+		FHIAudio::Voice(World, Mouth, Lines[Pick]);
+	}
+}
+
 void AHICaptive::Squirm()
 {
 	if (bDead || !bHanging)
@@ -201,6 +236,10 @@ void AHICaptive::Squirm()
 		Kind = (Kind + 1) % 3;
 	}
 	LastSquirmKind = Kind;
+	// AND HE SAYS SOMETHING (Richard, 2026-11-05): each character has its own lines and they are picked
+	// at random per blow, so a second hit does not repeat the first. Rendered by Piper (see
+	// SourceAssets/voices and tools/make-voices.sh) and imported to /Game/HIImported/voice.
+	SayHitLine();
 	// A blow lands on the neck first, then the body answers: flinch, then the reaction.
 	UE_LOG(LogTemp, Display, TEXT("HI: STICK %s squirm requested -- reaction %d"), *CastTag, Kind);
 	Flinch(Kind);
@@ -213,6 +252,7 @@ void AHICaptive::SquirmAs(int32 Kind)
 		return;
 	}
 	LastSquirmKind = Kind;
+	SayHitLine();
 	BeginSquirm(FMath::Clamp(Kind, 0, 2));
 }
 

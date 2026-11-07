@@ -60,6 +60,10 @@ public:
 	 */
 	void Squirm();
 
+	/** Say one of this character's stick-response lines, at random, never twice running. */
+	void SayHitLine();
+	int32 LastHitLine = -1;
+
 	/** Head snap and cower: the only fear these models can express. Plays the flinch clip, then
 	 *  hands over to whatever `PendingKind` asked for (or back to hanging if nothing did). */
 	void Flinch(int32 ThenSquirmKind = -1);

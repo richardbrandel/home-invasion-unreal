@@ -1,68 +1,75 @@
-#!/bin/bash
-# Generate the bark lines as .wav files, offline and free, using macOS's own voices.
+#!/usr/bin/env bash
+# ---------------------------------------------------------------------------------------------
+# The cast's voices, rendered locally with Piper (Richard, 2026-11-05).
 #
-# WHY THIS EXISTS
-# ---------------
-# Fix-list item 16 says "synthesised audio cannot do voices; this needs either recording or a
-# barking system with a different source". Both halves of that are worth looking at again:
-# the barking system EXISTS and fires at the right moments, and the thing it plays is a sine
-# tone at a shifted pitch -- not "synthesised audio cannot do voices" but "nobody tried the
-# speech synthesiser that already ships with this machine".
+# He asked for a woman's voice for the homeowner ("Get out", plus three taunts in the cage) and for
+# each intruder to have their own lines when they are hit with the stick. There is no recorded audio
+# and no budget for voice actors in this project, so the lines are SYNTHESISED: Piper is a small
+# neural TTS that runs on the CPU, offline once the voices are downloaded, and free.
 #
-# macOS ships 177 voices and `say` writes straight to a file; these are offline, free, and
-# need no account. The result is clearly synthetic next to a recording, and it is still
-# enormously better than a sine: the words are intelligible, the timing is right, and the
-# player hears a man rather than a piece of equipment. A real recording is still the right
-# end state -- see SOURCE ASSETS in the README -- but it is no longer the only option.
+#   ./tools/make-voices.sh            # download voices, render the lines, import them into Content
 #
-# Output goes to SourceAssets/voice/, which tools/import-assets.py imports.
+# Requirements: python3 with venv, and network for the first run (five voices, ~380 MB total).
+# The WAVs and the models land in SourceAssets/voices, which is GITIGNORED -- only the imported
+# .uasset files under Content/HIImported/voice are committed, so a fresh clone has the voices
+# without needing any of this. Re-run only when a line changes.
 #
-# Usage: make-voices.sh [outdir]     (or set OUT)
-set -eu
+# Voice casting is deliberate: en_GB-alba (woman, British) is the homeowner, en_GB-northern_english_male
+# is the brute, en_US-amy is Alina (flirty), en_US-lessac is the Dancer (the one who is frightened).
+# ---------------------------------------------------------------------------------------------
+set -euo pipefail
+cd "$(dirname "$0")/.."
+SRC=SourceAssets/voices
+WAV=$SRC/wav
+VENV=${VENV:-/tmp/ttsenv}
 
-OUT=${1:-${OUT:-/data/projects/HIUnreal/SourceAssets/voice}}
-mkdir -p "$OUT"
+mkdir -p "$WAV"
+if [ ! -x "$VENV/bin/piper" ]; then
+  python3 -m venv "$VENV"
+  "$VENV/bin/pip" install -q --upgrade pip
+  "$VENV/bin/pip" install -q piper-tts
+fi
 
-# The intruders: lower and slower, because a man breaking into a house talks quietly.
-# Both defaults were CHECKED against `say -v '?'` on this Mac. `Alex` -- the obvious US male
-# -- is NOT installed here (it is a downloadable voice on current macOS), and a missing voice
-# makes `say` leave a silent or absent file behind. Hence the check below, rather than a
-# hopeful default that looks like it worked.
-THIEF_VOICE=${THIEF_VOICE:-Daniel}   # en_GB male
-OWNER_VOICE=${OWNER_VOICE:-Reed}     # en_US male, and audibly a different person
+dl() {  # dl <model-name> <repo-path-without-model>
+  [ -s "$SRC/$1.onnx" ] || curl -sSL -A "Mozilla/5.0" -o "$SRC/$1.onnx" \
+    "https://huggingface.co/rhasspy/piper-voices/resolve/main/$2/$1.onnx"
+  [ -s "$SRC/$1.onnx.json" ] || curl -sSL -A "Mozilla/5.0" -o "$SRC/$1.onnx.json" \
+    "https://huggingface.co/rhasspy/piper-voices/resolve/main/$2/$1.onnx.json"
+}
+dl en_GB-alba-medium                en/en_GB/alba/medium
+dl en_GB-northern_english_male-medium en/en_GB/northern_english_male/medium
+dl en_US-amy-medium                 en/en_US/amy/medium
+dl en_US-lessac-medium              en/en_US/lessac/medium
 
-for v in "$THIEF_VOICE" "$OWNER_VOICE"; do
-	if ! say -v '?' | grep -qE "^$v[[:space:]]"; then
-		echo "make-voices: voice '$v' is not installed on this machine" >&2
-		echo "  installed en_US / en_GB voices:" >&2
-		say -v '?' | grep -E "en_US|en_GB" | awk '{print "    " $1}' >&2
-		exit 1
-	fi
-done
-
-# rate is words per minute; `say` defaults to about 175, which is too brisk for menace.
-say_line() {
-	local voice="$1" rate="$2" name="$3" text="$4"
-	# An .aiff first, then afconvert: `say -o file.wav` produces a WAVE that some importers
-	# refuse, and afconvert is the documented path to a 48 kHz mono 16-bit PCM file.
-	say -v "$voice" -r "$rate" -o "$OUT/$name.aiff" "$text"
-	afconvert -f WAVE -d LEI16@48000 -c 1 "$OUT/$name.aiff" "$OUT/$name.wav"
-	rm -f "$OUT/$name.aiff"
-	printf "  %-22s %-8s %s\n" "$name.wav" "$voice" "$text"
+say() {  # say <voice> <asset-name> <text>
+  echo "$3" | "$VENV/bin/piper" -m "$SRC/$1.onnx" -f "$WAV/$2.wav" 2>/dev/null
 }
 
-echo "generating barks into $OUT"
-# ---- the intruders
-say_line "$THIEF_VOICE" 150 thief_spot      "Someone's home. Move."
-say_line "$THIEF_VOICE" 150 thief_order     "Get the stuff and go."
-say_line "$THIEF_VOICE" 165 thief_pain      "Ah! He got me."
-say_line "$THIEF_VOICE" 160 thief_shoved    "Get off me!"
-say_line "$THIEF_VOICE" 170 thief_flee      "Forget it, let's go!"
-say_line "$THIEF_VOICE" 140 thief_down      "I can't... I can't."
-# ---- the homeowner
-say_line "$OWNER_VOICE" 165 owner_challenge "Get out of my house!"
-say_line "$OWNER_VOICE" 170 owner_shout     "I said get out!"
-say_line "$OWNER_VOICE" 155 owner_police    "I'm calling the police!"
+# ---- the homeowner: a woman, British
+say en_GB-alba-medium owner_getout  "Get out"
+say en_GB-alba-medium owner_cell_1  "How do you like this"
+say en_GB-alba-medium owner_cell_2  "It's party time"
+say en_GB-alba-medium owner_cell_3  "Awww, it's going to hurt more"
+# ---- the brute: a deep man
+say en_GB-northern_english_male-medium brute_1 "You hit like a girl"
+say en_GB-northern_english_male-medium brute_2 "Doesn't hurt"
+say en_GB-northern_english_male-medium brute_3 "Loser"
+# ---- Alina: flirts, then threatens
+say en_US-amy-medium alina_1 "I kind of like this"
+say en_US-amy-medium alina_2 "Set me free and I will be your girlfriend"
+say en_US-amy-medium alina_3 "Yeah baby"
+say en_US-amy-medium alina_4 "Yes, I have been bad"
+say en_US-amy-medium alina_5 "My boyfriend is a lawyer, I will see you in court"
+# ---- the Dancer: the one who is actually frightened
+say en_US-lessac-medium dancer_1 "Ouch"
+say en_US-lessac-medium dancer_2 "Stop, it hurts"
+say en_US-lessac-medium dancer_3 "Ouch ouch ouch"
+say en_US-lessac-medium dancer_4 "Yaooooo"
+say en_US-lessac-medium dancer_5 "I will be good"
 
-echo "--- generated ---"
-ls -la "$OUT"/*.wav | awk '{printf "  %-34s %s bytes\n", $NF, $5}'
+echo "rendered $(ls "$WAV"/*.wav | wc -l) lines into $WAV"
+# ---- import them as sound assets (the editor is needed for that, not for the rendering)
+"${UE_CMD:-/data/UnrealEngine/Engine/Binaries/Linux/UnrealEditor-Cmd}" "$PWD/HIUnreal.uproject" \
+  -unattended -nosplash -nopause -NullRHI \
+  -ExecutePythonScript="$PWD/tools/import-voices.py" -log -abslog=/tmp/import_voices.log >/dev/null 2>&1
+grep -a "^VOICE" /tmp/import_voices.log || echo "see /tmp/import_voices.log"

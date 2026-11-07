@@ -437,6 +437,28 @@ cell a meter wider and 1/2 meter deeper."*
   to widen without moving a column; the walls route around them, and the north wall moved to -12.82
   because the `baseOpen`->`baseDoor` walk line's envelope fouled the old corner.
 
+**The cast has voices now, and they are synthesised locally (2026-11-05).** Richard: *"Can you get them or do I have
+to?"* -- nobody has to. [Piper](https://github.com/rhasspy/piper) is a small neural TTS that runs on this machine's
+CPU, offline after a one-time download, and it is free. Five voices, **17 lines**, rendered in a couple of minutes:
+
+| who | voice | lines |
+|---|---|---|
+| homeowner (Q, outside the cage) | `en_GB-alba` (woman, British) | "Get out" |
+| homeowner (Q, inside the cage) | same | "How do you like this" / "It's party time" / "Awww, it's going to hurt more" |
+| **brute** | `en_GB-northern_english_male` (deep man) | "You hit like a girl" / "Doesn't hurt" / "Loser" |
+| **Alina** | `en_US-amy` | "I kind of like this" / "Set me free and I will be your girlfriend" / "Yeah baby" / "Yes, I have been bad" / "My boyfriend is a lawyer, I will see you in court" |
+| **Dancer** | `en_US-lessac` | "Ouch" / "Stop, it hurts" / "Ouch ouch ouch" / "Yaooooo" / "I will be good" |
+
+`tools/make-voices.sh` regenerates all of it (downloads the voices into the gitignored
+`SourceAssets/voices`, renders, then imports through `tools/import-voices.py`), so a line can be re-worded or
+re-cast without anyone recording anything. Only the imported `.uasset`s under `Content/HIImported/voice` are
+committed -- a fresh clone has the voices and needs none of the toolchain.
+
+Wiring: the Q shout is **zone-aware** (the three taunts only inside the cage), and a stick hit makes that
+prisoner say one of his or her own lines, picked at random and never twice running. `FHIAudio::Voice` logs
+`HI: voice <line>` on every play, which is how this was verified without being able to hear it: a 40-second soak
+played **all 17 lines** and an in-cell shout played `owner_cell_2`.
+
 **The stick freeze was the garbage collector (2026-11-05).** Richard: "I was hitting the intruders, last hit the Dancer
 and the game froze and then died again."
 

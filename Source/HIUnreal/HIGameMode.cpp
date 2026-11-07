@@ -108,6 +108,7 @@ void AHIGameMode::HandleCommandLine()
 	FParse::Value(Cmd, TEXT("HISquirmDemo="), SquirmDemoAt);
 	FParse::Value(Cmd, TEXT("HIFireAt="), FireAtSeconds);
 	FParse::Value(Cmd, TEXT("HISquirmSpam="), SquirmSpamAt);
+	FParse::Value(Cmd, TEXT("HIShoutAt="), ShoutAtSeconds);
 	{
 		// `-HITranqDemo=N` or `-HITranqDemo=N@seconds`, so a capture can dart them when they are
 		// actually carrying something rather than a second in.
@@ -2009,6 +2010,11 @@ void AHIGameMode::Tick(float DeltaSeconds)
 	// with a thief in view, so a capture that needs ONE shot fired at a wall or a prisoner had no way
 	// to ask for it -- which is how a one-line rendering bug ("the first floor fills with white after
 	// the first dart") went unphotographed.
+	if (ShoutAtSeconds >= 0.0f && RoundSeconds >= ShoutAtSeconds && ShoutFrames < 3)
+	{
+		++ShoutFrames;
+		In.bShout = true;
+	}
 	if (FireAtSeconds >= 0.0f && RoundSeconds >= FireAtSeconds && FireFrames < 3)
 	{
 		++FireFrames;
@@ -2336,10 +2342,23 @@ void AHIGameMode::Tick(float DeltaSeconds)
 		{
 			Message = TEXT("You shouted. They know where you are.");
 			MessageTime = 1.6f;
-			// Item 16's bark hook, from the homeowner this time, alternating between his two
-			// lines so shouting twice does not sound like a broken record.
-			FHIAudio::Voice(World, FVector(Round.Player.Pos.X, Round.Player.Pos.Y, 1.6f) * HI_METERS_TO_UU,
-				(ShoutsMade++ % 2) == 0 ? TEXT("owner_challenge") : TEXT("owner_shout"));
+			// THE HOMEOWNER HAS A VOICE (Richard, 2026-11-05): "in general (q button) homeowner now has a
+			// man's English accent change to a woman's voice and say: Get out". So the general shout is
+			// one line, and inside the cage it is one of three taunts -- which is the room where she is
+			// standing in front of men she has already beaten.
+			const FVector Mouth = FVector(Round.Player.Pos.X, Round.Player.Pos.Y, 1.6f) * HI_METERS_TO_UU;
+			if (FHISim::InJailCell(Round.Player))
+			{
+				static const TCHAR* const CellLines[] = {
+					TEXT("owner_cell_1"), TEXT("owner_cell_2"), TEXT("owner_cell_3")
+				};
+				const int32 Pick = FMath::RandRange(0, UE_ARRAY_COUNT(CellLines) - 1);
+				FHIAudio::Voice(World, Mouth, CellLines[Pick]);
+			}
+			else
+			{
+				FHIAudio::Voice(World, Mouth, TEXT("owner_getout"));
+			}
 		}
 		else if (Ev.Type == TEXT("calledPolice"))
 		{

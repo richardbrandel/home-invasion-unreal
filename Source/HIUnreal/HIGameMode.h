@@ -499,6 +499,10 @@ private:
 	float SquirmSpamNext = 0.0f;
 	int32 SquirmSpamIdx = 0;
 
+	/** -HIShoutAt=seconds: one Q press at that moment, to hear the homeowner's line. */
+	float ShoutAtSeconds = -1.0f;
+	int32 ShoutFrames = 0;
+
 	/** -HIFireAt=seconds: one trigger pull at that moment (three frames), for captures. */
 	float FireAtSeconds = -1.0f;
 	int32 FireFrames = 0;
