@@ -1489,7 +1489,9 @@ void AHIGameMode::ResolvePlayerShot(const FHISim::FHIEvent& Shot)
 			// A mark wherever the pellet stopped: on a man or on the wall behind him. Godot's
 			// _add_impact does the same, and it is what makes a missed shot legible -- a
 			// tracer alone leaves nothing to aim the next one by.
-			if (!Marks.IsEmpty() && !bTranq)
+			// No mark for a dart or a stick: a stick leaves a bruise, not a hole in the plaster.
+			// Richard, 2026-11-05: "the stick leaves bullet marks."
+			if (!Marks.IsEmpty() && !bTranq && !bStick)
 			{
 				AHIMark* Mark = Marks[MarkCursor % Marks.Num()];
 				MarkCursor = (MarkCursor + 1) % Marks.Num();

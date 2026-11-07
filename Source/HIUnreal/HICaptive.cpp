@@ -233,8 +233,13 @@ void AHICaptive::BeginSquirm(int32 Kind)
 
 	if (Kind == 0)
 	{
-		const FString WalkPath = FHICharAnim::ClipPathFor(*CastTag, FHICharAnim::ClipWalk());
-		if (UAnimationAsset* Walk = LoadObject<UAnimationAsset>(nullptr, *WalkPath))
+		// THE LOWER-BODY RUN, not the walk clip. `HIAnimTool::MakeLowerBodyClip` built `<tag>/hang_walk`:
+		// the hang pose above the hips and this character's own WALK legs below, so he runs in place
+		// with his wrists still in the shackles. Playing the plain walk clip dropped his arms to his
+		// sides and made the whole body a stride -- which is what Richard corrected: "it should only
+		// happen for the lower half of the body, the arms should stay in the shackles."
+		const FString RunPath = FString::Printf(TEXT("/Game/HIImported/characters_%s/hang_walk"), *CastTag);
+		if (UAnimationAsset* Walk = LoadObject<UAnimationAsset>(nullptr, *RunPath))
 		{
 			Body->SetAnimationMode(EAnimationMode::AnimationSingleNode);
 			Body->SetAnimation(Walk);

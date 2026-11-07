@@ -311,6 +311,12 @@ void AHIIntruder::SyncFromSim(const FHISim::FHIThief& T, float Dt)
 			CapturedT = 0.0f;
 			bFallScripted = false;
 			FallAnchor = GetActorLocation();
+			// A BULLET HOLE ON A FALLING RAGDOLL IS A WHITE SLAB ON THE FLOOR (Richard, 2026-11-05:
+			// "when someone is tranquilized, part of the first floor gets filled in waist high with
+			// white. You can't see the floor."). The wound quads are planes parented to BODY BONES,
+			// and the ragdoll rewrites those bone transforms wholesale -- which is the same failure
+			// that threw the Dancer's body 18 m. Take them off before the body lets go.
+			ShowWounds(0);
 			GoLimp();
 			UE_LOG(LogTemp, Display, TEXT("HI: %s darted -- down and out, alive"), *CastTag);
 		}

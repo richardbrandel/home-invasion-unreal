@@ -437,6 +437,25 @@ cell a meter wider and 1/2 meter deeper."*
   to widen without moving a column; the walls route around them, and the north wall moved to -12.82
   because the `baseOpen`->`baseDoor` walk line's envelope fouled the old corner.
 
+**Marks, wounds and a lower-body run (2026-11-05).** *"The stick leaves bullet marks... the walking reaction
+should only happen for the lower half of the body, the arms should stay in the shackles... when someone is
+tranquilized, part of the first floor gets filled in waist high with white."*
+
+* **Stick marks**: the impact mark was skipped for darts only. It is now skipped for melee too -- a stick
+  leaves a bruise, not a hole in the plaster.
+* **The white slab over the first floor** was the WOUND QUADS. They are planes parented to BODY BONES, and a
+  capture hands the body to physics, which rewrites those bone transforms wholesale -- the same failure that
+  threw the Dancer's body 18 m. `ShowWounds(0)` now runs before `GoLimp()`, so a man taken alive carries no
+  bullet holes into the fall.
+* **The run is lower-body only.** `HIAnimTool::MakeLowerBodyClip` builds `<tag>/hang_walk` per character: the
+  destination is a copy of the HANG clip (so the upper body is already right) and only the leg tracks --
+  LeftUpRightLeg down to the toes -- are replaced with that character's own WALK keys, with the clip stretched
+  to the walk's 31 frames so the legs cycle. Reaction 0 plays that clip instead of the walk. Measured during a
+  run: hands held at **z -85 cm** (constant -- still overhead where the chains are) while the feet moved
+  -258 -> -251 cm.
+
+Suite 52/52.
+
 **Three from play (2026-11-05).** *"The stick looks like a pistol, the stick should also work a little farther
 from the intruder. Also the dancer is solid, but in the cell, Alina and the Brute are walk through."*
 

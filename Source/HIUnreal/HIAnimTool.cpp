@@ -488,6 +488,88 @@ namespace
 	}
 }
 
+FString UHIAnimTool::MakeLowerBodyClip(USkeletalMesh* Mesh, const FString& WalkPath,
+	const FString& DestPath)
+{
+#if WITH_EDITOR
+	// A RUNNING PRISONER WHOSE ARMS STAY IN THE SHACKLES (Richard, 2026-11-05: "when hit with a stick,
+	// the walking reaction would be good, but it should only happen for the lower half of the body, the
+	// arms should stay in the shackles").
+	//
+	// The destination is expected to be a COPY OF THE HANG CLIP: its upper body is already right and
+	// its leg tracks are the swaying dangle. This replaces ONLY the leg tracks with the character's own
+	// WALK clip -- same skeleton, same bone names -- and stretches the clip to the walk's length so the
+	// legs cycle instead of playing one frame. Everything above the hips is untouched, which is what
+	// "lower half" means: spine, arms and head keep the hang pose, so the wrists stay overhead where
+	// the chains and cuffs are.
+	UAnimSequence* Walk = LoadObject<UAnimSequence>(nullptr, *WalkPath);
+	UAnimSequence* Dest = LoadObject<UAnimSequence>(nullptr, *DestPath);
+	if (Walk == nullptr || Dest == nullptr || Mesh == nullptr)
+	{
+		return FString::Printf(TEXT("%s: missing walk (%s) or destination"), *DestPath, *WalkPath);
+	}
+	const IAnimationDataModel* WalkModel = Walk->GetDataModel();
+	IAnimationDataModel* DestModel = Dest->GetDataModel();
+	if (WalkModel == nullptr || DestModel == nullptr)
+	{
+		return FString::Printf(TEXT("%s: no data model"), *DestPath);
+	}
+	TScriptInterface<IAnimationDataController> ControllerSI = DestModel->GetController();
+	IAnimationDataController* Controller = ControllerSI.GetInterface();
+	if (Controller == nullptr)
+	{
+		return FString::Printf(TEXT("%s: no controller"), *DestPath);
+	}
+
+	const int32 Frames = FMath::Max(2, WalkModel->GetNumberOfFrames());
+	Controller->SetNumberOfFrames(FFrameNumber(Frames));
+
+	static const TCHAR* const Lower[] = {
+		TEXT("LeftUpLeg"), TEXT("RightUpLeg"),
+		TEXT("LeftLeg"), TEXT("RightLeg"),
+		TEXT("LeftFoot"), TEXT("RightFoot"),
+		TEXT("LeftToeBase"), TEXT("RightToeBase")
+	};
+	int32 Copied = 0;
+	int32 KeysWritten = 0;
+	Controller->OpenBracket(FText::FromString(TEXT("HI lower body")), /*bShouldTransact=*/false);
+	for (const TCHAR* Bone : Lower)
+	{
+		TArray<FVector3f> Pos;
+		TArray<FQuat4f> Rot;
+		TArray<FVector3f> Scale;
+		WalkModel->IterateBoneKeys(FName(Bone),
+			[&Pos, &Rot, &Scale](const FVector3f& P, const FQuat4f& R, const FVector3f S, const FFrameNumber&)
+			{
+				Pos.Add(P); Rot.Add(R); Scale.Add(S);
+				return true;
+			});
+		if (Pos.Num() == 0)
+		{
+			continue;   // this rig does not have that bone; the hang pose keeps what it had
+		}
+		Controller->AddBoneCurve(FName(Bone), /*bShouldTransact=*/false);
+		if (Controller->SetBoneTrackKeys(FName(Bone), Pos, Rot, Scale, /*bShouldTransact=*/false))
+		{
+			++Copied;
+			KeysWritten += Pos.Num();
+		}
+	}
+	Controller->CloseBracket();
+
+	UPackage* Package = Dest->GetOutermost();
+	const FString FileName = FPackageName::LongPackageNameToFilename(
+		Package != nullptr ? Package->GetName() : FString(), FPackageName::GetAssetPackageExtension());
+	FSavePackageArgs SaveArgs;
+	SaveArgs.TopLevelFlags = RF_Public | RF_Standalone;
+	const bool bSaved = Package != nullptr && UPackage::SavePackage(Package, Dest, *FileName, SaveArgs);
+	return FString::Printf(TEXT("%s: %d lower-body track(s), %d keys, %d frames, %s"),
+		*DestPath, Copied, KeysWritten, Frames, bSaved ? TEXT("SAVED") : TEXT("SAVE FAILED"));
+#else
+	return TEXT("FAILED: editor only");
+#endif
+}
+
 FString UHIAnimTool::MakeHangClip(USkeletalMesh* Mesh, const FString& PackagePath)
 {
 #if WITH_EDITOR
