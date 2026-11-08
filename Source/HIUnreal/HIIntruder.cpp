@@ -324,7 +324,14 @@ void AHIIntruder::SyncFromSim(const FHISim::FHIThief& T, float Dt)
 		// Detect it and fall by hand: no physics, the body rotated onto its side where he stood.
 		if (!bHanging && !bFallScripted && Body != nullptr)
 		{
-			const float Off = FVector::Dist(Body->GetComponentLocation(), FallAnchor);
+			// MEASURE THE BONES, NOT THE COMPONENT (2026-11-05). A ragdoll rewrites bone transforms in
+			// world space and leaves the COMPONENT where it was, so this test -- which watched the
+			// component -- saw nothing wrong for the Dancer while her skeleton was 18 m away: the body
+			// was drawn nowhere, and she vanished on the dart instead of falling like the other two.
+			// The head and the hips are where the body actually is.
+			const FVector HeadNow = Body->GetSocketLocation(TEXT("Head"));
+			const FVector HipsNow = Body->GetSocketLocation(TEXT("Hips"));
+			const float Off = FMath::Min(FVector::Dist(HeadNow, FallAnchor), FVector::Dist(HipsNow, FallAnchor));
 			if (Off > 3.0f * HI_METERS_TO_UU)
 			{
 				bFallScripted = true;
@@ -333,9 +340,21 @@ void AHIIntruder::SyncFromSim(const FHISim::FHIThief& T, float Dt)
 				Body->SetSimulatePhysics(false);
 				Body->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 				Body->SetAnimationMode(EAnimationMode::AnimationSingleNode);
-				Body->SetAnimation(nullptr);
 				Body->SetRelativeRotation(FRotator::ZeroRotator);
 				Body->SetWorldLocation(FallAnchor);
+				// HER BONES ARE STILL 18 m AWAY, and moving the component does not bring them back: a
+				// ragdoll caches bone transforms in WORLD space. So the body has to be RE-POSED, which
+				// needs an animation to be evaluated, which needs this actor to tick -- the same fix the
+				// captive needed. Without this she vanishes on the dart and the fall never draws.
+				PrimaryActorTick.bCanEverTick = true;
+				SetActorTickEnabled(true);
+				RegisterAllActorTickFunctions(/*bRegister=*/true, /*bDoComponentRegistration=*/true);
+				if (UAnimationAsset* Stand = LoadObject<UAnimationAsset>(nullptr,
+					*FHICharAnim::ClipPathFor(*CastTag, FHICharAnim::ClipIdle())))
+				{
+					Body->SetAnimation(Stand);
+					Body->PlayAnimation(Stand, /*bLooping=*/true);
+				}
 				UE_LOG(LogTemp, Warning,
 					TEXT("HI: %s's ragdoll threw the body %.0f m -- falling by hand instead"),
 					*CastTag, Off / HI_METERS_TO_UU);
@@ -343,13 +362,17 @@ void AHIIntruder::SyncFromSim(const FHISim::FHIThief& T, float Dt)
 		}
 		if (!bHanging && bFallScripted && Body != nullptr)
 		{
-			// Onto his side over 0.9 s and a little way down: the same beat the others get from
-			// physics, so the two-second disappearance reads the same for all three.
+			// Onto her side over 0.9 s and a little way down: the same beat the others get from
+			// physics, so the two-second disappearance reads the same for all three. The ROTATION is
+			// applied to the ACTOR, not the mesh component, so the whole body tips about her feet and
+			// the re-posed skeleton keeps its shape.
 			FallT += Dt;
 			const float A = FMath::Clamp(FallT / 0.9f, 0.0f, 1.0f);
 			const float Ease = A * A * (3.0f - 2.0f * A);
-			Body->SetRelativeRotation(FRotator(88.0f * Ease, 0.0f, 6.0f * Ease));
-			Body->SetWorldLocation(FallAnchor + FVector(0.0f, 0.0f, -0.42f * HI_METERS_TO_UU * Ease));
+			SetActorRotation(FRotator(88.0f * Ease, GetActorRotation().Yaw, 6.0f * Ease));
+			// No drop: tipping her 88 degrees about her feet already brings the head to the floor,
+			// and an extra 12 cm put it 26 cm THROUGH the slab (measured).
+			SetActorLocation(FallAnchor);
 		}
 
 		if (!bHanging && CapturedT > 2.2f)

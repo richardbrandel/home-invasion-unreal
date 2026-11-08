@@ -437,6 +437,24 @@ cell a meter wider and 1/2 meter deeper."*
   to widen without moving a column; the walls route around them, and the north wall moved to -12.82
   because the `baseOpen`->`baseDoor` walk line's envelope fouled the old corner.
 
+**The Dancer falls like the others now (2026-11-05).** *"Unlike the other two intruders who when tranquilized, fall down
+and stay on the floor for 2 seconds before being transported to the cell, when the Dancer is shot, she disappears right
+away."*
+
+The by-hand fall existed already, and it never ran for her, because **the test watched the wrong thing**: it measured the
+mesh COMPONENT's displacement from where she stood, and a ragdoll rewrites bone transforms in world space while leaving
+the component in place. So her skeleton was 96 m away (measured this time) and the component never moved, the check saw
+nothing wrong, and she was drawn nowhere for the two seconds before the handoff.
+
+Two changes:
+* **the displacement is measured on the BONES** -- head and hips -- not the component. Her ragdoll is now caught:
+  "dancer's ragdoll threw the body 96 m -- falling by hand instead".
+* **the by-hand fall re-poses her**: physics off, the actor's tick enabled and registered, the idle clip played so the
+  skeleton is evaluated again (a ragdoll's bones are cached in world space, so moving the component did nothing), and
+  then the ACTOR is tipped 88 degrees about her feet over 0.9 s. Measured during the fall: her head goes from 131 cm
+  above the floor to 35 cm, and stays 1.4 m from where she stood -- she goes down and lies there for the same 2.2 s as
+  the other two, who keep their physics fall (only the Dancer logs the fallback).
+
 **The cast has voices now, and they are synthesised locally (2026-11-05).** Richard: *"Can you get them or do I have
 to?"* -- nobody has to. [Piper](https://github.com/rhasspy/piper) is a small neural TTS that runs on this machine's
 CPU, offline after a one-time download, and it is free. Five voices, **17 lines**, rendered in a couple of minutes:
