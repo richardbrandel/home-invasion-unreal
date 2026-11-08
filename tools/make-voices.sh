@@ -47,6 +47,7 @@ dl ru_RU-irina-medium                ru/ru_RU/irina/medium
 dl en_GB-northern_english_male-medium en/en_GB/northern_english_male/medium
 dl en_US-amy-medium                 en/en_US/amy/medium
 dl en_US-lessac-medium              en/en_US/lessac/medium
+dl en_US-mike-medium                en/en_US/mike/medium
 
 say() {  # say <voice> <asset-name> <text> [extra piper args]
   local voice="$1" name="$2" text="$3"; shift 3
@@ -61,9 +62,19 @@ say en_GB-alba-medium owner_cell_1  "How do you like this"
 say en_GB-alba-medium owner_cell_2  "It's party time"
 say en_GB-alba-medium owner_cell_3  "Awww, it's going to hurt more"
 # ---- the brute: a deep man
-say en_GB-northern_english_male-medium brute_1 "You hit like a girl"
-say en_GB-northern_english_male-medium brute_2 "Doesn't hurt"
-say en_GB-northern_english_male-medium brute_3 "Loser"
+# THE BRUTE IS AN AMERICAN NOW, and as street as this voice set gets (Richard, 2026-11-05: "can you give the
+# thug sound an American ghetto accent"). Piper has no AAVE voice -- the accent is a property of the training
+# data and no knob produces it -- so this is the nearest thing available and the trick is DELIVERY: the deepest
+# American male in the set (en_US-mike, 125 Hz), slowed 12% and pitched down 6%, which lands him at 110-122 Hz.
+# Deep + slow + flat reads as heavy and unbothered, which is the character; a real accent would need a
+# different engine or a recording.
+say en_US-mike-medium brute_1 "You hit like a girl" --length-scale 1.12
+say en_US-mike-medium brute_2 "Doesn't hurt" --length-scale 1.12
+say en_US-mike-medium brute_3 "Loser" --length-scale 1.12
+for n in brute_1 brute_2 brute_3; do
+  python3 "$PWD/tools/pitch-up.py" "$WAV/$n.wav" "$WAV/$n.pitched.wav" 0.94
+  mv "$WAV/$n.pitched.wav" "$WAV/$n.wav"
+done
 # ---- Alina: flirts, then threatens
 # Alina speaks English with a Russian accent -- the effect Richard asked for, checked by ASR below.
 say ru_RU-irina-medium alina_1 "I kind of like this"

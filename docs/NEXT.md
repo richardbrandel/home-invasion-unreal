@@ -445,9 +445,16 @@ CPU, offline after a one-time download, and it is free. Five voices, **17 lines*
 |---|---|---|
 | homeowner (Q, outside the cage) | `en_GB-alba` (woman, British) | "Get out" |
 | homeowner (Q, inside the cage) | same | "How do you like this" / "It's party time" / "Awww, it's going to hurt more" |
-| **brute** | `en_GB-northern_english_male` (deep man) | "You hit like a girl" / "Doesn't hurt" / "Loser" |
+| **brute** | `en_US-mike`, slowed 12% and pitched down 6% (**deep American**) | "You hit like a girl" / "Doesn't hurt" / "Loser" |
 | **Alina** | `ru_RU-irina` (**Russian accent**) | "I kind of like this" / "Set me free and I will be your girlfriend" / "Yeah baby" / "Yes, I have been bad" / "My boyfriend is a lawyer, I will see you in court" |
 | **Dancer** | `en_US-lessac`, **pitched up 12%** | "Ouch" / "Stop, it hurts" / "Ouch ouch ouch" / "Yaooooo" / "I will be good" |
+
+**The brute is American now** (Richard: "can you give the thug sound an American ghetto accent"). Piper has no AAVE
+voice -- an accent is a property of the training data and there is no knob for it -- so this is the nearest the set
+offers and the personality comes from DELIVERY: the deepest American male in it (`en_US-mike`, 125 Hz) slowed 12%
+and pitched down 6%, which lands him at **110-122 Hz**. Deep, slow and flat reads as heavy and unbothered, which is
+the character. All three lines still transcribe exactly ("You hit like a girl", "doesn't hurt", "loser"). A genuine
+accent would need a different engine or a recording.
 
 **Casting corrections, same day** (Richard: "the Russian accent would be for Alina... and for the dancer the accent is
 good, but I would like the voice to be higher, more girlish"). The Russian moved to Alina; the homeowner went back
