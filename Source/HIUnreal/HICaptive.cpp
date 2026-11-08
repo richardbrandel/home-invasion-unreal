@@ -122,11 +122,6 @@ void AHICaptive::Hang(int32 InThiefId, const FString& InTag, const FVector& Stat
 	// the hang pose before.
 	SetActorRotation(FRotator(7.0f, 270.0f, 3.0f));
 
-	// The ceiling of the basement: the underside of the ground floor's deck.
-	const float CeilingZ = (FHISim::BasementZ + FHISim::BasementCeiling) * HI_METERS_TO_UU;
-	ChainAnchor[0] = FVector(Station.X, Station.Y, CeilingZ);
-	ChainAnchor[1] = FVector(Station.X, Station.Y, CeilingZ);
-
 	bHanging = true;
 	// He wakes up in the cell: one head snap, so the first thing the player sees is a man moving.
 	Flinch(-1);

@@ -101,11 +101,8 @@ private:
 	UPROPERTY()
 	TObjectPtr<class UAnimationAsset> HangClip;
 
-	/** The wrists' ceiling anchors, kept for reference; drawing happens in UpdateChains via the pool. */
-	FVector ChainAnchor[2] = { FVector::ZeroVector, FVector::ZeroVector };
 	bool bHanging = false;
 	bool bDead = false;
-	bool bLoggedCuff = false;
 
 	/** Squirm state: which reaction, how long, and how far through it we are. */
 	int32 SquirmKind = -1;
