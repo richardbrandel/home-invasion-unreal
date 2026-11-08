@@ -336,18 +336,18 @@ namespace
 			const FBox2D H = FHISim::House;
 			const float Z2 = FHISim::SecondZ;
 			TArray<FHWindowSpec> Out;
-			Out.Add({ true,  -3.60f, H.Max.Y,  1.0f, 2.20f, 0.0f, 0.95f, 2.15f }); // living, south
-			Out.Add({ false, -15.40f, H.Min.X, -1.0f, 1.60f, 0.0f, 0.95f, 2.15f }); // master, west
-			Out.Add({ true,  -5.10f, H.Min.Y, -1.0f, 1.40f, 0.0f, 0.95f, 2.15f }); // master, north
-			Out.Add({ true,  -2.60f, H.Min.Y, -1.0f, 0.60f, 0.0f, 1.40f, 2.00f }); // master bath, high
-			Out.Add({ true,   3.45f, H.Min.Y, -1.0f, 1.60f, 0.0f, 0.95f, 2.15f }); // kitchen, north
-			Out.Add({ false, -15.20f, H.Max.X,  1.0f, 1.40f, 0.0f, 0.95f, 2.15f }); // kitchen, east
-			Out.Add({ true,   3.80f, H.Max.Y,  1.0f, 1.50f, 0.0f, 0.95f, 2.15f }); // dining, south
-			Out.Add({ false, -10.60f, H.Max.X,  1.0f, 1.40f, 0.0f, 0.95f, 2.15f }); // dining, east
-			Out.Add({ true,  -2.60f, H.Max.Y,  1.0f, 1.60f, Z2,    0.95f, 2.15f }); // bedroom 2, south
-			Out.Add({ true,  -4.90f, H.Min.Y, -1.0f, 1.40f, Z2,    0.95f, 2.15f }); // bedroom 3, north
-			Out.Add({ true,   4.30f, H.Max.Y,  1.0f, 1.50f, Z2,    0.95f, 2.15f }); // office, south
-			Out.Add({ true,   4.60f, H.Min.Y, -1.0f, 0.60f, Z2,    1.40f, 2.00f }); // bath 2, high
+			Out.Add({ true,  -3.60f, float(H.Max.Y),  1.0f, 2.20f, 0.0f, 0.95f, 2.15f }); // living, south
+			Out.Add({ false, -15.40f, float(H.Min.X), -1.0f, 1.60f, 0.0f, 0.95f, 2.15f }); // master, west
+			Out.Add({ true,  -5.10f, float(H.Min.Y), -1.0f, 1.40f, 0.0f, 0.95f, 2.15f }); // master, north
+			Out.Add({ true,  -2.60f, float(H.Min.Y), -1.0f, 0.60f, 0.0f, 1.40f, 2.00f }); // master bath, high
+			Out.Add({ true,   3.45f, float(H.Min.Y), -1.0f, 1.60f, 0.0f, 0.95f, 2.15f }); // kitchen, north
+			Out.Add({ false, -15.20f, float(H.Max.X),  1.0f, 1.40f, 0.0f, 0.95f, 2.15f }); // kitchen, east
+			Out.Add({ true,   3.80f, float(H.Max.Y),  1.0f, 1.50f, 0.0f, 0.95f, 2.15f }); // dining, south
+			Out.Add({ false, -10.60f, float(H.Max.X),  1.0f, 1.40f, 0.0f, 0.95f, 2.15f }); // dining, east
+			Out.Add({ true,  -2.60f, float(H.Max.Y),  1.0f, 1.60f, Z2,    0.95f, 2.15f }); // bedroom 2, south
+			Out.Add({ true,  -4.90f, float(H.Min.Y), -1.0f, 1.40f, Z2,    0.95f, 2.15f }); // bedroom 3, north
+			Out.Add({ true,   4.30f, float(H.Max.Y),  1.0f, 1.50f, Z2,    0.95f, 2.15f }); // office, south
+			Out.Add({ true,   4.60f, float(H.Min.Y), -1.0f, 0.60f, Z2,    1.40f, 2.00f }); // bath 2, high
 			return Out;
 		}();
 		return W;
