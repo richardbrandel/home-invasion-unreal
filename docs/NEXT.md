@@ -443,11 +443,18 @@ CPU, offline after a one-time download, and it is free. Five voices, **17 lines*
 
 | who | voice | lines |
 |---|---|---|
-| homeowner (Q, outside the cage) | `ru_RU-irina` (**a Russian woman speaking English**) | "Get out" |
+| homeowner (Q, outside the cage) | `en_GB-alba` (woman, British) | "Get out" |
 | homeowner (Q, inside the cage) | same | "How do you like this" / "It's party time" / "Awww, it's going to hurt more" |
 | **brute** | `en_GB-northern_english_male` (deep man) | "You hit like a girl" / "Doesn't hurt" / "Loser" |
-| **Alina** | `en_US-amy` | "I kind of like this" / "Set me free and I will be your girlfriend" / "Yeah baby" / "Yes, I have been bad" / "My boyfriend is a lawyer, I will see you in court" |
-| **Dancer** | `en_US-lessac` | "Ouch" / "Stop, it hurts" / "Ouch ouch ouch" / "Yaooooo" / "I will be good" |
+| **Alina** | `ru_RU-irina` (**Russian accent**) | "I kind of like this" / "Set me free and I will be your girlfriend" / "Yeah baby" / "Yes, I have been bad" / "My boyfriend is a lawyer, I will see you in court" |
+| **Dancer** | `en_US-lessac`, **pitched up 12%** | "Ouch" / "Stop, it hurts" / "Ouch ouch ouch" / "Yaooooo" / "I will be good" |
+
+**Casting corrections, same day** (Richard: "the Russian accent would be for Alina... and for the dancer the accent is
+good, but I would like the voice to be higher, more girlish"). The Russian moved to Alina; the homeowner went back
+to the British woman. The Dancer keeps her American voice and is **resampled up 12%** by `tools/pitch-up.py`
+(pitch and formants together, which reads as younger rather than as a chipmunk, and for one-second barks the
+shorter duration does not show). Alina's lawyer line is rendered at `--length-scale 1.45` because at the default
+pace the Russian voice's "lawyer" came back from ASR as "liar"; at 1.45 it transcribes exactly.
 
 **A Russian model reading English is normally a trap** -- espeak phonemises the Latin text as Russian and
 produces nonsense -- so the accent was CHECKED rather than assumed: the rendered WAVs were transcribed back with

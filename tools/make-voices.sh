@@ -48,31 +48,45 @@ dl en_GB-northern_english_male-medium en/en_GB/northern_english_male/medium
 dl en_US-amy-medium                 en/en_US/amy/medium
 dl en_US-lessac-medium              en/en_US/lessac/medium
 
-say() {  # say <voice> <asset-name> <text>
-  echo "$3" | "$VENV/bin/piper" -m "$SRC/$1.onnx" -f "$WAV/$2.wav" 2>/dev/null
+say() {  # say <voice> <asset-name> <text> [extra piper args]
+  local voice="$1" name="$2" text="$3"; shift 3
+  echo "$text" | "$VENV/bin/piper" -m "$SRC/$voice.onnx" -f "$WAV/$name.wav" "$@" 2>/dev/null
 }
 
 # ---- the homeowner: a woman, British
-say ru_RU-irina-medium owner_getout  "Get out"
-say ru_RU-irina-medium owner_cell_1  "How do you like this"
-say ru_RU-irina-medium owner_cell_2  "It's party time"
-say ru_RU-irina-medium owner_cell_3  "Awww, it's going to hurt more"
+# THE RUSSIAN IS ALINA'S, NOT THE HOMEOWNER'S (Richard, 2026-11-05: "the Russian accent would be for Alina"),
+# so the homeowner goes back to the British woman she started as.
+say en_GB-alba-medium owner_getout  "Get out"
+say en_GB-alba-medium owner_cell_1  "How do you like this"
+say en_GB-alba-medium owner_cell_2  "It's party time"
+say en_GB-alba-medium owner_cell_3  "Awww, it's going to hurt more"
 # ---- the brute: a deep man
 say en_GB-northern_english_male-medium brute_1 "You hit like a girl"
 say en_GB-northern_english_male-medium brute_2 "Doesn't hurt"
 say en_GB-northern_english_male-medium brute_3 "Loser"
 # ---- Alina: flirts, then threatens
-say en_US-amy-medium alina_1 "I kind of like this"
-say en_US-amy-medium alina_2 "Set me free and I will be your girlfriend"
-say en_US-amy-medium alina_3 "Yeah baby"
-say en_US-amy-medium alina_4 "Yes, I have been bad"
-say en_US-amy-medium alina_5 "My boyfriend is a lawyer, I will see you in court"
+# Alina speaks English with a Russian accent -- the effect Richard asked for, checked by ASR below.
+say ru_RU-irina-medium alina_1 "I kind of like this"
+say ru_RU-irina-medium alina_2 "Set me free and I will be your girlfriend"
+say ru_RU-irina-medium alina_3 "Yeah baby"
+say ru_RU-irina-medium alina_4 "Yes, I have been bad"
+# THIS ONE IS SLOWER ON PURPOSE. At the default pace the Russian voice's "lawyer" came back from ASR as
+# "liar"; at --length-scale 1.45 it transcribes exactly, which is how a line that matters gets to be
+# verified rather than hoped for.
+say ru_RU-irina-medium alina_5 "My boyfriend is a lawyer, I will see you in court" --length-scale 1.45
 # ---- the Dancer: the one who is actually frightened
+# THE DANCER IS PITCHED UP 12% -- "higher, more girlish" (Richard, 2026-11-05). Rendered with the voice
+# that already suited her, then resampled, which lifts pitch AND formants together; that is what reads as
+# younger rather than as a chipmunk, and for one-second barks the shorter duration does not show.
 say en_US-lessac-medium dancer_1 "Ouch"
 say en_US-lessac-medium dancer_2 "Stop, it hurts"
 say en_US-lessac-medium dancer_3 "Ouch ouch ouch"
 say en_US-lessac-medium dancer_4 "Yaooooo"
 say en_US-lessac-medium dancer_5 "I will be good"
+for n in dancer_1 dancer_2 dancer_3 dancer_4 dancer_5; do
+  python3 "$PWD/tools/pitch-up.py" "$WAV/$n.wav" "$WAV/$n.pitched.wav" 1.12
+  mv "$WAV/$n.pitched.wav" "$WAV/$n.wav"
+done
 
 echo "rendered $(ls "$WAV"/*.wav | wc -l) lines into $WAV"
 # ---- import them as sound assets (the editor is needed for that, not for the rendering)
