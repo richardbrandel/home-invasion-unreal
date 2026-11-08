@@ -207,5 +207,10 @@ and is not currently part of the loop.
   (tried, recooked, the asset is still absent — do not repeat that experiment). The effect is
   that cues fall back to Master, so the master/SFX balance the routing exists for is lost in a
   package. The editor has engine content on disk, so the test asserting the class loads passes
-  there and cannot catch it. Fix belongs in code: load a project-side sound class, or guard the
-  failure and say so once.
+  there and cannot catch it.
+  **The fix, verified 2026-11-08:** `+DirectoriesToAlwaysCook=(Path="/Engine/EngineSounds")` in
+  `Config/DefaultGame.ini`. The DIRECTORY form works and the ASSET form
+  (`.../Engine/EngineSounds/SFX`) does not -- naming the class itself leaves it out of the cook,
+  which is what made the first attempt look like "engine paths cannot be cooked at all". After
+  the directory form, the manifest carries `EngineSounds/SFX.uasset` and the dart soak on the
+  packaged binary logs no warning at all.
