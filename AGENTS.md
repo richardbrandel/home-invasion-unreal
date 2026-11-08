@@ -199,3 +199,13 @@ and is not currently part of the loop.
   month and the account would start paying. Revisit only if the repo outgrows ~2-3 GB, and note
   that migrating a *published* history means a force-push. Windows release assets go on GitHub
   Releases (v0.1, v0.2), never into the repo.
+- **Engine content that only CODE references is not cooked** (found 2026-11-08). `HIAudio.cpp`
+  builds its cue routing on `/Engine/EngineSounds/SFX.SFX`, and the packaged build does not
+  contain that asset: `Warning: Failed to find object 'SoundClass /Engine/EngineSounds/SFX.SFX'`
+  appears once per run, when the first cue asks for it. `bCookAll` covers `/Game`, not `/Engine`;
+  **`+DirectoriesToAlwaysCook=(Path="/Engine/EngineSounds/SFX")` does NOT reach engine paths**
+  (tried, recooked, the asset is still absent — do not repeat that experiment). The effect is
+  that cues fall back to Master, so the master/SFX balance the routing exists for is lost in a
+  package. The editor has engine content on disk, so the test asserting the class loads passes
+  there and cannot catch it. Fix belongs in code: load a project-side sound class, or guard the
+  failure and say so once.
