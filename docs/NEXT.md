@@ -443,11 +443,18 @@ CPU, offline after a one-time download, and it is free. Five voices, **17 lines*
 
 | who | voice | lines |
 |---|---|---|
-| homeowner (Q, outside the cage) | `en_GB-alba` (woman, British) | "Get out" |
+| homeowner (Q, outside the cage) | `ru_RU-irina` (**a Russian woman speaking English**) | "Get out" |
 | homeowner (Q, inside the cage) | same | "How do you like this" / "It's party time" / "Awww, it's going to hurt more" |
 | **brute** | `en_GB-northern_english_male` (deep man) | "You hit like a girl" / "Doesn't hurt" / "Loser" |
 | **Alina** | `en_US-amy` | "I kind of like this" / "Set me free and I will be your girlfriend" / "Yeah baby" / "Yes, I have been bad" / "My boyfriend is a lawyer, I will see you in court" |
 | **Dancer** | `en_US-lessac` | "Ouch" / "Stop, it hurts" / "Ouch ouch ouch" / "Yaooooo" / "I will be good" |
+
+**A Russian model reading English is normally a trap** -- espeak phonemises the Latin text as Russian and
+produces nonsense -- so the accent was CHECKED rather than assumed: the rendered WAVs were transcribed back with
+Whisper (`faster-whisper`, CPU). "How do you like this" and "It's party time" came back EXACTLY, "Get out"
+exactly, and "Awww, it's going to hurt more" as "Oh, it's going to be a lot more" -- intelligible English in a
+Russian mouth, which is the effect asked for. The same check is available for any future casting: render, then
+transcribe, and the lines defend themselves.
 
 `tools/make-voices.sh` regenerates all of it (downloads the voices into the gitignored
 `SourceAssets/voices`, renders, then imports through `tools/import-voices.py`), so a line can be re-worded or

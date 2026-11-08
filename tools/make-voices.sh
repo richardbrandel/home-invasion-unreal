@@ -14,8 +14,14 @@
 # .uasset files under Content/HIImported/voice are committed, so a fresh clone has the voices
 # without needing any of this. Re-run only when a line changes.
 #
-# Voice casting is deliberate: en_GB-alba (woman, British) is the homeowner, en_GB-northern_english_male
-# is the brute, en_US-amy is Alina (flirty), en_US-lessac is the Dancer (the one who is frightened).
+# Voice casting is deliberate: ru_RU-irina (a Russian woman speaking English -- Richard asked for "a female
+# with a Russian accent") is the homeowner, en_GB-northern_english_male is the brute, en_US-amy is Alina
+# (flirty), en_US-lessac is the Dancer (the one who is frightened).
+#
+# A Russian model reading English is normally a trap -- espeak would phonemise the Latin text as Russian and
+# produce nonsense -- so this was CHECKED, not assumed: the rendered files were transcribed back with Whisper.
+# "How do you like this" came back EXACTLY; "Get out" was heard as "Get up" and "It's party time" as "It's
+# part time", i.e. intelligible English with an accent, which is the effect wanted.
 # ---------------------------------------------------------------------------------------------
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -37,6 +43,7 @@ dl() {  # dl <model-name> <repo-path-without-model>
     "https://huggingface.co/rhasspy/piper-voices/resolve/main/$2/$1.onnx.json"
 }
 dl en_GB-alba-medium                en/en_GB/alba/medium
+dl ru_RU-irina-medium                ru/ru_RU/irina/medium
 dl en_GB-northern_english_male-medium en/en_GB/northern_english_male/medium
 dl en_US-amy-medium                 en/en_US/amy/medium
 dl en_US-lessac-medium              en/en_US/lessac/medium
@@ -46,10 +53,10 @@ say() {  # say <voice> <asset-name> <text>
 }
 
 # ---- the homeowner: a woman, British
-say en_GB-alba-medium owner_getout  "Get out"
-say en_GB-alba-medium owner_cell_1  "How do you like this"
-say en_GB-alba-medium owner_cell_2  "It's party time"
-say en_GB-alba-medium owner_cell_3  "Awww, it's going to hurt more"
+say ru_RU-irina-medium owner_getout  "Get out"
+say ru_RU-irina-medium owner_cell_1  "How do you like this"
+say ru_RU-irina-medium owner_cell_2  "It's party time"
+say ru_RU-irina-medium owner_cell_3  "Awww, it's going to hurt more"
 # ---- the brute: a deep man
 say en_GB-northern_english_male-medium brute_1 "You hit like a girl"
 say en_GB-northern_english_male-medium brute_2 "Doesn't hurt"
